@@ -1,0 +1,171 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation communication quality within the customer-defined packet loss acceptance criterion.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting teleoperation capability and (2) meeting a specific quality metric (packet loss limit). The refined FR isolates the quality obligation as a single, atomic requirement in the problem domain. It removes the implicit 'how' (e.g., 'support teleoperation') and focuses on the measurable constraint that must be satisfied. The phrase 'customer-defined' preserves solution neutrality by avoiding hard-coded thresholds; the actual limit (e.g., ≤1%) is a design input, not part of the FR itself.",
+    "verification_idea": "Conduct end-to-end teleoperation communication testing under agreed network conditions (latency, bandwidth, interference profiles). Measure packet loss rate across representative operational scenarios (e.g., equipment movement, sensor streaming, command transmission). Confirm measured packet loss does not exceed the customer-defined acceptance criterion.",
+    "sub_frs": [
+      "The NGHE solution shall enable remote operation of equipment via teleoperation interface.",
+      "The NGHE solution shall maintain teleoperation communication quality within the customer-defined packet loss acceptance criterion."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Implement adaptive packet prioritization and selective retransmission based on real-time loss detection and network state feedback",
+      "DP2: Establish redundant communication paths with automatic failover and load balancing across independent network routes",
+      "DP3: Apply forward error correction (FEC) encoding with configurable redundancy ratio to tolerate packet loss without retransmission",
+      "DP4: Enforce quality-of-service (QoS) reservation and traffic shaping at network ingress to guarantee minimum bandwidth allocation for teleoperation streams",
+      "DP5: Implement hybrid approach combining selective retransmission for critical control frames and FEC for non-critical telemetry with dynamic switching based on observed loss rate"
+    ],
+    "selected_dp": "DP5: Implement hybrid approach combining selective retransmission for critical control frames and FEC for non-critical telemetry with dynamic switching based on observed loss rate",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between loss detection mechanism and retransmission policy (mitigated by decoupling detection from decision logic via configurable thresholds)",
+        "Coupling between FEC encoder/decoder and packet classification logic (acceptable: classification is stateless and reusable)",
+        "Dependency on network monitoring capability (acceptable: monitoring is a separate FR and can be independently designed)"
+      ],
+      "notes": "DP5 avoids over-specification of network infrastructure (DP4 assumes QoS capability not guaranteed in customer environments) and single-point-of-failure risk (DP2 requires dual infrastructure). DP5 maintains logical independence between control-path resilience and telemetry resilience, allowing independent tuning. Coupling is minimal and localized to the packet classification boundary, which is a natural architectural seam."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Customer network supports configurable packet marking or DSCP tagging for frame prioritization; RISK: If not available, fallback to uniform FEC across all frames, reducing efficiency but maintaining ≤1% loss guarantee.",
+      "ASSUMPTION: Teleoperation control frames are identifiable and separable from telemetry in the protocol stack; RISK: If protocol is opaque, DP5 degrades to uniform FEC (equivalent to DP3), increasing latency and bandwidth overhead.",
+      "ASSUMPTION: Observed packet loss rate can be measured with acceptable latency (< 100 ms) to enable dynamic switching; RISK: If measurement latency exceeds control loop period, switching may oscillate; mitigation: use hysteresis and low-pass filtering on loss estimates.",
+      "ASSUMPTION: Customer accepts trade-off between latency (retransmission adds round-trip delay) and bandwidth (FEC adds overhead); RISK: If latency budget is <50 ms, retransmission component may be unusable; mitigation: pre-compute FEC-only fallback configuration.",
+      "ASSUMPTION: Implementation modules (loss detector, FEC codec, retransmission buffer, classifier) can be independently tested and integrated; RISK: Integration testing complexity increases with hybrid approach; mitigation: define clear module interfaces and state machines upfront."
+    ],
+    "recommended_revision": "FR (refined): The NGHE solution shall maintain teleoperation communication quality by ensuring packet loss does not exceed the customer-defined acceptance criterion (baseline ≤1%) under agreed network conditions, while respecting latency and bandwidth constraints of the worksite network infrastructure. [RATIONALE: Explicit inclusion of latency/bandwidth constraints in FR clarifies trade-off space for DP selection and prevents over-design. Revised FR enables DP5 to be evaluated against concrete constraints rather than assumed ideals.]"
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Encapsulates all remote operation logic including command transmission, telemetry reception, and adaptive link management for both critical control and non-critical data streams"
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives operator commands and control directives that determine which frames are critical vs. non-critical"
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Outputs received telemetry data (both FEC-protected and retransmitted) to consumers; loss rate observations feed back into adaptive switching logic"
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Bidirectional interface for frame transmission (with selective retransmission for critical control) and reception (with FEC decoding for non-critical telemetry); reports observed loss rates"
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Signals safety-critical events when loss rate exceeds thresholds or retransmission fails, triggering failsafe actions"
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit: hybrid retransmission/FEC logic is core to remote operation. Adaptive switching based on loss rate is intrinsic to link quality management. Critical control frames originate from operator tasking; non-critical telemetry is the primary output. Minor diffusion: safety thresholds may require coordination with Safety Services, but decision logic remains local."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor fit: Safety Services owns safety policy and alerts, not link adaptation. The hybrid retransmission/FEC strategy is a communication optimization, not a safety function. High diffusion: core DP logic (loss-rate-driven switching, FEC encoding/decoding, selective retransmission) would leak into Teleoperation anyway. Safety Services should only consume SafetyAlert outputs when loss thresholds are breached."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.15,
+        "diffusion_score": 0.85,
+        "notes": "Very poor fit: Vehicle owns onboard systems and actuators, not remote link management. The hybrid approach is a teleoperation-specific concern. Massive diffusion: all frame classification, FEC logic, retransmission state machines, and loss-rate monitoring would be foreign to vehicle control. Vehicle should only receive decoded, reliable commands via Tasking."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.25,
+        "diffusion_score": 0.75,
+        "notes": "Poor fit: NGHE Solution is a top-level system container, not an implementation module. Placing DP5 here would bypass architectural layering and make ownership ambiguous. High diffusion: the hybrid approach is a specific concern of the Teleoperation subsystem, not a system-wide policy. NGHE Solution should orchestrate subsystems, not implement link adaptation."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the natural owner of DP5 because it is responsible for managing the bidirectional communication channel between operator and vehicle. The hybrid retransmission/FEC strategy is a core mechanism for ensuring reliable delivery of critical control frames while optimizing bandwidth for non-critical telemetry. Loss-rate observation and dynamic switching are intrinsic to link quality management, which is a Teleoperation concern. Safety thresholds trigger SafetyAlert outputs but do not require Safety Services to own the adaptation logic itself.",
+    "containment_risks": [
+      "Risk: Teleoperation module may become complex if FEC encoding/decoding and retransmission state machines are not cleanly separated into sub-components or helper classes. Mitigation: use internal cohesive design patterns (e.g., strategy pattern for switching logic, codec abstraction for FEC variants).",
+      "Risk: Loss-rate thresholds that trigger SafetyAlert must be coordinated with Safety Services policy. If thresholds change, both modules must be updated. Mitigation: define thresholds as configuration parameters exposed via a clear interface contract.",
+      "Risk: Network Link interface must support both retransmission (requires frame acknowledgment/timeout) and FEC (requires redundancy metadata). If Network Link cannot provide these primitives, DP5 containment fails. Mitigation: validate that Network Link DP includes frame-level ACK/NACK and FEC metadata support."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP5 (hybrid retransmission + FEC with dynamic switching) directly addresses the FR requirement to maintain packet loss within customer-defined acceptance criterion (≤1%). The DP is logically sound: selective retransmission ensures critical control frames meet reliability targets, FEC optimizes non-critical telemetry bandwidth, and loss-rate-driven switching adapts to observed network conditions. The mechanism is verifiable against the packet loss acceptance criterion."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "MODERATE: FEC encoding/decoding and retransmission state machines risk becoming monolithic within Teleoperation if not decomposed into cohesive sub-components. Mitigation: enforce internal separation via strategy pattern (switching logic), codec abstraction (FEC variants), and state machine encapsulation.",
+        "MODERATE: Loss-rate threshold coordination between Teleoperation (adaptive logic) and Safety Services (alert policy) creates a coupling point. If thresholds are hardcoded in Teleoperation, changes require dual updates. Mitigation: expose thresholds as configuration parameters with clear interface contract; Safety Services defines policy, Teleoperation consumes it.",
+        "MODERATE: Network Link interface must provide frame-level ACK/NACK primitives and FEC metadata support. If Network Link DP lacks these, DP5 containment fails. Mitigation: validate Network Link DP includes acknowledgment/timeout and redundancy metadata capabilities before finalizing Teleoperation design.",
+        "LOW: SafetyAlert output interface requires clear semantics (loss rate exceeded, retransmission exhausted, etc.) to avoid ambiguity in Safety Services consumption. Mitigation: define SafetyAlert message schema and trigger conditions explicitly."
+      ],
+      "containment_notes": "Teleoperation module is the correct owner (containment score 0.92, diffusion 0.08). The hybrid retransmission/FEC strategy is intrinsic to remote link management and naturally scoped within bidirectional command/telemetry flow. Critical control frames originate from Tasking input; non-critical telemetry is primary output. Loss-rate observation and adaptive switching are core Teleoperation concerns. Safety Services correctly excluded (containment 0.35, diffusion 0.65): it owns safety policy and alert consumption, not link adaptation logic. Vehicle and NGHE Solution correctly excluded due to architectural layering and ownership clarity. Recommended internal sub-component structure: (1) Frame Classifier (critical vs. non-critical), (2) Retransmission Manager (ACK/timeout state machine), (3) FEC Codec Abstraction (encoding/decoding), (4) Loss-Rate Monitor (observation and threshold evaluation), (5) Adaptive Switcher (dynamic strategy selection). Each sub-component should have clear cohesion and minimal cross-coupling."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "HIGH. Packet loss acceptance criterion (≤1% or customer-defined target) is measurable and testable. Verification approach: (1) inject controlled packet loss into Network Link interface, (2) measure end-to-end packet delivery rate for critical control frames (must meet criterion), (3) measure telemetry delivery with FEC protection, (4) validate dynamic switching occurs at observed loss-rate thresholds, (5) confirm SafetyAlert triggers when loss exceeds policy limits. Test harness can mock Network Link with configurable loss profiles and validate Teleoperation behavior deterministically.",
+      "allocation_clarity": "HIGH. Allocation is unambiguous: Teleoperation module owns DP5 implementation; Network Link provides frame transmission/reception primitives; Tasking provides command classification; Telemetry consumes output; SafetyAlert signals threshold breaches to Safety Services. Ownership boundaries are clear. Interface contracts are well-defined (direction, semantics). No allocation gaps or overlaps detected. Worksite safety plan and operational policies are external constraints that inform loss-rate thresholds and critical-frame classification but do not alter module ownership."
+    },
+    "recommended_revisions": [
+      "DESIGN: Decompose Teleoperation DP5 implementation into five cohesive sub-components (Frame Classifier, Retransmission Manager, FEC Codec Abstraction, Loss-Rate Monitor, Adaptive Switcher) with explicit internal interfaces to reduce monolithic complexity and enable independent testing.",
+      "INTERFACE: Formalize Network Link DP to guarantee frame-level ACK/NACK support, timeout primitives, and FEC metadata fields (e.g., redundancy count, parity information). Document these as mandatory capabilities for DP5 feasibility.",
+      "CONFIGURATION: Expose loss-rate thresholds (e.g., 2%, 5%, 10%) as configuration parameters in Teleoperation module. Define a clear interface contract with Safety Services for threshold updates and SafetyAlert trigger semantics.",
+      "VERIFICATION: Define test cases for packet loss acceptance criterion: (a) critical control frames under 0%, 0.5%, 1%, 2% injected loss (validate delivery rate meets criterion), (b) non-critical telemetry with FEC under same loss profiles (validate bandwidth efficiency), (c) dynamic switching behavior at threshold crossings (validate strategy transitions), (d) SafetyAlert correctness when loss exceeds policy limits.",
+      "DOCUMENTATION: Add a DP5 design rationale document explaining: (1) why hybrid retransmission/FEC is superior to pure retransmission or pure FEC, (2) loss-rate observation method and switching algorithm, (3) critical vs. non-critical frame classification rules, (4) interaction with Network Link and Safety Services, (5) failure modes and recovery strategies."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass with high confidence. However, the DP-IM gate explicitly identifies MODERATE diffusion risks and recommends decomposition into five cohesive sub-components (Frame Classifier, Retransmission Manager, FEC Codec Abstraction, Loss-Rate Monitor, Adaptive Switcher) to reduce monolithic complexity. Given the high safety criticality of this teleoperation link reliability function and the explicit architectural guidance from the gate analysis, proceeding directly to STOP would leave unresolved internal module structure and cross-component coupling risks. ZIGZAG_DOWN is warranted to derive next-level sub-FRs that map to the recommended sub-component structure, enabling independent verification, testability, and ownership clarity within Teleoperation. This approach transforms the gate-identified diffusion risks into explicit design constraints at the next decomposition level.",
+    "next_level_sub_frs": [
+      "FR5.1: Classify incoming frames as critical (control commands) or non-critical (telemetry) based on source and content type to enable differentiated reliability strategies.",
+      "FR5.2: Manage retransmission of critical control frames via ACK/timeout state machine, ensuring exhaustion detection and SafetyAlert signaling when retransmission budget is exceeded.",
+      "FR5.3: Encode non-critical telemetry with forward error correction (FEC) and decode received FEC-protected frames to recover lost packets within bandwidth constraints.",
+      "FR5.4: Observe packet loss rate in real-time by tracking frame transmission, acknowledgment, and loss events; compare observed rate against configurable thresholds to trigger adaptive strategy switching.",
+      "FR5.5: Dynamically select between retransmission-dominant and FEC-dominant strategies based on observed loss-rate thresholds and network conditions, minimizing latency for critical frames and bandwidth overhead for non-critical telemetry."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "Before decomposing sub-FRs, formalize DP5 to explicitly state the internal sub-component architecture and their interaction model. Current DP5 is logically sound but architecturally underspecified. Revision should document: (1) Frame Classifier logic (rules for critical vs. non-critical), (2) Retransmission Manager state machine (ACK/timeout/exhaustion), (3) FEC Codec Abstraction (encoding/decoding interface and variant support), (4) Loss-Rate Monitor algorithm (observation window, threshold comparison), (5) Adaptive Switcher decision logic (threshold-to-strategy mapping). This revision ensures sub-FRs map cleanly to sub-DPs and reduces ambiguity in next-level decomposition."
+    },
+    "record": {
+      "assumptions": [
+        "Network Link DP will be revised to guarantee frame-level ACK/NACK primitives, timeout support, and FEC metadata fields (redundancy count, parity info) as mandatory capabilities.",
+        "Loss-rate thresholds (e.g., 2%, 5%, 10%) will be exposed as configuration parameters, not hardcoded, enabling Safety Services to define policy without dual updates.",
+        "Critical vs. non-critical frame classification rules are deterministic and can be derived from Tasking command metadata and Telemetry content type.",
+        "FEC codec variants (e.g., Reed-Solomon, Turbo codes) will be abstracted behind a common interface to support future algorithm substitution without Teleoperation core logic changes.",
+        "Loss-rate observation window (e.g., sliding window over last N frames) is feasible within Teleoperation timing constraints and does not introduce unacceptable latency.",
+        "Adaptive switching between retransmission and FEC strategies is deterministic and does not create race conditions or oscillation at threshold boundaries."
+      ],
+      "open_risks": [
+        "MODERATE: FEC codec performance (latency, CPU overhead) under high loss rates may exceed Teleoperation timing budget. Mitigation: benchmark FEC variants early; if overhead is unacceptable, consider hardware acceleration or codec selection constraints.",
+        "MODERATE: Loss-rate threshold coordination between Teleoperation (adaptive logic) and Safety Services (alert policy) remains a coupling point. If thresholds are updated dynamically, synchronization between modules must be atomic. Mitigation: define threshold update protocol (e.g., quiescent period, versioning) to avoid race conditions.",
+        "MODERATE: Retransmission exhaustion detection and SafetyAlert signaling semantics must be unambiguous. If Teleoperation signals 'retransmission exhausted' but Safety Services interprets it as 'link failure', alert policy may be incorrect. Mitigation: define SafetyAlert message schema with explicit trigger conditions and expected Safety Services response.",
+        "LOW: Frame Classifier rules may be incomplete or ambiguous if Tasking command metadata or Telemetry content type is not well-documented. Mitigation: validate Tasking and Telemetry interface contracts before finalizing Frame Classifier logic.",
+        "LOW: Adaptive Switcher decision logic may oscillate at threshold boundaries if loss-rate observation is noisy. Mitigation: implement hysteresis or debouncing in threshold comparison to avoid rapid strategy switching."
+      ],
+      "evidence_needed": [
+        "Formalized DP5 revision documenting sub-component architecture, interaction model, and internal interfaces.",
+        "Network Link DP revision confirming ACK/NACK, timeout, and FEC metadata support as mandatory capabilities.",
+        "Loss-rate threshold configuration interface specification (parameter names, ranges, update protocol).",
+        "SafetyAlert message schema and trigger condition definitions (loss rate exceeded, retransmission exhausted, etc.).",
+        "Frame Classifier rules derived from Tasking command metadata and Telemetry content type specifications.",
+        "FEC codec performance benchmarks (latency, CPU overhead) for candidate algorithms under various loss profiles.",
+        "Test plan for next-level sub-FRs: (a) Frame Classifier correctness (critical vs. non-critical classification), (b) Retransmission Manager state machine (ACK/timeout/exhaustion), (c) FEC Codec Abstraction (encoding/decoding correctness), (d) Loss-Rate Monitor accuracy (threshold comparison), (e) Adaptive Switcher behavior (strategy transitions at thresholds).",
+        "Integration test plan validating end-to-end packet loss acceptance criterion (≤1%) with all sub-components working together under controlled loss injection."
+      ]
+    }
+  }
+}

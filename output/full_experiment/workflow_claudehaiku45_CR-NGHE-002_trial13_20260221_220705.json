@@ -1,0 +1,172 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall enable execution of the load→travel→dump cycle within the customer-defined cycle time target.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting/enabling the cycle execution capability, and (2) achieving a measured KPI (p95 ≤ CT_target). The refined FR focuses on the functional requirement—what the system must do—without prescribing measurement thresholds or acceptance criteria, which belong to verification/validation. The phrase 'support achieving' is softened to 'enable execution' to remain solution-neutral and problem-domain focused. The acceptance criterion (p95 ≤ CT_target under duty cycle and site conditions) is preserved as a verification gate, not embedded in the FR itself.",
+    "verification_idea": "Measure end-to-end cycle time (load initiation to dump completion) across repeated cycles under the agreed duty cycle and site conditions. Confirm that the 95th percentile (p95) of observed cycle times does not exceed CT_target. Verify that no design bottleneck or control logic prevents the operator from executing the cycle at the target pace.",
+    "sub_frs": [
+      "FR-NGHE-002.1: The NGHE solution shall enable the operator to initiate and complete a load operation within the cycle time budget.",
+      "FR-NGHE-002.2: The NGHE solution shall enable the operator to execute travel (loaded and unloaded) within the cycle time budget.",
+      "FR-NGHE-002.3: The NGHE solution shall enable the operator to execute a dump operation within the cycle time budget.",
+      "FR-NGHE-002.4: The NGHE solution shall minimize idle time and transition delays between load, travel, and dump phases."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Decompose the load→travel→dump cycle into sequential sub-operations (load, travel, dump) with independent timing budgets that sum to CT_target, and allocate execution control to a supervisory coordinator that sequences and monitors each phase.",
+      "DP2: Implement a state-machine-based cycle controller that transitions through discrete operational states (idle, loading, traveling, dumping, returning) with deterministic timing constraints per state, ensuring p95 compliance through worst-case path analysis.",
+      "DP3: Design a parallel-capable execution architecture where load, travel, and dump operations are modeled as independent concurrent tasks with synchronization barriers, allowing overlap where physically feasible (e.g., travel during partial load) to reduce total cycle time.",
+      "DP4: Establish a real-time task scheduler with priority-based preemption and deadline enforcement, allocating CPU/control resources to cycle phases dynamically based on measured progress and remaining time budget.",
+      "DP5: Decompose cycle execution into a hierarchical control structure: high-level cycle sequencer (FR owner) delegates to sub-controllers for load, travel, and dump, each with local feedback loops and fault detection, reporting completion status back to the sequencer."
+    ],
+    "selected_dp": "DP5: Decompose cycle execution into a hierarchical control structure: high-level cycle sequencer (FR owner) delegates to sub-controllers for load, travel, and dump, each with local feedback loops and fault detection, reporting completion status back to the sequencer.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Timing coupling: If sub-controllers do not report completion reliably, the sequencer cannot enforce CT_target; mitigated by explicit completion signaling and timeout mechanisms.",
+        "Functional coupling: Load and travel phases may share hydraulic/power resources; mitigated by resource arbitration at the sequencer level, not within sub-controllers.",
+        "Feedback coupling: Dump operation may depend on load mass or travel position; mitigated by explicit state handoff (e.g., load mass reported to dump controller before dump phase begins).",
+        "Safety coupling: Cycle sequencer must enforce interlocks (e.g., no travel until load secured); mitigated by explicit precondition checks in sequencer logic."
+      ],
+      "notes": "DP5 achieves low coupling by isolating each phase's control logic and using explicit message-passing (completion signals, state data) rather than shared state. Hierarchical structure allows independent testing and tuning of sub-controllers while maintaining cycle-level timing observability."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Sub-controllers (load, travel, dump) can be designed to meet their allocated timing budgets independently; RISK: If one sub-controller is inherently slower than its budget, the entire cycle fails; MITIGATION: Conduct feasibility analysis on each sub-operation early; allocate buffers conservatively.",
+      "ASSUMPTION: Completion signals from sub-controllers are reliable and timely; RISK: Delayed or missing signals cause sequencer to hang or timeout, violating CT_target; MITIGATION: Implement watchdog timers and explicit timeout logic in sequencer.",
+      "ASSUMPTION: Site conditions (ground firmness, load variability, ambient temperature) remain within the duty cycle envelope; RISK: Outlier conditions (e.g., soft ground, overload) cause p95 to exceed CT_target; MITIGATION: Validate p95 measurement under worst-case site conditions; include adaptive timing or load-shedding policies.",
+      "ASSUMPTION: Worksite safety plan does not impose additional sequential constraints (e.g., mandatory pauses between phases); RISK: Unaccounted safety interlocks extend cycle time; MITIGATION: Integrate safety requirements into sequencer design early.",
+      "ASSUMPTION: Feedback loops in sub-controllers (e.g., load-cell feedback, position sensors) have sufficient bandwidth and accuracy; RISK: Noisy or delayed feedback causes overshoot, oscillation, or missed deadlines; MITIGATION: Specify sensor and control loop performance requirements explicitly.",
+      "ASSUMPTION: The p95 metric is measured over a representative sample (≥100 cycles) under stable conditions; RISK: Small sample size or transient conditions skew p95 estimate; MITIGATION: Define measurement protocol and sample size in acceptance criteria."
+    ],
+    "recommended_revision": "FR (refined): The NGHE solution shall execute the load→travel→dump cycle such that the 95th percentile cycle time (p95), measured over ≥100 consecutive cycles under the agreed duty cycle and site conditions, does not exceed CT_target. The cycle sequencer shall enforce phase ordering (load before travel, travel before dump) and report cycle completion and any phase timeout events to the operator interface and logging system. Sub-controllers for load, travel, and dump shall each report completion status and relevant state data (e.g., load mass, travel distance, dump confirmation) to the sequencer within their allocated timing budgets, with explicit timeout and fault handling to ensure safety and cycle repeatability."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "Encapsulates the hierarchical cycle execution control structure, including the high-level cycle sequencer and all sub-controllers (load, travel, dump) with their local feedback loops and fault detection mechanisms."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives cycle commands and operational directives from the NGHE Solution or Teleoperation layer."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Reports cycle execution status, sub-controller completion signals, and operational state back to supervisory systems."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Propagates fault detection results and safety-critical anomalies from sub-controllers to Safety Services."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Provides communication backbone for remote command reception and status transmission if teleoperation or remote monitoring is active."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent containment. The hierarchical cycle sequencer and all sub-controllers (load, travel, dump) are intrinsic to vehicle operation. Local feedback loops and fault detection are naturally localized within the vehicle's control electronics. Minimal diffusion: only status reporting and safety alerts escape the boundary via well-defined interfaces."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor containment. Safety Services is a cross-cutting concern that monitors and validates safety, not the primary owner of cycle execution logic. The sequencer and sub-controllers would be scattered across Vehicle and Safety Services, creating tight coupling and duplicated state management."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Poor containment. Teleoperation is a command interface layer, not the owner of autonomous cycle execution. The hierarchical control structure belongs in the Vehicle; Teleoperation would only inject commands via Tasking interface. Placing the sequencer here would create diffusion of control logic across Vehicle and Teleoperation."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.25,
+        "diffusion_score": 0.75,
+        "notes": "Very poor containment. NGHE Solution is a high-level orchestration and planning layer. Embedding real-time cycle execution control (sequencer, sub-controllers, feedback loops) here violates separation of concerns and creates severe diffusion: Vehicle would still need its own control logic, resulting in duplication and inconsistency."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module is the natural and optimal owner of the hierarchical cycle execution control structure. The sequencer and sub-controllers are intrinsic to the vehicle's autonomous operation. All local feedback loops and fault detection mechanisms operate on vehicle-specific sensors and actuators. The DP is fully contained within the Vehicle boundary with minimal external coupling: commands arrive via Tasking, status and faults exit via Telemetry and SafetyAlert.",
+    "containment_risks": [
+      "Risk: If the Vehicle module is not equipped with sufficient real-time control infrastructure (e.g., deterministic scheduling, low-latency I/O), the sub-controllers may experience timing violations. Mitigation: ensure Vehicle's control electronics support hard real-time constraints.",
+      "Risk: Fault detection logic in sub-controllers may need to coordinate with Safety Services for validation or override. Mitigation: define clear SafetyAlert interface contract to prevent bidirectional coupling; Safety Services validates but does not own the detection logic.",
+      "Risk: If remote teleoperation requires real-time intervention in the cycle sequencer, the Tasking interface may become a bottleneck. Mitigation: design Tasking to support both autonomous and remote-commanded modes without diffusing sequencer logic into Teleoperation."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "HIGH. The FR specifies a measurable acceptance criterion (p95 cycle time ≤ CT_target). The Vehicle IM boundary owns the hierarchical sequencer and sub-controllers that directly execute the load→travel→dump cycle. Cycle time can be instrumented via Telemetry interface and validated against the target under agreed duty cycle and site conditions. The IM boundary is concrete and testable.",
+      "allocation_clarity": "CLEAR. The Vehicle module is unambiguously assigned ownership of cycle execution control. External interfaces (Tasking for commands, Telemetry for status, SafetyAlert for faults) are well-defined and do not blur responsibility. The FR requirement maps directly to the Vehicle's internal sequencer and sub-controller logic."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "The DP (hierarchical control structure with sequencer, sub-controllers, local feedback loops, and fault detection) is a sound and complete solution to the FR. It directly addresses cycle execution timing and coordination. The decomposition into load, travel, and dump sub-controllers with local feedback is architecturally sound and aligns with the functional requirement to execute the cycle within target time. No logical gaps or contradictions detected."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "MODERATE: Fault detection logic in sub-controllers interfaces with Safety Services via SafetyAlert. Risk of bidirectional coupling if Safety Services attempts to override or re-validate detection results. Mitigation: enforce unidirectional SafetyAlert contract; Safety Services consumes alerts but does not feed back control signals to the sequencer.",
+        "MODERATE: If teleoperation requires real-time intervention (e.g., pause/resume mid-cycle), the Tasking interface may become a synchronization point. Risk of latency or mode-switching logic diffusing into both Vehicle and Teleoperation. Mitigation: define Tasking protocol to support atomic mode transitions (autonomous vs. remote-commanded) without exposing sequencer internals.",
+        "LOW: Local feedback loops and fault detection are tightly bound to vehicle sensors and actuators. Risk is minimal if Vehicle control electronics are properly isolated. Ensure no cross-module dependencies on sensor data outside the Vehicle boundary."
+      ],
+      "containment_notes": "EXCELLENT containment (0.92 score). The hierarchical sequencer and all sub-controllers are intrinsic to the Vehicle module. Local feedback loops operate on vehicle-specific sensors; fault detection is localized. Status reporting and safety alerts are the only outbound signals, both via well-defined interfaces. No evidence of DP logic scattered across Safety Services, Teleoperation, or NGHE Solution. The DP-to-IM mapping is tight and cohesive."
+    },
+    "recommended_revisions": [
+      "Explicitly document the Tasking interface protocol to clarify how autonomous cycle commands and remote-commanded interventions are distinguished and sequenced. Prevent mode-switching logic from diffusing into Teleoperation.",
+      "Define the SafetyAlert interface contract as unidirectional: Vehicle sub-controllers emit alerts; Safety Services consumes and validates but does not send control feedback to the sequencer. This prevents bidirectional coupling.",
+      "Specify real-time constraints for the Vehicle control electronics (e.g., deterministic scheduling, maximum latency for sub-controller feedback loops) to ensure p95 cycle time target is achievable. Document these constraints in the Vehicle IM specification.",
+      "Add a verification plan that instruments the Telemetry interface to capture cycle time samples (load, travel, dump durations) and validate p95 ≤ CT_target under the agreed duty cycle and site conditions. Link this to the acceptance criterion.",
+      "Consider adding a 'Mode' or 'State' signal to the Telemetry interface to report the current sequencer state (idle, loading, traveling, dumping, fault) for supervisory visibility and debugging."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-IM, FR-DP, DP-IM) pass with high confidence. The FR is measurable, the DP is logically sound and complete, and the IM boundary is concrete and well-contained (0.92 containment score). However, the recommended revisions and diffusion risks—particularly around Tasking protocol clarity, SafetyAlert unidirectionality, and real-time constraints—indicate that the current level is sufficiently mature to decompose further. The hierarchical sequencer and three sub-controllers (load, travel, dump) are explicitly identified in the DP and must be realized as distinct functional entities. Decomposing to the next level will force explicit specification of these sub-controller FRs, their DPs, and their IM boundaries, which will directly address the open risks (mode-switching diffusion, bidirectional coupling, real-time scheduling). High safety criticality reinforces the need for explicit sub-level decomposition to ensure fault detection, mode transitions, and timing constraints are unambiguously allocated and verifiable.",
+    "next_level_sub_frs": [
+      "FR 2.1: Execute load phase of cycle (acquire material from source, confirm load completion) within load_time_target, with fault detection for load sensor failures and timeout conditions.",
+      "FR 2.2: Execute travel phase of cycle (navigate from load site to dump site, confirm arrival) within travel_time_target, with fault detection for navigation sensor failures, obstacle detection, and timeout conditions.",
+      "FR 2.3: Execute dump phase of cycle (release material at dump site, confirm dump completion) within dump_time_target, with fault detection for dump actuator failures and timeout conditions.",
+      "FR 2.4: Coordinate sequencing of load, travel, and dump sub-phases in strict order, enforce atomic mode transitions (autonomous vs. remote-commanded), and emit unidirectional SafetyAlert signals for detected faults without accepting control feedback from Safety Services."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "The DP correctly identifies the hierarchical sequencer and three sub-controllers, but the recommended revisions require explicit DP refinement: (1) Tasking interface protocol must be formally specified to distinguish autonomous cycle commands from remote-commanded interventions and prevent mode-switching logic from diffusing into Teleoperation; (2) SafetyAlert contract must be explicitly documented as unidirectional (Vehicle emits, Safety Services consumes only) to prevent bidirectional coupling; (3) Real-time constraints (deterministic scheduling, maximum latency for feedback loops) must be added to the DP to ensure p95 cycle time target is achievable. These refinements should be captured in the DP before sub-level decomposition proceeds, to ensure sub-controller DPs inherit clear timing and interface contracts."
+    },
+    "record": {
+      "assumptions": [
+        "The Vehicle control electronics can be isolated from cross-module sensor dependencies and will not be shared with other modules (e.g., Safety Services, Teleoperation).",
+        "The Tasking interface can be designed to support atomic mode transitions without exposing sequencer internals or requiring synchronous feedback from Teleoperation.",
+        "SafetyAlert is a unidirectional signal: Vehicle sub-controllers emit alerts; Safety Services consumes and validates but does not send control signals back to the sequencer.",
+        "Real-time constraints (deterministic scheduling, maximum latency) can be met by the Vehicle control electronics platform and are not dependent on external systems.",
+        "The agreed duty cycle and site conditions for p95 cycle time validation are well-defined and stable (not subject to frequent change).",
+        "Load, travel, and dump phases can be cleanly separated and sequenced without overlapping or concurrent execution."
+      ],
+      "open_risks": [
+        "MODERATE: Tasking interface protocol for mode switching (autonomous vs. remote-commanded) is not yet formally specified. Risk of mode-switching logic diffusing into Teleoperation module if protocol is ambiguous. Mitigation: formalize Tasking protocol in DP revision before sub-level decomposition.",
+        "MODERATE: SafetyAlert unidirectionality is recommended but not yet enforced in DP. Risk of bidirectional coupling if Safety Services attempts to override or re-validate fault detection results. Mitigation: explicitly document SafetyAlert as unidirectional in DP revision and enforce in interface contract.",
+        "MODERATE: Real-time constraints for Vehicle control electronics (deterministic scheduling, maximum latency) are not yet specified in DP. Risk of p95 cycle time target being unachievable if constraints are not met. Mitigation: add real-time constraints to DP revision and validate against control electronics platform capabilities.",
+        "LOW: Fault detection logic in sub-controllers may require access to sensor data that is also used by other modules (e.g., obstacle detection shared with Navigation). Risk of cross-module sensor dependency. Mitigation: ensure Vehicle IM boundary owns all sensors used by sub-controllers; no external access to vehicle-specific sensor data.",
+        "HIGH (Safety-critical): Sub-controller fault detection and SafetyAlert emission must be reliable and timely. Risk of undetected faults or delayed alerts leading to safety incidents. Mitigation: decompose FR 2.1, 2.2, 2.3 to explicitly specify fault detection logic and timing; validate via formal methods or extensive testing."
+      ],
+      "evidence_needed": [
+        "Formal specification of Tasking interface protocol, including message types, sequencing rules, and mode transition semantics (autonomous vs. remote-commanded).",
+        "SafetyAlert interface contract document, explicitly stating unidirectionality, alert types, and consumption rules for Safety Services.",
+        "Real-time constraints specification for Vehicle control electronics, including deterministic scheduling requirements, maximum latency for feedback loops, and jitter bounds.",
+        "Verification plan for p95 cycle time validation, including instrumentation of Telemetry interface, sampling methodology, duty cycle definition, and acceptance criteria.",
+        "Sub-level decomposition of FR 2.1, 2.2, 2.3 with explicit fault detection DPs and IM boundaries for load, travel, and dump sub-controllers.",
+        "Safety analysis (FMEA or similar) for sub-controller fault detection logic, identifying failure modes, detection mechanisms, and SafetyAlert emission rules.",
+        "Real-time analysis (e.g., worst-case execution time, schedulability analysis) demonstrating that p95 cycle time target is achievable under specified constraints."
+      ]
+    }
+  }
+}

@@ -1,0 +1,183 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall propagate worksite model state changes to all authorized consumers within the customer-defined latency threshold.",
+    "rationale": "The original FR conflates two distinct obligations: (1) detecting/capturing state changes in the worksite model, and (2) delivering those changes to consumers within a time bound. The refined FR focuses on the propagation obligation (the primary latency concern) and removes the vague 'operational use' qualifier in favor of explicit reference to customer-defined acceptance criteria. The term 'propagate' is solution-neutral (avoids prescribing polling, pub-sub, or push mechanisms) and 'authorized consumers' acknowledges that different stakeholders (operator, tele-operator, safety manager, maintenance) may have different visibility and latency requirements.",
+    "verification_idea": "Measure end-to-end latency from the moment a worksite state change is committed (e.g., equipment position update, hazard detection, task completion) to the moment all authorized consumer applications receive and can act on that change. Validate against customer-defined p95 threshold (e.g., ≤1.0 s) across supported update scenarios (position updates, safety events, task state transitions). Confirm that latency is measured consistently across all consumer types and network conditions within the operational envelope.",
+    "sub_frs": [
+      "FR-NGHE-007.1: The NGHE solution shall detect and capture worksite model state changes (equipment position, task status, hazard events, operational events) with sufficient fidelity and frequency to support real-time operational awareness.",
+      "FR-NGHE-007.2: The NGHE solution shall deliver worksite model state changes to all authorized consumers within the customer-defined latency threshold.",
+      "FR-NGHE-007.3: The NGHE solution shall ensure that worksite model state changes are delivered reliably (no loss of critical updates) to authorized consumers."
+    ],
+    "is_atomic": false,
+    "notes": "The refined FR is more atomic than the original, but the three sub-FRs represent the true atomic decomposition: detection/capture (FR-007.1), timely delivery (FR-007.2), and reliability (FR-007.3). Each sub-FR addresses a single obligation and can be independently verified. The parent FR-007 now serves as a coherent rollup of the propagation concern."
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Centralized event-driven state propagation with asynchronous message broker (decouples producers from consumers; supports fan-out to multiple authorized subscribers; enables latency-bounded delivery guarantees)",
+      "DP2: Synchronous request-response state synchronization with polling intervals (simple but couples client to server; latency depends on poll frequency; not suitable for p95 ≤ 1.0s without aggressive polling)",
+      "DP3: Hybrid push-pull model with server-initiated notifications for critical updates and client-initiated polling for non-critical state (balances responsiveness and load; requires state classification logic)",
+      "DP4: Peer-to-peer state replication with eventual consistency (eliminates central broker; high latency variance; difficult to enforce authorization and ordering guarantees)",
+      "DP5: Publish-subscribe pattern with topic-based filtering and authorization enforcement at subscription boundary (decouples producers/consumers; enables selective delivery; supports latency SLA via broker tuning)"
+    ],
+    "selected_dp": "DP5: Publish-subscribe pattern with topic-based filtering and authorization enforcement at subscription boundary. Producers emit worksite model state-change events to logical topics; broker enforces authorization rules at subscription time; consumers subscribe to authorized topics and receive events within latency threshold via configurable delivery guarantees (e.g., at-least-once with bounded queue depth and priority handling for safety-critical updates).",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Authorization coupling: If authorization logic is embedded in event producers rather than centralized at broker subscription boundary, producers become tightly coupled to access control policy changes.",
+        "Topic schema coupling: If topic naming and event structure are not versioned and documented, consumers become brittle to model evolution.",
+        "Latency coupling: If broker configuration (queue depth, thread pools, network buffering) is not decoupled from application logic, latency SLA becomes fragile across deployment environments.",
+        "Consumer ordering assumption: If multiple consumers assume strict event ordering across topics, they become coupled to broker ordering guarantees that may not hold under failure scenarios."
+      ],
+      "notes": "DP5 achieves functional independence by separating concerns: producers do not know consumers; consumers do not know producers; authorization is a cross-cutting concern enforced at subscription boundary, not embedded in either. Latency is managed via broker configuration (IM layer), not application logic. Risk: if authorization rules are complex or change frequently, subscription-time enforcement may become a bottleneck; mitigation is to cache authorization decisions with bounded TTL."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Worksite model state changes are discrete, event-emittable entities (not continuous streams). RISK: If model includes continuous sensor data or analog state, event granularity must be defined (e.g., threshold-based emission) to avoid message explosion.",
+      "ASSUMPTION: p95 ≤ 1.0s latency is achievable with a single-region, low-latency message broker. RISK: If worksite spans multiple geographic regions or network conditions are poor, latency SLA may require edge caching, local replicas, or relaxed consistency guarantees.",
+      "ASSUMPTION: Authorization rules are stable and can be evaluated at subscription time. RISK: If authorization is dynamic (e.g., role-based access changes mid-session), subscription-time enforcement is insufficient; runtime filtering per event may be required, increasing latency.",
+      "ASSUMPTION: Consumers are tolerant of at-least-once delivery semantics (potential duplicates). RISK: If consumers require exactly-once semantics, deduplication logic must be added (IM layer), increasing complexity and latency.",
+      "ASSUMPTION: Worksite model updates are not so frequent that broker throughput becomes a bottleneck. RISK: If update rate exceeds broker capacity, backpressure or message batching strategies must be employed, potentially violating latency SLA.",
+      "ASSUMPTION: All authorized consumers are online and ready to receive events. RISK: If consumers are intermittently offline, broker must buffer events (bounded queue) or consumers must poll for missed updates, complicating consistency."
+    ],
+    "recommended_revision": "Refine FR to explicitly state: (1) Definition of 'worksite model state change' (e.g., discrete events vs. continuous updates; which attributes trigger propagation). (2) Authorization model (e.g., role-based, attribute-based; evaluated at subscription or per-event). (3) Delivery semantics required (at-least-once, exactly-once, or best-effort). (4) Consumer availability assumption (always-on vs. intermittent). (5) Geographic scope (single region vs. multi-region; latency measured end-to-end or broker-to-consumer). With these clarifications, DP5 can be refined to specify broker configuration strategy (e.g., in-memory queue with overflow to persistent store; priority queues for safety-critical updates) and IM boundaries (e.g., broker cluster, authorization service, event schema registry)."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "Enterprise-level publish-subscribe broker and event distribution infrastructure that mediates all worksite model state-change events across Vehicle, Teleoperation, and Safety Services subsystems. Owns topic definition, authorization policy enforcement at subscription boundary, event serialization/deserialization, delivery guarantee configuration, and latency SLA management."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Vehicle and Teleoperation subsystems emit worksite model state-change events (e.g., position, sensor readings, operational status) as structured messages to NGHE Solution broker via Telemetry interface."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "NGHE Solution delivers authorized task-relevant state-change events to Teleoperation and Vehicle subsystems via Tasking interface, filtered by subscription authorization rules and delivery guarantees."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "NGHE Solution delivers safety-critical state-change events to Safety Services with priority handling and at-least-once delivery guarantee via SafetyAlert interface."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "NGHE Solution uses Network Link for inter-subsystem event transport, managing latency thresholds and configurable delivery semantics across distributed deployment."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent containment. NGHE Solution is the natural enterprise broker layer that owns topic-based event distribution, authorization policy enforcement, and delivery guarantee configuration. All core DP logic (publish-subscribe, filtering, authorization at subscription boundary, latency/queue management) resides within this boundary. Minor diffusion: Vehicle and Teleoperation must implement event producers/consumers (standard client-side logic), and Safety Services must implement priority-aware consumption; these are expected client responsibilities, not architectural diffusion."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor containment. Safety Services is a consumer subsystem, not a broker. Placing the publish-subscribe broker logic here would require Safety Services to own topic definition, authorization enforcement, and event distribution for all other subsystems—a fundamental architectural inversion. The DP would diffuse heavily into Vehicle and Teleoperation (which would need to know about Safety Services' broker implementation) and into NGHE Solution (which would need to coordinate with Safety Services' broker). This violates separation of concerns."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.25,
+        "diffusion_score": 0.75,
+        "notes": "Very poor containment. Vehicle is a producer/consumer subsystem, not a broker. Placing broker logic here would require Vehicle to manage topics and authorization for Teleoperation and Safety Services, creating tight coupling and violating the principle that brokers should be neutral intermediaries. Authorization and topic management would diffuse across all other subsystems."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.28,
+        "diffusion_score": 0.72,
+        "notes": "Very poor containment. Teleoperation is a consumer/producer subsystem, not a broker. Placing broker logic here would require Teleoperation to own authorization and topic management for Vehicle and Safety Services, creating asymmetric coupling and architectural confusion. The DP would diffuse significantly into other subsystems."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "NGHE Solution is the unique architectural layer designed to mediate cross-subsystem communication and enforce enterprise-level policies. The publish-subscribe broker with topic-based filtering and authorization enforcement is a classic enterprise integration pattern that belongs at the solution level, not within any single subsystem. This placement ensures that Vehicle, Teleoperation, and Safety Services remain loosely coupled, with the broker as a neutral intermediary that enforces authorization and delivery guarantees uniformly.",
+    "containment_risks": [
+      "NGHE Solution broker becomes a critical single point of failure; mitigation requires high-availability deployment (clustering, failover, replication).",
+      "Authorization policy definition and maintenance must be centralized and versioned; risk of policy drift or misconfiguration affecting all subsystems.",
+      "Latency and throughput of the broker directly impact all dependent subsystems; performance tuning and capacity planning are essential.",
+      "Topic schema evolution must be managed carefully to avoid breaking existing producers/consumers; recommend schema registry and versioning strategy.",
+      "Network Link interface must support the publish-subscribe transport semantics (e.g., multicast, reliable delivery); verify that Network Link implementation can meet latency and delivery guarantee requirements."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. Latency acceptance criterion (p95 ≤ 1.0 s) is measurable and testable via instrumentation of event emission-to-delivery timestamps across Telemetry, Tasking, and SafetyAlert interfaces. Authorization enforcement is verifiable through policy audit logs and subscription-time access control testing. Delivery guarantee configuration (at-least-once with bounded queue depth) is observable via broker metrics and consumer acknowledgment tracking.",
+      "allocation_clarity": "Clear. NGHE Solution owns the enterprise broker layer with explicit responsibility for topic definition, authorization policy enforcement at subscription boundary, event serialization, delivery guarantee configuration, and latency SLA management. Vehicle, Teleoperation, and Safety Services are clearly positioned as producers/consumers with standard client-side responsibilities (event emission, subscription, priority-aware consumption). The FR requirement maps unambiguously to the DP (publish-subscribe with filtering and authorization) and to the IM boundary (NGHE Solution broker)."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP5 directly and sufficiently addresses the FR. The publish-subscribe pattern with topic-based filtering and authorization enforcement at subscription boundary is the correct logical solution for propagating worksite model state changes to authorized consumers within latency thresholds. The DP explicitly covers: (1) event emission by producers to logical topics, (2) broker-enforced authorization rules at subscription time, (3) consumer subscription to authorized topics, (4) configurable delivery guarantees (at-least-once with bounded queue depth and priority handling for safety-critical updates), and (5) latency threshold management. No logical gaps or contradictions detected."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Minor diffusion in Vehicle and Teleoperation subsystems: These must implement event producer/consumer client logic (event serialization, subscription management, acknowledgment handling). This is expected and acceptable as standard client-side responsibility, not architectural diffusion of the broker DP itself.",
+        "Minor diffusion in Safety Services: Must implement priority-aware event consumption and acknowledgment logic. This is a consumer-side concern, not diffusion of the broker DP.",
+        "Critical infrastructure dependency: NGHE Solution broker becomes a single point of failure for all state-change propagation. Mitigation requires high-availability deployment (clustering, failover, replication) to avoid diffusion of failure modes into dependent subsystems.",
+        "Authorization policy maintenance: Centralized policy definition in NGHE Solution creates a single point of policy governance. Risk of policy drift or misconfiguration affecting all subsystems. Recommend versioned policy registry and audit logging.",
+        "Topic schema evolution: Changes to worksite model state-change event schemas must be managed centrally to avoid breaking existing producers/consumers. Recommend schema registry with versioning and compatibility checking.",
+        "Network Link dependency: Latency and delivery guarantee requirements depend on Network Link implementation. If Network Link cannot support required transport semantics (e.g., reliable multicast, bounded latency), the DP cannot be realized. Verify Network Link interface specification against broker requirements."
+      ],
+      "containment_notes": "Excellent containment (0.92 score). NGHE Solution is the natural and unique architectural layer for this DP. All core broker logic (topic management, authorization enforcement, event distribution, delivery guarantee configuration, latency SLA management) resides within NGHE Solution boundary. Vehicle, Teleoperation, and Safety Services remain loosely coupled as producers/consumers. The broker acts as a neutral intermediary, enforcing enterprise-level policies uniformly. No architectural inversion or asymmetric coupling detected. Containment hypothesis is validated: NGHE Solution is the correct ownership candidate."
+    },
+    "recommended_revisions": [
+      "Explicitly specify the high-availability deployment strategy for NGHE Solution broker (e.g., active-active clustering, failover semantics, state replication protocol) to mitigate single-point-of-failure risk.",
+      "Define a schema registry and versioning strategy for worksite model state-change events. Specify compatibility rules (e.g., forward/backward compatibility) and deprecation procedures to manage topic schema evolution.",
+      "Establish a centralized, versioned authorization policy repository with audit logging. Define policy change control procedures and rollback mechanisms to prevent misconfiguration.",
+      "Verify Network Link interface specification against broker requirements: confirm support for required transport semantics (e.g., reliable delivery, multicast or unicast with filtering), latency bounds, and queue depth limits.",
+      "Add explicit latency instrumentation and monitoring requirements: measure end-to-end latency (event emission to delivery) for each interface (Telemetry, Tasking, SafetyAlert) and report p95 latency against the 1.0 s acceptance criterion.",
+      "Define bounded queue depth limits and overflow handling strategy (e.g., drop oldest, reject new, priority-based eviction) to prevent unbounded memory growth and ensure predictable latency behavior.",
+      "Specify priority handling mechanism for safety-critical updates via SafetyAlert interface (e.g., priority queue, separate high-priority topic, or QoS level). Ensure priority semantics are enforced end-to-end from NGHE Solution through Network Link to Safety Services.",
+      "Document the authorization policy enforcement mechanism at subscription boundary: specify how authorization rules are evaluated (e.g., role-based access control, attribute-based access control), when policies are cached vs. evaluated on-demand, and how policy changes propagate to active subscriptions."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass with high confidence. The DP (publish-subscribe with topic-based filtering and authorization) is logically sound and correctly mapped to the IM (NGHE Solution broker). Verification feasibility is high, allocation clarity is explicit, and containment is excellent (0.92 score). However, the recommended revisions reveal critical sub-system concerns that must be decomposed into explicit child FRs to ensure architectural completeness and risk mitigation. Specifically: (1) high-availability and failure resilience of the broker, (2) schema evolution and compatibility management, (3) authorization policy governance and audit, (4) latency instrumentation and monitoring, (5) queue depth management and overflow handling, and (6) priority-aware delivery for safety-critical updates. These are not gaps in the current FR-DP-IM mapping, but rather architectural dependencies and operational concerns that warrant explicit functional decomposition to prevent diffusion into dependent subsystems and to address the high safety criticality context. Decomposition will clarify ownership, acceptance criteria, and verification strategy for each concern.",
+    "next_level_sub_frs": [
+      "FR5.1: Ensure NGHE Solution broker high-availability and resilience to single-point-of-failure scenarios (active-active clustering, failover, state replication) such that worksite model state-change propagation is not interrupted by broker node failures.",
+      "FR5.2: Manage worksite model state-change event schema evolution and compatibility across producers and consumers such that schema changes do not break existing integrations and deprecated schemas are retired in a controlled manner.",
+      "FR5.3: Enforce and audit authorization policies for worksite model state-change event subscriptions such that policy changes are versioned, tracked, and propagated to active subscriptions without service interruption.",
+      "FR5.4: Instrument and monitor end-to-end latency of worksite model state-change propagation (event emission to delivery) across Telemetry, Tasking, and SafetyAlert interfaces such that p95 latency ≤ 1.0 s is continuously verified and reported.",
+      "FR5.5: Manage broker event queue depth and overflow conditions such that queue memory growth is bounded, latency behavior is predictable, and safety-critical updates are not dropped due to queue saturation.",
+      "FR5.6: Deliver safety-critical worksite model state changes (via SafetyAlert interface) with priority enforcement end-to-end from NGHE Solution broker through Network Link to Safety Services such that priority semantics are preserved and latency bounds are met for high-priority updates.",
+      "FR5.7: Verify Network Link transport semantics (reliable delivery, multicast/unicast filtering, latency bounds, queue depth limits) are compatible with NGHE Solution broker requirements and worksite model state-change propagation SLAs."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "NGHE Solution broker can be deployed in a high-availability configuration (active-active clustering or equivalent) without architectural redesign.",
+        "Network Link supports required transport semantics (reliable delivery, filtering, bounded latency) as specified in FR5.7.",
+        "Authorization policy repository and schema registry can be implemented as centralized, versioned services within NGHE Solution without introducing new single points of failure.",
+        "Safety Services can implement priority-aware event consumption logic and acknowledgment handling as a standard consumer-side responsibility.",
+        "Latency instrumentation can be added to event emission and delivery paths without introducing unacceptable overhead or measurement artifacts.",
+        "Queue depth limits and overflow handling strategy can be configured per topic or globally without requiring changes to producer/consumer interfaces.",
+        "Policy change propagation to active subscriptions can be achieved via subscription refresh or in-band signaling without service interruption."
+      ],
+      "open_risks": [
+        "High-availability deployment of NGHE Solution broker may introduce complexity in state replication, failover semantics, and consistency guarantees. Mitigation: FR5.1 must specify replication protocol and consistency model (e.g., eventual consistency, strong consistency) and verify compatibility with worksite model state semantics.",
+        "Schema evolution and compatibility management require discipline and tooling (schema registry, versioning, compatibility checking). Risk of schema drift or breaking changes. Mitigation: FR5.2 must define schema governance process, compatibility rules, and deprecation procedures.",
+        "Centralized authorization policy repository creates a single point of policy governance. Risk of misconfiguration or policy drift affecting all subsystems. Mitigation: FR5.3 must specify policy audit logging, change control, and rollback mechanisms.",
+        "Latency instrumentation may introduce measurement overhead or artifacts. Risk of false positives or negatives in latency reporting. Mitigation: FR5.4 must specify instrumentation methodology, sampling strategy, and validation approach.",
+        "Queue depth limits and overflow handling strategy may conflict with delivery guarantee semantics (at-least-once). Risk of message loss or delivery failures under high load. Mitigation: FR5.5 must specify overflow handling strategy (drop oldest, reject new, priority-based eviction) and verify compatibility with at-least-once guarantee.",
+        "Priority-aware delivery for safety-critical updates requires end-to-end enforcement across NGHE Solution, Network Link, and Safety Services. Risk of priority inversion or priority loss at any layer. Mitigation: FR5.6 must specify priority semantics (e.g., QoS levels, priority queue) and verify enforcement at each layer.",
+        "Network Link may not support required transport semantics or latency bounds. Risk of DP realization failure. Mitigation: FR5.7 must verify Network Link interface specification and identify gaps or incompatibilities early."
+      ],
+      "evidence_needed": [
+        "High-availability deployment architecture for NGHE Solution broker: specify clustering strategy (active-active, active-passive), failover semantics, state replication protocol, and consistency model. Verify compatibility with worksite model state semantics.",
+        "Schema registry design and versioning strategy: specify schema storage, versioning scheme, compatibility rules (forward/backward compatibility), and deprecation procedures. Provide examples of schema evolution scenarios and compatibility checking.",
+        "Authorization policy repository design: specify policy storage, versioning, audit logging, change control procedures, and rollback mechanisms. Provide examples of policy changes and propagation to active subscriptions.",
+        "Latency instrumentation design: specify instrumentation points (event emission, broker ingress/egress, Network Link, consumer delivery), measurement methodology, sampling strategy, and reporting format. Provide baseline latency measurements and p95 latency targets for each interface.",
+        "Queue depth management strategy: specify queue depth limits per topic or globally, overflow handling strategy (drop oldest, reject new, priority-based eviction), and memory usage bounds. Provide analysis of queue behavior under load and verification of at-least-once guarantee.",
+        "Priority-aware delivery mechanism: specify priority semantics (e.g., QoS levels, priority queue, separate high-priority topic), enforcement points (NGHE Solution, Network Link, Safety Services), and end-to-end latency bounds for high-priority updates.",
+        "Network Link interface specification: confirm support for required transport semantics (reliable delivery, multicast/unicast filtering, bounded latency, queue depth limits). Identify gaps or incompatibilities with broker requirements."
+      ]
+    }
+  }
+}

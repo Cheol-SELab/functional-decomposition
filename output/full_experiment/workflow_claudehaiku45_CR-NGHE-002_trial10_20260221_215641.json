@@ -1,0 +1,191 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall enable execution of the load→travel→dump cycle within the customer-defined cycle time target.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting/enabling the capability to achieve cycle time, and (2) actually achieving the measured KPI. The refined FR is atomic and solution-neutral by focusing on the functional requirement—enabling the cycle to execute within the target duration—without prescribing how (e.g., via speed optimization, path planning, operator training, or equipment design). The actual achievement of p95 ≤ CT_target is a verification criterion, not a functional requirement. This separation allows DPs to address enablement independently of operational performance measurement.",
+    "verification_idea": "Demonstrate that under nominal duty cycle and site conditions, the NGHE solution's design parameters (e.g., load capacity, travel speed envelope, dump mechanism responsiveness) permit completion of a load→travel→dump cycle within CT_target. Measure p95 cycle time across a representative sample of operations to confirm the system enables the target; variance due to operator skill, site conditions, or external factors is tracked separately as a performance metric, not a design failure.",
+    "sub_frs": [
+      "FR-NGHE-002.1: The NGHE solution shall enable loading of material within a defined time envelope.",
+      "FR-NGHE-002.2: The NGHE solution shall enable travel (loaded and unloaded) within a defined speed and distance envelope.",
+      "FR-NGHE-002.3: The NGHE solution shall enable dumping of material within a defined time envelope.",
+      "FR-NGHE-002.4: The NGHE solution shall minimize idle/transition time between load, travel, and dump phases."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Decompose the load→travel→dump cycle into sequential sub-operations (load, travel, dump) with independent timing budgets that sum to CT_target, and allocate execution control to a supervisory coordinator that sequences these operations based on state transitions and sensor feedback.",
+      "DP2: Implement a time-synchronized execution model where each sub-operation (load, travel, dump) runs in parallel under a global clock constraint, with synchronization barriers ensuring no operation exceeds its allocated time slice, and a watchdog mechanism enforcing hard deadlines.",
+      "DP3: Design a demand-driven (event-triggered) execution model where each sub-operation is triggered by completion of the prior operation, with adaptive timing adjustment based on real-time measurement of cycle segments, allowing slack redistribution to maintain p95 ≤ CT_target.",
+      "DP4: Establish a hybrid hierarchical control architecture with a high-level cycle orchestrator managing the three sub-operations sequentially, delegating detailed motion/actuation control to independent sub-system controllers, each with local feedback loops and time budgets, communicating via asynchronous message passing with bounded latency."
+    ],
+    "selected_dp": "DP4: Establish a hybrid hierarchical control architecture with a high-level cycle orchestrator managing the three sub-operations sequentially, delegating detailed motion/actuation control to independent sub-system controllers, each with local feedback loops and time budgets, communicating via asynchronous message passing with bounded latency.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Message-passing latency between orchestrator and sub-system controllers could introduce timing coupling if not bounded; mitigation: specify maximum message round-trip time as part of DP contract.",
+        "Shared resource contention (e.g., hydraulic pump, power distribution) across load/travel/dump operations may create implicit timing dependencies; mitigation: allocate resource budgets per sub-operation and validate no oversubscription.",
+        "Feedback loop closure times in sub-system controllers must be faster than orchestrator decision cycles to avoid instability; mitigation: design sub-system controllers with local stability margins independent of orchestrator timing.",
+        "Duty cycle variability (e.g., variable load mass, terrain) may cause one sub-operation to consume more than its allocated time budget, forcing reallocation; mitigation: DP3 (adaptive slack redistribution) can be layered as a secondary mechanism within DP4."
+      ],
+      "notes": "DP4 achieves loose coupling by separating orchestration logic (cycle sequencing) from execution logic (motion control). Each sub-system controller can be designed and tested independently with its own time budget. The asynchronous message-passing boundary allows future technology substitution (e.g., different actuation types) without redesigning the orchestrator. Coupling is localized to message contracts and resource allocation, both of which are analyzable and testable."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Sub-system controllers (load, travel, dump) can be designed with deterministic or bounded-latency behavior such that their execution time variance is predictable and measurable.",
+      "ASSUMPTION: The worksite duty cycle (load mass distribution, terrain, ambient conditions) is sufficiently characterized to enable time-budget allocation and p95 validation.",
+      "ASSUMPTION: Message-passing infrastructure (e.g., CAN, Ethernet, or equivalent) provides bounded latency and reliable delivery; if not, DP4 requires additional error-handling and retry logic.",
+      "RISK: If sub-system controllers exhibit high variance in execution time (e.g., due to hydraulic compliance, load imbalance), the fixed time budgets in DP4 may be insufficient; mitigation: implement DP3 (adaptive slack redistribution) as a secondary layer.",
+      "RISK: Orchestrator failure or message loss could cause cycle stall; mitigation: design orchestrator with watchdog and failsafe state machine; implement message acknowledgment and timeout handling.",
+      "RISK: Duty cycle assumptions may not hold in field conditions (e.g., extreme temperatures, soil variability); mitigation: design for worst-case duty cycle and validate p95 under stress conditions before deployment.",
+      "RISK: Acceptance criteria specifies p95 ≤ CT_target but does not define p99 or maximum cycle time; if tail latency is critical for safety or customer satisfaction, additional acceptance criteria may be needed."
+    ],
+    "recommended_revision": "Refine the selected DP4 by explicitly defining: (1) the contract between the orchestrator and each sub-system controller (input/output signals, timing guarantees, error modes); (2) the time-budget allocation strategy (e.g., load: 30% of CT_target, travel: 50%, dump: 20%, with 10% margin for orchestrator overhead); (3) the message-passing protocol and maximum latency bounds; (4) the watchdog and failsafe behavior if any sub-operation exceeds its time budget; (5) the measurement and validation plan for p95 under the agreed duty cycle. Additionally, consider layering DP3 (adaptive slack redistribution) as a secondary mechanism to handle duty-cycle variability and improve robustness. Document assumptions about sub-system controller determinism and duty-cycle characterization, and establish a risk-mitigation plan for field validation."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "Encapsulates the hybrid hierarchical control architecture including the high-level cycle orchestrator, three sub-system controllers (motion, actuation, feedback), local feedback loops, time budgets, and asynchronous message-passing infrastructure with bounded latency guarantees."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives high-level task commands and sequencing directives from the NGHE Solution orchestrator to the Vehicle's cycle orchestrator."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Exports vehicle state, sub-system controller status, feedback loop health, and latency metrics to external monitoring and diagnostics."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "Receives safety constraints and fault signals from Safety Services; exports safety-critical state and anomaly reports."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Provides communication substrate for asynchronous message passing between orchestrator and sub-system controllers, and for remote teleoperation commands if applicable."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent containment. The hybrid hierarchical control architecture, orchestrator, sub-system controllers, feedback loops, and time budgets are all intrinsic to vehicle autonomy and motion. Asynchronous message passing is a natural internal communication pattern. Minor diffusion: safety constraints and high-level tasking must cross boundaries via SafetyAlert and Tasking interfaces, but this is expected and well-defined."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.45,
+        "diffusion_score": 0.55,
+        "notes": "Poor containment. NGHE Solution is a higher-level orchestration/planning layer. Placing detailed motion control, sub-system controllers, feedback loops, and time budgets here violates separation of concerns. The DP's low-level control logic would diffuse across planning, tasking, and vehicle domains. Not recommended."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Very poor containment. Teleoperation is a human-in-the-loop interface layer, not a control architecture container. Placing hierarchical control, orchestrators, and feedback loops here is architecturally incoherent. High diffusion across vehicle and safety domains."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.25,
+        "diffusion_score": 0.75,
+        "notes": "Very poor containment. Safety Services is a cross-cutting concern for constraint enforcement and fault detection, not a container for motion control logic. The DP's orchestrator, sub-system controllers, and feedback loops belong in the vehicle domain. Placing them here violates single responsibility and creates tight coupling."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module is the natural and most cohesive boundary for the hybrid hierarchical control architecture. It owns the orchestrator, sub-system controllers, feedback loops, and time budgets. External interfaces (Tasking, Telemetry, SafetyAlert, Network Link) provide clean separation between vehicle autonomy, mission planning (NGHE Solution), safety oversight (Safety Services), and remote supervision (Teleoperation). The asynchronous message-passing substrate is internal to Vehicle, with bounded latency enforced by the orchestrator's time budget allocation.",
+    "containment_risks": [
+      "If the cycle orchestrator must coordinate with external mission planners (NGHE Solution) at sub-millisecond timescales, the Tasking interface latency may violate time budgets. Mitigation: pre-load task sequences and use local state machines to tolerate planning latency.",
+      "If sub-system controllers require real-time safety veto from Safety Services, the SafetyAlert interface may introduce unacceptable latency. Mitigation: embed safety monitors locally within Vehicle and use SafetyAlert for post-hoc reporting and constraint updates.",
+      "If the asynchronous message-passing infrastructure is not properly isolated from external network communication (Network Link), timing guarantees may be compromised. Mitigation: separate internal message bus from external network interface with explicit buffering and priority queues."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The Vehicle IM boundary owns the complete hybrid hierarchical control architecture (orchestrator, sub-system controllers, feedback loops, time budgets). Cycle time measurement is directly observable at the Vehicle level via the Telemetry interface (state transitions, latency metrics). The p95 ≤ CT_target acceptance criterion can be verified by instrumenting the orchestrator's cycle state machine and collecting latency histograms across the duty cycle. Site conditions and worksite safety plan constraints flow inward via SafetyAlert interface, enabling closed-loop validation.",
+      "allocation_clarity": "Clear. The FR (load→travel→dump cycle within CT_target) maps unambiguously to the Vehicle IM, which encapsulates all three sub-operations and their sequencing logic. Tasking interface receives high-level cycle commands; Telemetry exports cycle completion times and sub-system health; SafetyAlert enforces worksite safety constraints. No ambiguity in ownership or responsibility allocation."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "The DP (hybrid hierarchical control with cycle orchestrator, sub-system controllers, local feedback loops, time budgets, asynchronous message passing with bounded latency) is a sound and complete solution to the FR. The orchestrator's sequential delegation of load→travel→dump operations with time budget allocation directly addresses cycle time determinism. Asynchronous message passing with bounded latency is a proven pattern for distributed real-time control. The DP is technology-neutral, scalable, and testable. No logical gaps or contradictions detected."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Tasking interface latency: If the NGHE Solution orchestrator cannot deliver task commands to the Vehicle's cycle orchestrator within the time budget allocated for cycle initiation, the p95 cycle time target may be violated. Mitigation: pre-load task sequences into Vehicle state machines and use local decision logic to tolerate planning latency jitter. Acceptance criterion: Tasking interface latency + Vehicle cycle initiation time ≤ 5% of CT_target.",
+        "SafetyAlert interface latency: If real-time safety veto from Safety Services introduces latency > 10 ms during motion execution, emergency stop responsiveness may degrade. Mitigation: embed local safety monitors (e.g., geofence checks, load sensors) within Vehicle and use SafetyAlert for constraint updates and post-hoc anomaly reporting, not real-time veto. Acceptance criterion: local safety response time ≤ 50 ms; SafetyAlert veto latency ≤ 100 ms for non-critical constraints.",
+        "Internal message-passing isolation: If the asynchronous message bus (internal to Vehicle) is not strictly separated from the external Network Link interface, external network jitter could compromise bounded latency guarantees for orchestrator-to-controller communication. Mitigation: implement a dual-layer communication stack—internal priority queue for orchestrator messages (guaranteed latency), external buffered queue for teleoperation/remote commands (best-effort). Acceptance criterion: internal message latency p99 ≤ 5 ms; external network latency tolerance ≤ 500 ms.",
+        "Sub-system controller time budget enforcement: If sub-system controllers (motion, actuation, feedback) do not strictly adhere to their allocated time budgets, the orchestrator's sequential scheduling assumption breaks down, causing cycle time variance. Mitigation: implement watchdog timers in each sub-system controller; if a sub-operation exceeds its budget, trigger a controlled abort and SafetyAlert notification. Acceptance criterion: sub-system controller budget overrun rate < 0.1% under nominal duty cycle."
+      ],
+      "containment_notes": "Excellent containment (0.92 score). The Vehicle IM is the natural and cohesive boundary for the hybrid hierarchical control architecture. All core DP elements (orchestrator, sub-system controllers, feedback loops, time budgets, asynchronous message passing) are intrinsic to vehicle autonomy and motion control. External interfaces (Tasking, Telemetry, SafetyAlert, Network Link) provide clean separation of concerns: mission planning (NGHE Solution), safety oversight (Safety Services), remote supervision (Teleoperation), and external communication. Minor diffusion (0.08 score) is expected and well-managed via explicit interface contracts. No alternative IM boundary (NGHE Solution, Teleoperation, Safety Services) offers better cohesion or lower diffusion. Recommendation: confirm Vehicle IM ownership and proceed to detailed design."
+    },
+    "recommended_revisions": [
+      "Formalize the Tasking interface contract: specify maximum latency for task command delivery (e.g., ≤ 50 ms) and pre-load mechanism for task sequences to decouple Vehicle cycle timing from NGHE Solution planning latency.",
+      "Decompose SafetyAlert into two sub-interfaces: (1) SafetyConstraintUpdate (inbound, asynchronous, low-frequency) for worksite policy updates, and (2) SafetyEmergencyVeto (inbound, synchronous, high-priority) for critical fault signals. Embed local safety monitors in Vehicle to handle real-time veto without external latency dependency.",
+      "Specify the internal message-passing substrate (e.g., priority queue, max latency guarantee, buffer sizes) and formally separate it from the external Network Link interface via a gateway/adapter layer. Document latency budgets for orchestrator-to-controller communication (e.g., p99 ≤ 5 ms).",
+      "Add sub-system controller time budget specifications to the DP: allocate CT_target across load, travel, and dump operations with margin for orchestrator overhead and inter-controller communication. Implement watchdog timers and budget overrun detection in each sub-system controller.",
+      "Extend Telemetry interface to export cycle time histograms (p50, p95, p99), sub-system controller budget utilization, and message latency metrics to enable continuous verification of the p95 ≤ CT_target acceptance criterion.",
+      "Document the asynchronous message-passing protocol (e.g., message types, sequencing rules, timeout handling) to ensure deterministic cycle orchestration despite network jitter and sub-system variability."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-IM, FR-DP, DP-IM) pass with high confidence and excellent containment (0.92 score). The Vehicle IM boundary is cohesive, ownership is unambiguous, and the hybrid hierarchical control DP is sound and complete. However, the recommended_revisions and diffusion_risks reveal critical sub-system dependencies that must be decomposed to the next level to ensure deterministic cycle time execution and safety-critical real-time guarantees. Specifically: (1) the orchestrator's sequential delegation logic requires explicit time budget allocation across load→travel→dump sub-operations; (2) sub-system controller adherence to time budgets is a hard constraint that must be verified at design time; (3) interface latency contracts (Tasking, SafetyAlert, internal message-passing) are interdependent and must be decomposed into owned sub-FRs to manage diffusion risks. The high safety criticality factor further mandates explicit decomposition of safety-critical control paths (local safety monitors, watchdog timers, budget overrun detection) as distinct sub-FRs with clear ownership and verification criteria. Proceeding to next-level decomposition will expose and resolve these dependencies before detailed design, reducing integration risk.",
+    "next_level_sub_frs": [
+      "FR-V.1: Orchestrate load→travel→dump cycle operations sequentially within allocated time budgets (load_budget, travel_budget, dump_budget) such that p95(total_cycle_time) ≤ CT_target and cycle initiation latency from Tasking interface ≤ 5% of CT_target.",
+      "FR-V.2: Execute load operation (engage hydraulics, lift load, confirm load sensor feedback) within load_budget time window with sub-operation sequencing and feedback validation; abort and notify SafetyAlert if budget exceeded.",
+      "FR-V.3: Execute travel operation (navigate to dump site via path planning, motion control, obstacle avoidance, geofence enforcement) within travel_budget time window with real-time safety constraint enforcement (local geofence monitors, speed governors); abort and notify SafetyAlert if budget exceeded or safety constraint violated.",
+      "FR-V.4: Execute dump operation (position vehicle, engage dump mechanism, confirm load discharge, retract mechanism) within dump_budget time window with load sensor feedback validation; abort and notify SafetyAlert if budget exceeded.",
+      "FR-V.5: Enforce sub-system controller time budget compliance via watchdog timers and budget overrun detection; trigger controlled abort and SafetyAlert notification if any sub-system controller exceeds allocated budget; maintain budget overrun rate < 0.1% under nominal duty cycle.",
+      "FR-V.6: Manage asynchronous message-passing between orchestrator and sub-system controllers with guaranteed latency (p99 ≤ 5 ms) and strict isolation from external Network Link interface; implement priority queue for orchestrator messages and buffered queue for external commands.",
+      "FR-V.7: Receive and process Tasking interface commands (cycle initiation, task sequence pre-load) with maximum latency ≤ 50 ms; decouple Vehicle cycle timing from NGHE Solution planning latency via local state machine decision logic.",
+      "FR-V.8: Receive and process SafetyAlert interface signals via two sub-channels: (1) SafetyConstraintUpdate (asynchronous, low-frequency, inbound policy updates) and (2) SafetyEmergencyVeto (synchronous, high-priority, critical fault signals); embed local safety monitors (geofence, load sensors, motion limits) to handle real-time veto without external latency dependency; SafetyAlert veto latency ≤ 100 ms for non-critical constraints.",
+      "FR-V.9: Export Telemetry interface data including cycle time histograms (p50, p95, p99), sub-system controller budget utilization, message latency metrics, and sub-operation completion times to enable continuous verification of p95 ≤ CT_target acceptance criterion and real-time health monitoring.",
+      "FR-V.10: Implement deterministic asynchronous message-passing protocol (message types, sequencing rules, timeout handling, retry logic) to ensure repeatable cycle orchestration despite network jitter and sub-system variability; document protocol specification and verification test cases."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "The current DP (hybrid hierarchical control with cycle orchestrator, sub-system controllers, local feedback loops, time budgets, asynchronous message passing) is logically sound but lacks explicit specification of: (1) time budget allocation strategy across load→travel→dump operations (how is CT_target partitioned?); (2) watchdog timer and budget overrun detection mechanisms (what triggers abort? what is the abort sequence?); (3) dual-layer communication stack architecture (how are internal priority queues separated from external buffered queues?); (4) SafetyAlert decomposition into SafetyConstraintUpdate and SafetyEmergencyVeto sub-channels with distinct latency contracts; (5) local safety monitor embedding strategy (which safety checks are embedded in Vehicle vs. delegated to Safety Services?). These details are essential to validate that the DP fully addresses the FR's determinism and safety-critical requirements. Recommend revising the DP to include explicit time budget allocation rules, watchdog/abort specifications, communication stack architecture, and safety monitor placement before proceeding to detailed design."
+    },
+    "record": {
+      "assumptions": [
+        "CT_target is fixed and known at design time (e.g., 120 seconds for load→travel→dump cycle).",
+        "Load, travel, and dump operations can be sequenced strictly in order without interleaving or parallelization.",
+        "Sub-system controllers (motion, actuation, feedback) are capable of meeting their allocated time budgets under nominal duty cycle conditions (no extreme environmental variability).",
+        "Tasking interface can deliver task commands with latency ≤ 50 ms under normal network conditions.",
+        "SafetyAlert interface can deliver constraint updates and emergency veto signals with latency ≤ 100 ms for non-critical constraints and ≤ 50 ms for critical faults.",
+        "Internal message-passing substrate (priority queue, asynchronous bus) can guarantee p99 latency ≤ 5 ms for orchestrator-to-controller communication.",
+        "Local safety monitors (geofence, load sensors, motion limits) are embedded in Vehicle and can respond to safety violations within 50 ms without external dependency.",
+        "Watchdog timers and budget overrun detection mechanisms are implemented in each sub-system controller and can trigger controlled abort within 10 ms of budget violation.",
+        "Telemetry interface can export cycle time histograms and latency metrics with minimal overhead (< 1% CPU utilization).",
+        "NGHE Solution and Safety Services are external systems with independent development cycles; Vehicle IM must tolerate their latency variability via local decision logic and pre-loaded state machines."
+      ],
+      "open_risks": [
+        "Time budget allocation strategy: How should CT_target be partitioned across load, travel, and dump operations? If travel_budget is underestimated due to path complexity or obstacle avoidance, the entire cycle may exceed p95 target. Mitigation: conduct duty cycle analysis and sensitivity studies to determine optimal budget allocation; implement adaptive budget adjustment based on telemetry feedback.",
+        "Sub-system controller budget overrun: If a sub-system controller exceeds its allocated budget (e.g., motion control takes 35 seconds instead of 30 seconds due to terrain variability), the orchestrator's sequential scheduling assumption breaks down. Mitigation: implement watchdog timers with controlled abort; analyze root causes of budget overruns and adjust budgets or sub-system design accordingly.",
+        "Tasking interface latency jitter: If NGHE Solution planning latency varies widely (e.g., 10 ms to 200 ms), cycle initiation timing becomes unpredictable. Mitigation: pre-load task sequences into Vehicle state machines and use local decision logic to tolerate planning latency; validate that pre-load mechanism does not introduce additional latency.",
+        "SafetyAlert latency coupling: If SafetyAlert veto signals are processed synchronously in the orchestrator's critical path, external network jitter could violate cycle time guarantees. Mitigation: embed local safety monitors in Vehicle and use SafetyAlert for constraint updates and post-hoc reporting; validate that local safety response time is deterministic and independent of external network.",
+        "Internal message-passing isolation: If the asynchronous message bus is not strictly separated from external Network Link interface, external network jitter could compromise bounded latency guarantees. Mitigation: implement dual-layer communication stack with priority queue for internal messages and buffered queue for external commands; validate isolation via network fault injection testing.",
+        "Watchdog timer false positives: If watchdog timers are too aggressive, legitimate sub-system operations may be aborted prematurely, causing unnecessary cycle failures. Mitigation: calibrate watchdog timeouts based on sub-system performance data; implement grace period logic to tolerate transient delays.",
+        "SafetyAlert decomposition complexity: Splitting SafetyAlert into SafetyConstraintUpdate and SafetyEmergencyVeto sub-channels introduces additional interface complexity and potential for message ordering issues. Mitigation: formally specify message sequencing rules and timeout handling; implement unit tests for SafetyAlert sub-channel interaction.",
+        "Telemetry overhead: Exporting detailed cycle time histograms and latency metrics may introduce CPU and network overhead that degrades cycle time performance. Mitigation: implement efficient telemetry buffering and sampling strategies; validate that telemetry overhead is < 1% of cycle time.",
+        "Asynchronous message-passing determinism: Asynchronous message-passing introduces non-determinism due to message ordering and timeout variability. Mitigation: implement explicit sequencing rules and timeout handling in the message-passing protocol; validate determinism via simulation and hardware-in-the-loop testing."
+      ],
+      "evidence_needed": [
+        "Time budget allocation analysis: Conduct duty cycle analysis (terrain profiles, obstacle distributions, load variations) to determine realistic time budgets for load, travel, and dump operations. Provide sensitivity analysis showing how budget allocation affects p95 cycle time.",
+        "Sub-system controller performance data: Collect performance metrics (execution time, budget utilization, overrun frequency) for motion control, actuation, and feedback sub-systems under nominal and edge-case conditions. Validate that budget overrun rate < 0.1%.",
+        "Tasking interface latency characterization: Measure latency distribution (p50, p95, p99) for task command delivery from NGHE Solution to Vehicle. Validate that latency ≤ 50 ms under normal network conditions and identify mitigation strategies for latency outliers.",
+        "SafetyAlert latency characterization: Measure latency distribution for SafetyConstraintUpdate and SafetyEmergencyVeto signals from Safety Services to Vehicle. Validate that SafetyEmergencyVeto latency ≤ 50 ms for critical faults.",
+        "Internal message-passing latency validation: Implement priority queue and measure latency distribution (p50, p95, p99) for orchestrator-to-controller messages. Validate that p99 latency ≤ 5 ms under nominal load and identify bottlenecks.",
+        "Local safety monitor response time validation: Measure response time for local safety monitors (geofence, load sensors, motion limits) to detect and respond to safety violations. Validate that response time ≤ 50 ms without external dependency.",
+        "Watchdog timer calibration: Analyze sub-system controller execution time distributions and calibrate watchdog timeouts to minimize false positives while ensuring timely detection of budget overruns. Provide watchdog timeout specifications for each sub-system controller.",
+        "Asynchronous message-passing protocol specification: Document message types, sequencing rules, timeout handling, and retry logic. Provide formal specification (e.g., state machine, sequence diagrams) and unit test cases for protocol validation.",
+        "Telemetry overhead analysis: Measure CPU and network overhead for telemetry data export (cycle time histograms, latency metrics, budget utilization). Validate that overhead < 1% of cycle time.",
+        "Integration test plan: Define test cases for cycle orchestration, sub-system controller coordination, interface latency validation, and safety-critical abort scenarios. Include hardware-in-the-loop testing with network fault injection to validate robustness."
+      ]
+    }
+  }
+}

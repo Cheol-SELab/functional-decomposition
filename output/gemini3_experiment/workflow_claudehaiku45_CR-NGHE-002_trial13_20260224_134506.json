@@ -1,0 +1,178 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall enable execution of the load→travel→dump cycle within the customer-defined cycle time target.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting/enabling the capability to achieve cycle time, and (2) actually achieving the measured KPI. The refined FR is atomic and solution-neutral by focusing on the functional obligation—enabling the cycle to execute within the time envelope—without prescribing how (e.g., via speed optimization, path planning, operator training, or equipment design). The actual achievement of p95 ≤ CT_target is a verification criterion, not a functional requirement. This separation allows DPs to address enablement independently of operational performance measurement.",
+    "verification_idea": "Demonstrate that under nominal duty cycle and site conditions, the NGHE solution's design permits completion of load→travel→dump within CT_target. Measure p95 cycle time across representative worksite trials; if p95 ≤ CT_target is not met, root-cause analysis determines whether the failure is in DP realization (design flaw) or external factors (operator skill, site conditions, maintenance state). This distinction is critical for design accountability.",
+    "sub_frs": [
+      "FR-NGHE-002.1: The NGHE solution shall enable the load phase to complete within the allocated time budget.",
+      "FR-NGHE-002.2: The NGHE solution shall enable the travel phase to complete within the allocated time budget.",
+      "FR-NGHE-002.3: The NGHE solution shall enable the dump phase to complete within the allocated time budget."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Decompose the load→travel→dump cycle into sequential sub-operations (load, travel, dump) with independent timing budgets that sum to CT_target, each optimized for its operational constraints.",
+      "DP2: Implement a centralized cycle orchestration controller that sequences operations based on state machine logic, with feedback loops to detect bottlenecks and dynamically adjust sub-operation timing within CT_target.",
+      "DP3: Design parallel execution paths for non-blocking operations (e.g., travel preparation during load completion) to reduce critical path length, with synchronization gates ensuring safety and dump readiness.",
+      "DP4: Establish a performance monitoring and adaptive control layer that continuously measures cycle segment durations, compares against CT_target, and triggers corrective actions (speed adjustments, sequence reordering) in real-time.",
+      "DP5: Allocate fixed time budgets to each cycle phase based on worst-case site conditions (terrain, load variability, safety margins), with no dynamic adjustment—rely on conservative design margins to guarantee CT_target."
+    ],
+    "selected_dp": "DP2 + DP4 (Hybrid): Implement a centralized cycle orchestration controller with state machine logic for deterministic sequencing of load→travel→dump operations, coupled with a real-time performance monitoring and adaptive feedback layer that detects deviations from CT_target and triggers corrective actions (speed modulation, sequence optimization, safety-compliant hold/resume). This balances determinism (state machine ensures safety and repeatability) with adaptability (feedback loop handles site variability and duty cycle uncertainty).",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "DP2 (orchestration) and DP4 (monitoring) are tightly coupled: the controller must expose internal state and timing metrics to the monitoring layer; poor interface design could create circular dependencies or race conditions.",
+        "Coupling between cycle sequencing logic and site-condition adaptation: if terrain or load variability forces frequent re-sequencing, the state machine may become brittle; recommend clear separation between nominal sequence (DP2) and adaptive overrides (DP4).",
+        "Safety interlocks (worksite safety plan) may constrain which operations can be parallelized or reordered; tight coupling to external safety policies increases change risk.",
+        "Feedback loop latency: if monitoring detection and corrective action lag exceeds acceptable bounds, CT_target may be missed; requires explicit timing budget for the control loop itself."
+      ],
+      "notes": "Coupling is manageable if DP2 and DP4 are cleanly separated by a well-defined telemetry interface (DP2 publishes cycle segment timings; DP4 consumes and decides corrective actions). Avoid embedding adaptive logic inside the state machine; keep orchestration deterministic and delegate adaptation to a separate layer."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Site conditions (terrain, load mass, fuel state) are measurable or predictable within acceptable bounds; if unmeasured variability exceeds design margins, adaptive control may not converge to CT_target.",
+      "RISK: Feedback loop introduces latency; if corrective actions (e.g., speed reduction) take longer to execute than the remaining cycle time, CT_target cannot be met. Mitigation: pre-compute corrective action timelines and validate loop latency budget.",
+      "RISK: State machine complexity grows with edge cases (e.g., load rejection, terrain obstacles, safety holds); each edge case adds coupling and test burden. Mitigation: define a minimal set of nominal states and treat exceptions as external interrupts.",
+      "ASSUMPTION: Acceptance criteria (p95 ≤ CT_target under agreed duty cycle) implies that 5% of cycles may exceed CT_target; confirm this is acceptable to customer and does not violate safety or contractual SLAs.",
+      "RISK: Adaptive control may mask underlying design inadequacy (e.g., underpowered drivetrain); ensure DP2+DP4 is not used to compensate for undersized components. Validate that nominal (non-adaptive) cycle time is ≤ CT_target under typical conditions.",
+      "RISK: Real-time monitoring and corrective actions require reliable sensor data and actuator response; sensor failures or actuator lag could cause CT_target violations or safety hazards. Mitigation: define fallback behavior (e.g., safe shutdown) if monitoring fails.",
+      "ASSUMPTION: Worksite safety plan does not prohibit dynamic speed modulation or sequence reordering; confirm DP4 corrective actions are compliant with operational policies."
+    ],
+    "recommended_revision": "Refine the selected DP (DP2+DP4) by explicitly defining: (1) the state machine for DP2 (nominal states: Load, Travel, Dump, Idle; transitions and guards); (2) the telemetry interface between DP2 and DP4 (cycle segment timings, load mass, terrain classification, actuator status); (3) the corrective action decision logic for DP4 (e.g., if travel segment exceeds budget by >5%, reduce speed by X%; if load segment exceeds budget, trigger load rejection); (4) the control loop latency budget (e.g., ≤100 ms from detection to corrective action); (5) fallback behavior if monitoring fails or corrective actions are exhausted. Additionally, validate that the nominal cycle time (without adaptive correction) is ≤ 0.95 × CT_target to ensure adaptive control is a margin-recovery mechanism, not a primary design lever. Map DP2 and DP4 to candidate IMs (e.g., embedded controller module, sensor/telemetry module, actuator command module) to assess packaging feasibility and interface clarity."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "Centralized cycle orchestration controller with state machine logic for deterministic load→travel→dump sequencing, integrated real-time performance monitoring, adaptive feedback layer for deviation detection, and corrective action triggering (speed modulation, sequence optimization, safety-compliant hold/resume)."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives mission/cycle directives (load location, dump site, target cycle time CT_target) from fleet management or operator."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "inout",
+        "details": "Sends state machine status, cycle phase, performance metrics (actual vs. target CT, speed, position); receives real-time sensor data (position, load mass, speed, engine state) for monitoring and feedback."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Triggers safety-compliant hold/resume commands and alerts when corrective actions exceed safe operating bounds or when deviations require intervention."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Communicates with Vehicle control systems (actuators, engine, transmission) to execute state transitions and speed modulation commands; receives feedback on command execution status."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent containment. NGHE Solution is the logical home for fleet-level cycle orchestration, performance monitoring, and adaptive control. State machine logic, feedback loops, and corrective action algorithms are all fleet-management concerns. Minimal diffusion: only interfaces to Vehicle (via Network Link) for command execution and to Safety Services (via SafetyAlert) for safety validation. Cohesion is high because all DP2+DP4 logic (deterministic sequencing + adaptive feedback) operates at the fleet/mission level, not vehicle-level."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor containment. Vehicle module is typically responsible for low-level actuator control and local state management, not fleet-level cycle orchestration or adaptive mission planning. Placing DP2+DP4 here would scatter orchestration logic across individual vehicles, breaking determinism and creating coupling between vehicle firmware and fleet-wide performance targets. High diffusion: state machine and feedback logic would need to replicate across all vehicles, and corrective actions would lack fleet-wide coordination."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.28,
+        "diffusion_score": 0.72,
+        "notes": "Poor containment. Teleoperation is designed for human-in-the-loop remote control, not autonomous cycle orchestration or adaptive performance management. DP2+DP4 requires deterministic, repeatable sequencing and real-time feedback loops that operate independently of operator input. Placing orchestration here would conflate manual control with autonomous optimization, creating confusion in safety and control authority. High diffusion: feedback and corrective actions would need to propagate back to operator interface, complicating autonomy."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.22,
+        "diffusion_score": 0.78,
+        "notes": "Poor containment. Safety Services is a cross-cutting concern responsible for validating safety constraints and issuing alerts, not for orchestrating mission cycles or managing performance feedback. While Safety Services must validate corrective actions, the core DP2+DP4 logic (state machine, adaptive feedback, speed modulation) belongs upstream in mission planning. Placing orchestration here inverts the dependency: safety should constrain orchestration, not contain it. High diffusion: cycle logic would scatter across safety validation rules."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution (Fleet Management / Mission Orchestration Team)",
+    "containment_hypothesis": "The NGHE Solution module is the natural home for DP2+DP4 because it operates at the fleet/mission level where cycle targets (CT_target), site variability, and duty cycle uncertainty are known and managed. The state machine ensures deterministic sequencing across heterogeneous sites and vehicles, while the adaptive feedback layer handles real-time deviations without compromising safety. All interfaces (Tasking, Telemetry, SafetyAlert, Network Link) are already defined for fleet-level control, minimizing architectural diffusion.",
+    "containment_risks": [
+      "Risk: If NGHE Solution lacks real-time performance monitoring infrastructure, latency in feedback loops could degrade adaptive responsiveness. Mitigation: Ensure Telemetry interface supports sub-second cycle-time updates.",
+      "Risk: State machine complexity may grow if site-specific or vehicle-specific variants are required. Mitigation: Design state machine as a parameterized template, with variants managed via Tasking directives, not hardcoded in IM.",
+      "Risk: Corrective actions (speed modulation, sequence optimization) must be validated by Safety Services before execution. If SafetyAlert interface is slow or blocking, orchestration may stall. Mitigation: Define SafetyAlert as non-blocking with pre-validated action envelopes; Safety Services validates bounds, not individual commands.",
+      "Risk: Network Link latency or Vehicle command execution delays could cause feedback loop instability. Mitigation: Implement timeout and fallback logic in state machine; design feedback as advisory (soft constraints) rather than hard real-time control."
+    ],
+    "recommended_revision": "No revision to DP choice is necessary. DP2+DP4 (Hybrid: state machine + adaptive feedback) is well-suited to NGHE Solution containment. However, clarify the feedback loop architecture: specify whether adaptive corrective actions are computed in NGHE Solution and sent to Vehicle via Network Link, or whether Vehicle executes local feedback and reports deviations to NGHE Solution for mission-level re-planning. The former (centralized feedback) is recommended for determinism and fleet-wide optimization; the latter (distributed feedback) reduces latency but risks local suboptimization. Recommend centralizing in NGHE Solution with Vehicle as a command executor."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP2+DP4 (Hybrid: centralized state machine + adaptive feedback) directly addresses the FR requirement to enable load→travel→dump cycle execution within CT_target. The state machine ensures deterministic sequencing (safety, repeatability), while the adaptive feedback layer handles site variability and duty cycle uncertainty (performance optimization). The coupling is tight and non-redundant: both DP components are necessary—state machine alone cannot adapt to deviations; feedback alone cannot guarantee safety-compliant sequencing. The DP is logically sound and complete."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Feedback loop latency risk: If Telemetry interface does not support sub-second cycle-time updates, adaptive responsiveness will degrade. Mitigation: Specify Telemetry SLA (e.g., ≤100ms update cadence) in interface contract.",
+        "State machine complexity drift: If site-specific or vehicle-specific variants are hardcoded into NGHE Solution IM, state machine will become unmaintainable and diffuse across conditional branches. Mitigation: Parameterize state machine via Tasking directives; variants managed externally, not in code.",
+        "SafetyAlert blocking risk: If Safety Services validation is synchronous and slow, orchestration state machine may stall, violating CT_target. Mitigation: Define SafetyAlert as asynchronous with pre-validated action envelopes; Safety Services validates bounds, not individual commands.",
+        "Network Link latency and Vehicle command execution delays: Feedback loop stability depends on timely command execution. If Vehicle does not acknowledge or execute commands within predictable bounds, feedback loop may oscillate or diverge. Mitigation: Implement timeout and fallback logic in state machine; design feedback as soft constraints (advisory) rather than hard real-time control.",
+        "Distributed feedback anti-pattern: If corrective actions are computed in Vehicle and reported back to NGHE Solution, orchestration logic will scatter across two modules, breaking determinism and creating coupling. Mitigation: Centralize all corrective action computation in NGHE Solution; Vehicle is a command executor only."
+      ],
+      "containment_notes": "NGHE Solution achieves 0.92 containment score with 0.08 diffusion. Excellent architectural fit: state machine logic, adaptive feedback, and corrective action algorithms are all fleet-level concerns that belong in mission orchestration, not in Vehicle, Teleoperation, or Safety Services. All four external interfaces (Tasking, Telemetry, SafetyAlert, Network Link) are already defined and appropriate for fleet-level control. Minimal diffusion: only Vehicle (command execution) and Safety Services (constraint validation) are external dependencies. Cohesion is high because DP2+DP4 operates at the fleet/mission level where CT_target, site variability, and duty cycle uncertainty are known and managed. No alternative module (Vehicle, Teleoperation, Safety Services) has comparable containment; all alternatives score 0.22–0.65 with high diffusion (0.65–0.78)."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. Acceptance criterion 'p95 ≤ CT_target under agreed duty cycle and site conditions' is measurable via Telemetry interface (cycle time metrics). NGHE Solution IM must emit actual vs. target CT data for statistical analysis. Verification requires: (1) instrumentation of state machine to log phase transitions and timestamps, (2) Telemetry interface to report cycle time p95 percentile, (3) test harness to simulate duty cycle and site conditions. All are feasible within NGHE Solution scope.",
+      "allocation_clarity": "Clear. FR is allocated to DP2+DP4, which is allocated to NGHE Solution IM. Ownership is unambiguous: Fleet Management / Mission Orchestration Team owns NGHE Solution and is accountable for CT_target achievement. Interfaces are explicit: Tasking (input: mission directives), Telemetry (bidirectional: metrics and sensor data), SafetyAlert (output: safety-compliant actions), Network Link (bidirectional: command execution). No ambiguity about which module is responsible for what. Worksite safety plan and operational policies are external constraints that inform state machine design (e.g., speed limits, hold/resume rules) but do not change allocation."
+    },
+    "recommended_revisions": [
+      "Clarify feedback loop architecture in DP specification: Explicitly state that adaptive corrective actions (speed modulation, sequence optimization) are computed centrally in NGHE Solution and sent to Vehicle via Network Link. Vehicle executes commands and reports execution status; it does not compute corrective actions locally. This ensures determinism and fleet-wide optimization.",
+      "Define Telemetry SLA: Specify maximum latency for cycle-time updates (recommend ≤100ms) to ensure adaptive feedback loop responsiveness. Add to interface contract.",
+      "Parameterize state machine: Design state machine as a template with variants managed via Tasking directives (e.g., site-specific speed profiles, sequence orderings). Do not hardcode variants in NGHE Solution code.",
+      "Specify SafetyAlert as asynchronous: Define SafetyAlert interface as non-blocking with pre-validated action envelopes. Safety Services validates bounds (e.g., max speed, hold conditions), not individual commands. This prevents orchestration stalls.",
+      "Implement timeout and fallback logic: Add to state machine design: if Vehicle does not acknowledge command within timeout, trigger safe fallback (e.g., hold, alert operator). This mitigates Network Link latency and Vehicle execution delays.",
+      "Design feedback as soft constraints: Corrective actions should be advisory (e.g., 'reduce speed by 5%') rather than hard real-time control. This allows Vehicle to execute with local flexibility while NGHE Solution monitors and re-plans at mission level.",
+      "Add traceability matrix: Map FR → DP2+DP4 → NGHE Solution IM → Telemetry/SafetyAlert/Network Link interfaces. Ensure no orphaned requirements or unallocated responsibilities."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass with high confidence and excellent architectural fit (0.92 containment, 0.08 diffusion). However, the recommended_revisions expose critical design details that must be decomposed into sub-level FRs to ensure safety, determinism, and interface contracts are explicit and verifiable. Specifically: (1) feedback loop architecture and latency SLA require sub-FR decomposition to isolate adaptive control logic from state machine sequencing; (2) SafetyAlert asynchronous contract and timeout/fallback logic are safety-critical and must be elevated to sub-FR level with dedicated DP and IM; (3) parameterization of state machine variants requires sub-FR for variant management. These are not revisions to the current level—they are legitimate sub-problems that emerge from the DP specification and must be decomposed to prevent diffusion during implementation. High safety criticality reinforces the need for explicit sub-FR decomposition rather than burying these concerns in implementation details.",
+    "next_level_sub_frs": [
+      "FR2.1: Enable adaptive cycle-time feedback loop with bounded latency (≤100ms) to support real-time corrective action computation in NGHE Solution without stalling orchestration state machine.",
+      "FR2.2: Ensure deterministic state machine sequencing with asynchronous safety constraint validation (SafetyAlert) and timeout/fallback logic to prevent orchestration stalls and maintain CT_target under network/vehicle execution delays.",
+      "FR2.3: Manage site-specific and vehicle-specific state machine variants via external parameterization (Tasking directives) to prevent hardcoded conditional logic diffusion and maintain code maintainability.",
+      "FR2.4: Centralize corrective action computation (speed modulation, sequence optimization) in NGHE Solution and enforce Vehicle as command executor only to ensure fleet-wide optimization determinism and prevent distributed feedback anti-pattern."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "DP2+DP4 specification is logically sound but lacks explicit architectural detail on: (1) feedback loop latency contract and how adaptive feedback integrates with state machine without blocking; (2) SafetyAlert interface as asynchronous with pre-validated action envelopes; (3) timeout/fallback logic in state machine; (4) parameterization mechanism for variants. These details must be elevated to sub-DP level to prevent implementation diffusion. Recommend revising DP2+DP4 narrative to reference these sub-DPs explicitly and clarify the separation of concerns: state machine (deterministic sequencing) vs. adaptive feedback (performance optimization) vs. safety validation (constraint enforcement) vs. variant management (external parameterization)."
+    },
+    "record": {
+      "assumptions": [
+        "Telemetry interface can support ≤100ms update cadence for cycle-time metrics without architectural redesign.",
+        "SafetyAlert interface can be redesigned as asynchronous with pre-validated action envelopes without impacting Safety Services module scope.",
+        "Vehicle module can reliably acknowledge and execute commands within predictable timeout bounds (recommend ≤500ms for load/travel/dump phases).",
+        "Tasking directives can carry parameterization data (site-specific speed profiles, sequence orderings) without requiring Vehicle or Safety Services changes.",
+        "Network Link latency is bounded and measurable; soft constraint feedback (advisory corrective actions) is acceptable for performance optimization.",
+        "Fleet Management / Mission Orchestration Team has authority to define and enforce parameterization schema and variant management policy."
+      ],
+      "open_risks": [
+        "Feedback loop latency: If Telemetry SLA cannot be met, adaptive responsiveness degrades and CT_target may not be achievable. Mitigation: Conduct Telemetry interface performance audit before sub-FR decomposition; if latency exceeds 100ms, revise DP to use predictive models instead of reactive feedback.",
+        "SafetyAlert blocking: If Safety Services cannot support asynchronous validation with pre-validated envelopes, state machine will stall. Mitigation: Negotiate SafetyAlert interface contract with Safety Services team; if asynchronous is infeasible, redesign DP to use soft constraints (advisory only) and accept reduced safety assurance.",
+        "Vehicle execution delays: If Vehicle does not acknowledge commands within timeout bounds, fallback logic may trigger excessively, reducing efficiency. Mitigation: Characterize Vehicle command execution latency distribution; set timeout conservatively (e.g., p95 + margin) and log fallback triggers for analysis.",
+        "Variant parameterization complexity: If Tasking directives become too complex or Tasking interface cannot carry parameterization data, state machine will revert to hardcoded variants. Mitigation: Define parameterization schema early; prototype with 2–3 site variants before full deployment.",
+        "Distributed feedback anti-pattern: If Vehicle or Teleoperation module computes corrective actions locally, determinism and fleet-wide optimization will be lost. Mitigation: Enforce architectural rule in code review: all corrective action logic must reside in NGHE Solution IM; Vehicle is command executor only."
+      ],
+      "evidence_needed": [
+        "Telemetry interface performance specification: latency distribution (p50, p95, p99) for cycle-time metric updates under nominal and peak load conditions.",
+        "SafetyAlert interface contract: definition of asynchronous validation, pre-validated action envelopes, and response time SLA.",
+        "Vehicle command execution characterization: latency distribution for load, travel, dump commands; acknowledgment protocol; fallback behavior on timeout.",
+        "Tasking directives schema: specification of parameterization data structure for site-specific and vehicle-specific variants; examples for 2–3 representative sites.",
+        "State machine design document: explicit separation of sequencing logic, adaptive feedback computation, safety constraint validation, and variant parameterization; pseudocode or state diagram.",
+        "Timeout and fallback logic specification: timeout values for each command type; fallback actions (hold, alert, resume); logging and monitoring requirements.",
+        "Traceability matrix: FR2.1–FR2.4 → DP2.1–DP2.4 → NGHE Solution IM sub-modules → Telemetry/SafetyAlert/Network Link/Tasking interfaces.",
+        "Test plan for sub-FRs: acceptance criteria for latency, determinism, safety validation, and variant management; test scenarios covering nominal, edge case, and failure modes."
+      ]
+    }
+  }
+}

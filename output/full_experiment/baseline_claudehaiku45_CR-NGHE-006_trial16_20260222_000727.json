@@ -1,0 +1,179 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and work-zone boundaries, with sufficient fidelity to support autonomous path planning and operator situational awareness.",
+    "rationale": "The original FR was vague on fidelity requirements, update frequency, and use-case binding. Refinement clarifies that the model must serve both planning (offline) and execution (real-time) functions, must distinguish static from dynamic features, and must be safety-critical (high criticality tailoring). This enables downstream DP selection to address sensor fusion, data freshness, and hazard representation.",
+    "verification_idea": "Acceptance test: (1) Worksite model generated within 5 minutes of site entry; (2) Terrain elevation accuracy ±0.5 m over 95% of mapped area; (3) Static obstacles detected and represented with ≥90% recall; (4) Dynamic hazards updated at ≥2 Hz; (5) Model accessible to planning and execution subsystems via agreed interface schema.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire terrain and obstacle data from onboard and/or remote sensors.",
+      "CR-NGHE-006.2: Fuse multi-sensor data into a unified spatial representation.",
+      "CR-NGHE-006.3: Classify and label terrain, static obstacles, and dynamic hazards.",
+      "CR-NGHE-006.4: Maintain model freshness and consistency for real-time planning.",
+      "CR-NGHE-006.5: Expose worksite model via standardized interface to planning and execution functions.",
+      "CR-NGHE-006.6: Validate model completeness and safety-critical feature detection against acceptance criteria."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Onboard LiDAR + stereo camera fusion with local occupancy grid; periodic upload to cloud for long-term storage and planning.",
+      "DP-B: Tele-operator visual input + manual annotation of obstacles; stored in centralized worksite database.",
+      "DP-C: Multi-sensor fusion (LiDAR, camera, radar, IMU) on vehicle with real-time local map; continuous telemetry stream to Safety Services for hazard detection and to planning backend.",
+      "DP-D: Pre-surveyed static map + real-time dynamic object detection from onboard vision; fusion in edge compute module."
+    ],
+    "selected_dp": "DP-C: Multi-sensor fusion (LiDAR, camera, radar, IMU) on vehicle with real-time local map; continuous telemetry stream to Safety Services for hazard detection and to planning backend.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Sensor calibration and synchronization (LiDAR, camera, radar, IMU) must be tightly coupled; any drift in extrinsic parameters degrades map quality.",
+        "Real-time telemetry streaming creates dependency on Network Link availability; loss of link degrades remote planning capability but preserves local autonomy.",
+        "Safety Services must consume hazard alerts from the fused map; tight coupling on SafetyAlert interface semantics."
+      ],
+      "notes": "DP-C exhibits moderate coupling: sensor fusion is inherently coupled, but the architecture decouples local mapping (vehicle-resident) from remote planning (backend-resident) via asynchronous telemetry. This is acceptable for a high-criticality system because local autonomy is preserved if network fails. Recommend explicit interface contracts for SafetyAlert and Telemetry to minimize semantic coupling."
+    },
+    "assumptions_risks": [
+      "Assumption: Onboard compute (vehicle) has sufficient processing power (GPU/FPGA) for real-time multi-sensor fusion at ≥10 Hz.",
+      "Assumption: Network bandwidth supports continuous telemetry streaming (estimated 5–50 Mbps depending on map resolution and update rate).",
+      "Risk: Sensor calibration drift over time may degrade map accuracy; mitigation requires periodic recalibration or self-calibration algorithms.",
+      "Risk: Multi-sensor fusion is algorithmically complex; implementation errors could introduce systematic biases in hazard detection.",
+      "Risk: Real-time telemetry creates privacy and cybersecurity exposure; mitigation requires encryption and access control."
+    ],
+    "recommended_revision": "DP-C is sound but should be refined to explicitly specify: (1) sensor suite (LiDAR type, camera resolution, radar frequency), (2) fusion algorithm (e.g., Kalman filter, particle filter, deep learning), (3) local map representation (occupancy grid, voxel grid, point cloud), (4) telemetry schema and update rate, (5) fallback behavior if network is unavailable. Recommend prototyping sensor fusion on a test vehicle to validate real-time performance and accuracy before full commitment."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "The Vehicle module owns the onboard multi-sensor fusion pipeline, local worksite model generation, and real-time telemetry transmission. It includes LiDAR, camera, radar, IMU hardware; sensor drivers; fusion algorithms; local occupancy grid or map representation; and telemetry encoding/transmission logic. The Vehicle module is responsible for data acquisition, preprocessing, and local model maintenance; it does not own remote planning, long-term storage, or safety decision-making."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle transmits fused worksite model (occupancy grid, detected obstacles, terrain elevation, dynamic hazards) as telemetry to backend planning and Safety Services. Frequency: ≥2 Hz for dynamic hazards, ≥0.5 Hz for static map updates. Schema: TBD (recommend protobuf or JSON with spatial coordinates, confidence scores, timestamps)."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives task commands (e.g., 'navigate to waypoint', 'scan area') from planning backend or operator. Tasking may include map region of interest or sensor configuration hints. Vehicle uses local model to validate task feasibility before execution."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Vehicle transmits safety-critical alerts (e.g., 'personnel detected in work zone', 'terrain instability detected') to Safety Services. Latency requirement: <500 ms for high-severity alerts. Schema: alert type, severity level, location, confidence, timestamp."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Vehicle depends on Network Link for bidirectional communication (Telemetry out, Tasking in, SafetyAlert out). Network Link provides connectivity to backend and Safety Services. Vehicle must gracefully degrade if Network Link is unavailable (local autonomy preserved, remote planning suspended)."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "Vehicle is the natural owner of onboard sensor fusion and local model generation. All hardware (LiDAR, camera, radar, IMU) and real-time fusion algorithms are vehicle-resident. Minimal diffusion: only telemetry transmission and tasking reception cross module boundaries. This is the highest-scoring candidate."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Teleoperation is responsible for remote operator interface and command transmission, not sensor fusion or local mapping. Assigning worksite modeling to Teleoperation would create high diffusion: fusion algorithms would be split between vehicle (hardware drivers) and Teleoperation (fusion logic), violating cohesion. Not recommended."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 30,
+        "diffusion_score": 70,
+        "notes": "Safety Services is responsible for safety decision-making and alert generation, not sensor fusion. Assigning worksite modeling to Safety Services would require all sensor data to be transmitted to Safety Services for fusion, creating high latency and network load. Safety Services should consume the fused model from Vehicle, not own fusion. Not recommended."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 10,
+        "diffusion_score": 90,
+        "notes": "NGHE Solution is the top-level system container, not a concrete implementation module. Assigning worksite modeling to NGHE Solution would defer ownership to a lower level, creating ambiguity. Not recommended as a direct owner."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module is the optimal owner of worksite modeling because: (1) all sensor hardware is vehicle-resident, (2) real-time fusion requires low-latency local compute, (3) local model is essential for autonomous path planning and obstacle avoidance, (4) Vehicle has clear ownership of onboard compute and sensor drivers, (5) external interfaces (Telemetry, Tasking, SafetyAlert, Network Link) are well-defined and minimal. Diffusion risk is low: only telemetry and tasking cross boundaries.",
+    "containment_risks": [
+      "Risk: Vehicle module may become overloaded if additional sensing modalities (e.g., thermal, hyperspectral) are added in future; mitigation: design sensor abstraction layer to decouple fusion logic from hardware specifics.",
+      "Risk: Telemetry bandwidth may become a bottleneck if map resolution or update rate increases; mitigation: implement lossy compression or hierarchical map representation (coarse global + fine local).",
+      "Risk: Sensor calibration and synchronization are complex; if not managed carefully, Vehicle module could become a 'dumping ground' for ad-hoc sensor integration; mitigation: establish clear sensor integration process and interface standards.",
+      "Risk: Safety-critical hazard detection in Vehicle creates high assurance burden; if Vehicle module is not properly validated, safety goals may not be met; mitigation: implement redundant hazard detection (onboard + Safety Services) and formal verification of fusion algorithms."
+    ],
+    "recommended_revision": "Vehicle module assignment is sound. Recommend: (1) Define sensor abstraction layer (SAL) to decouple fusion algorithms from hardware drivers, enabling future sensor additions without refactoring fusion logic. (2) Establish telemetry schema and compression strategy to manage bandwidth. (3) Implement sensor health monitoring and graceful degradation (e.g., if LiDAR fails, fall back to camera + radar). (4) Allocate safety assurance activities (FMEA, formal verification) to Vehicle module to ensure hazard detection reliability. (5) Document sensor calibration procedures and periodic recalibration schedule."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (multi-sensor fusion on vehicle with real-time telemetry) directly addresses the refined FR (worksite model with terrain, obstacles, dynamic hazards, real-time updates). The DP specifies a concrete solution approach (sensor types, fusion strategy, telemetry mechanism) that is traceable to FR requirements (fidelity, update rate, use-case binding). Coupling is moderate and acceptable. Assumptions and risks are documented. DP is ready for IM assignment."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Telemetry interface: Vehicle must transmit fused model to backend planning and Safety Services; if telemetry schema is not well-defined, diffusion risk is high. Mitigation: establish formal telemetry contract (protobuf or JSON schema) before implementation.",
+        "Tasking interface: Vehicle receives task commands from planning backend; if tasking semantics are ambiguous, Vehicle may misinterpret commands. Mitigation: define tasking ontology and validation rules.",
+        "SafetyAlert interface: Vehicle transmits safety-critical alerts to Safety Services; if alert semantics are not standardized, Safety Services may miss or misinterpret alerts. Mitigation: establish formal SafetyAlert schema with severity levels and response procedures.",
+        "Network Link dependency: Vehicle depends on Network Link for remote communication; if Network Link is unavailable, Vehicle must preserve local autonomy. Mitigation: implement local fallback behavior and graceful degradation."
+      ],
+      "containment_notes": "Vehicle module containment is high (95/100). All onboard sensor fusion logic, hardware drivers, and local model generation are contained within Vehicle. External interfaces are minimal and well-defined (Telemetry out, Tasking in, SafetyAlert out, Network Link inout). No significant diffusion detected. Vehicle is the correct owner."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification of CR-NGHE-006 is feasible via: (1) Unit tests of sensor drivers and fusion algorithms on test benches, (2) Integration tests of multi-sensor fusion on test vehicle in controlled environment, (3) Field trials on representative worksites to validate terrain accuracy, obstacle detection, and dynamic hazard tracking, (4) Acceptance tests against specified fidelity and update rate criteria. Telemetry interface must be instrumented to capture model quality metrics (accuracy, latency, completeness).",
+      "allocation_clarity": "Allocation is clear: Vehicle module owns worksite modeling (sensor fusion, local map generation, telemetry transmission). Planning backend owns long-term storage and offline analysis. Safety Services owns safety decision-making and alert response. Interfaces are defined (Telemetry, Tasking, SafetyAlert, Network Link). Ownership boundaries are unambiguous."
+    },
+    "recommended_revisions": [
+      "Establish formal telemetry schema (protobuf or JSON) with spatial coordinate system, confidence scores, timestamps, and versioning strategy before implementation.",
+      "Define sensor abstraction layer (SAL) to decouple fusion algorithms from hardware specifics, enabling future sensor additions.",
+      "Specify sensor calibration and synchronization procedures, including periodic recalibration schedule and drift detection.",
+      "Implement sensor health monitoring and graceful degradation (fallback to subset of sensors if one fails).",
+      "Allocate safety assurance activities (FMEA, formal verification, redundancy analysis) to Vehicle module to ensure hazard detection reliability.",
+      "Define Network Link failure modes and local fallback behavior (e.g., local autonomy preserved, remote planning suspended).",
+      "Establish acceptance criteria for terrain accuracy, obstacle detection recall/precision, dynamic hazard update latency, and model completeness."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "CR-NGHE-006 has been refined to atomic sub-FRs (CR-NGHE-006.1 through 006.6), and DP-C has been selected with clear IM assignment to Vehicle module. All gates (FR-DP, DP-IM, FR-IM) pass. However, the sub-FRs are not yet decomposed into their own DP-IM pairs. To ensure complete traceability and to manage complexity, recommend decomposing each sub-FR to the next level before proceeding to implementation. This is a ZIGZAG_DOWN decision: decompose sub-FRs to DP and IM, then return to current level to verify consistency.",
+    "justification_detail": "The refined FR is complex (multi-sensor fusion, real-time model generation, telemetry transmission, safety-critical hazard detection). The six sub-FRs represent distinct functional areas (data acquisition, fusion, classification, freshness, interface, validation). Each sub-FR should be decomposed to DP and IM to ensure: (1) clear ownership and module boundaries, (2) interface contracts between sub-modules, (3) testability and verification strategy, (4) risk allocation and mitigation. Proceeding directly to implementation without sub-FR decomposition risks creating a monolithic Vehicle module with unclear internal structure and high coupling.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire terrain and obstacle data from onboard and/or remote sensors.",
+      "CR-NGHE-006.2: Fuse multi-sensor data into a unified spatial representation.",
+      "CR-NGHE-006.3: Classify and label terrain, static obstacles, and dynamic hazards.",
+      "CR-NGHE-006.4: Maintain model freshness and consistency for real-time planning.",
+      "CR-NGHE-006.5: Expose worksite model via standardized interface to planning and execution functions.",
+      "CR-NGHE-006.6: Validate model completeness and safety-critical feature detection against acceptance criteria."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Onboard compute (vehicle) has sufficient processing power (GPU/FPGA) for real-time multi-sensor fusion at ≥10 Hz.",
+        "Network bandwidth supports continuous telemetry streaming (estimated 5–50 Mbps depending on map resolution and update rate).",
+        "Sensor calibration can be maintained within acceptable drift limits via periodic recalibration or self-calibration algorithms.",
+        "Multi-sensor fusion algorithms can be implemented with acceptable latency (<100 ms for hazard detection) on onboard compute.",
+        "Telemetry schema and SafetyAlert interface can be standardized across Vehicle, Safety Services, and planning backend.",
+        "Network Link provides sufficient reliability for safety-critical telemetry (recommend redundant communication paths for high-criticality alerts).",
+        "Worksite model fidelity requirements (terrain accuracy ±0.5 m, obstacle detection ≥90% recall) are achievable with selected sensor suite."
+      ],
+      "open_risks": [
+        "Sensor calibration drift over time may degrade map accuracy; mitigation: implement periodic recalibration and drift detection.",
+        "Multi-sensor fusion is algorithmically complex; implementation errors could introduce systematic biases in hazard detection; mitigation: formal verification and redundant hazard detection.",
+        "Real-time telemetry creates privacy and cybersecurity exposure; mitigation: encryption, access control, and secure communication protocols.",
+        "Network Link unavailability may degrade remote planning capability; mitigation: local fallback behavior and graceful degradation.",
+        "Sensor hardware failures (e.g., LiDAR malfunction) may degrade model quality; mitigation: sensor health monitoring and graceful degradation.",
+        "Telemetry bandwidth may become a bottleneck if map resolution or update rate increases; mitigation: lossy compression or hierarchical map representation.",
+        "Safety-critical hazard detection in Vehicle creates high assurance burden; mitigation: redundant hazard detection and formal verification."
+      ],
+      "evidence_needed": [
+        "Prototype multi-sensor fusion on test vehicle to validate real-time performance and accuracy.",
+        "Benchmark sensor fusion algorithms (latency, accuracy, resource utilization) on target onboard compute platform.",
+        "Measure telemetry bandwidth requirements for representative worksite scenarios.",
+        "Validate terrain accuracy and obstacle detection recall/precision against acceptance criteria in field trials.",
+        "Establish sensor calibration procedures and measure calibration drift over time.",
+        "Define and test Network Link failure modes and local fallback behavior.",
+        "Conduct FMEA and formal verification of safety-critical hazard detection algorithms.",
+        "Establish telemetry schema and SafetyAlert interface contracts with planning backend and Safety Services."
+      ]
+    }
+  }
+}

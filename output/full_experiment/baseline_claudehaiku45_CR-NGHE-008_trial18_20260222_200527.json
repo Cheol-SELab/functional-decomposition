@@ -1,0 +1,164 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall establish and maintain teleoperation communication channels with end-to-end latency (sensor-to-actuator round-trip) not exceeding 150 ms at the 95th percentile under agreed network conditions, enabling safe and responsive remote equipment operation.",
+    "rationale": "The original FR is vague on measurement points and statistical bounds. Refinement clarifies that latency is measured end-to-end (from sensor acquisition through network transmission to actuator command execution), specifies the p95 percentile as the acceptance criterion, and anchors the requirement to safety-critical remote operation context. This enables testable verification and traceability to the high safety criticality constraint.",
+    "verification_idea": "Instrumented teleoperation test harness measuring: (1) sensor acquisition timestamp, (2) network ingress/egress timestamps at both operator and vehicle endpoints, (3) actuator command execution timestamp. Collect latency samples across 1000+ teleoperation cycles under representative network conditions (bandwidth, jitter, packet loss per agreed profile). Compute p95 latency distribution and confirm ≤150 ms.",
+    "sub_frs": [
+      "FR-TELE-001: The teleoperation system shall acquire sensor data from the vehicle at deterministic intervals compatible with 150 ms end-to-end latency budget.",
+      "FR-TELE-002: The teleoperation system shall transmit operator commands over the network link with bounded latency compatible with 150 ms end-to-end budget.",
+      "FR-TELE-003: The teleoperation system shall execute received commands on vehicle actuators with minimal processing delay compatible with 150 ms end-to-end budget.",
+      "FR-TELE-004: The teleoperation system shall monitor and report network latency and link quality to the operator and safety services in real-time."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Implement a dedicated low-latency teleoperation protocol with hardware-accelerated network stack, prioritized packet scheduling, and edge-side sensor buffering to minimize round-trip delay.",
+      "DP-B: Deploy a cloud-based teleoperation relay with regional edge compute nodes to reduce network hops and implement predictive command buffering.",
+      "DP-C: Establish a hybrid architecture combining local vehicle-side sensor aggregation with operator-side command prediction and network-optimized serialization to distribute latency budget across acquisition, transmission, and execution phases.",
+      "DP-D: Use standard commercial teleoperation middleware (e.g., ROS 2 with DDS) with network tuning and QoS policies to achieve latency targets."
+    ],
+    "selected_dp": "DP-C: Hybrid architecture distributing latency budget across three phases: (1) vehicle-side sensor acquisition and edge buffering (target ≤40 ms), (2) network transmission with optimized serialization and prioritized scheduling (target ≤80 ms), (3) operator-side command prediction and vehicle-side execution (target ≤30 ms). This approach balances hardware optimization, network efficiency, and software predictability while remaining implementable within typical heavy equipment constraints.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Sensor acquisition timing is decoupled from network transmission via buffering, reducing coupling between vehicle hardware and network variability.",
+        "Command prediction at operator side is decoupled from vehicle actuator execution via command queue, allowing asynchronous processing.",
+        "Network transmission is isolated via dedicated protocol layer, reducing coupling to application logic."
+      ],
+      "notes": "DP-C exhibits low coupling because each phase (acquisition, transmission, execution) has independent latency budgets and buffering mechanisms. Failure in one phase does not directly cascade to others. This is superior to DP-A (tightly coupled to hardware acceleration) and DP-B (tightly coupled to cloud infrastructure availability)."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Network conditions remain within agreed profile (bandwidth ≥10 Mbps, jitter ≤50 ms, packet loss ≤1%). If exceeded, latency targets may not be achievable.",
+      "ASSUMPTION: Vehicle-side sensor hardware can support deterministic acquisition at ≤40 ms intervals. Legacy sensors may not meet this.",
+      "RISK: Command prediction algorithm may diverge from actual vehicle state under high-latency conditions, creating safety hazard. Mitigation: implement state reconciliation and operator override.",
+      "RISK: Buffering introduces memory overhead and potential data staleness. Mitigation: implement adaptive buffer sizing and age-based discard policies.",
+      "RISK: Serialization/deserialization overhead may consume significant portion of latency budget. Mitigation: use binary protocols (e.g., Protocol Buffers, MessagePack) instead of JSON."
+    ],
+    "recommended_revision": "Refine DP-C to explicitly specify: (1) sensor acquisition interval and buffering strategy, (2) network protocol choice (binary vs. text), (3) command prediction algorithm and state reconciliation mechanism, (4) latency monitoring and fallback behavior when budget is exceeded. These details are necessary to evaluate feasibility and allocate to implementation modules."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "The Teleoperation module owns the end-to-end latency optimization logic, including: vehicle-side sensor acquisition and buffering, network transmission protocol and scheduling, operator-side command prediction and state reconciliation, and real-time latency monitoring. This module integrates with Vehicle (for sensor/actuator access), Network Link (for transmission), and Safety Services (for latency alerts)."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Teleoperation receives sensor data (position, orientation, load, diagnostics) from Vehicle via Telemetry interface at deterministic intervals. Latency budget: ≤40 ms from sensor acquisition to Telemetry output."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Teleoperation sends operator commands (movement, tool control, mode changes) to Vehicle via Tasking interface. Latency budget: ≤30 ms from Tasking input to actuator execution."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Teleoperation transmits telemetry data and receives operator commands over Network Link. Latency budget: ≤80 ms round-trip. Teleoperation monitors link quality and reports degradation."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Teleoperation reports latency violations, link quality degradation, and command prediction divergence to Safety Services via SafetyAlert interface for operator notification and automated safety actions."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "Teleoperation is the natural owner of latency optimization logic. All four sub-FRs (sensor acquisition, network transmission, command execution, latency monitoring) are cohesive and belong within this module. Interfaces to Vehicle, Network Link, and Safety Services are well-defined and minimal. High containment, low diffusion."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 15,
+        "diffusion_score": 85,
+        "notes": "Vehicle owns sensor hardware and actuators but should not own latency optimization logic. Placing DP-C in Vehicle would scatter latency budget management across vehicle firmware, creating diffusion and tight coupling to hardware. Vehicle should provide clean Telemetry/Tasking interfaces; Teleoperation optimizes latency above these interfaces."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Safety Services owns safety policy enforcement and alerts but should not own latency optimization. Latency monitoring is a prerequisite for safety decisions, not a safety decision itself. Teleoperation monitors and reports; Safety Services consumes alerts and enforces policy."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 10,
+        "diffusion_score": 90,
+        "notes": "NGHE Solution is the system-level container but is too coarse-grained to own latency optimization. Assigning DP-C to NGHE Solution would prevent clear ownership and accountability. Teleoperation is the appropriate subsystem-level module."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the optimal owner of DP-C because: (1) it is functionally cohesive (all latency optimization logic is related), (2) it has minimal external dependencies (only Telemetry, Tasking, Network Link, SafetyAlert), (3) it encapsulates the latency budget distribution strategy, and (4) it enables clear accountability and testing. Ownership by Vehicle or Safety Services would create diffusion and coupling.",
+    "containment_risks": [
+      "RISK: Teleoperation module may become large and complex if it also owns command prediction algorithms, state reconciliation, and adaptive buffering. Mitigation: decompose into sub-modules (e.g., LatencyOptimizer, CommandPredictor, StateReconciler) within Teleoperation boundary.",
+      "RISK: Teleoperation depends on Vehicle providing clean Telemetry interface with deterministic timing. If Vehicle cannot guarantee ≤40 ms sensor acquisition, latency target is unachievable. Mitigation: establish interface contract with Vehicle team; validate in integration testing.",
+      "RISK: Network Link quality is outside Teleoperation control. If network conditions exceed agreed profile, latency target may not be achievable. Mitigation: implement graceful degradation and operator notification via SafetyAlert."
+    ],
+    "recommended_revision": "Refine IM assignment to specify: (1) Teleoperation sub-module structure (e.g., SensorAggregator, NetworkOptimizer, CommandPredictor, LatencyMonitor), (2) interface contracts with Vehicle (Telemetry timing guarantees), Network Link (bandwidth/jitter profile), and Safety Services (alert format and latency thresholds), (3) testing strategy for latency verification (instrumented test harness, network simulation, end-to-end integration tests)."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "Refined FR-NGHE-008 clearly specifies end-to-end latency requirement (p95 ≤150 ms) with measurement points and acceptance criteria. Selected DP-C (hybrid architecture with latency budget distribution) directly addresses this requirement by decomposing the latency budget into three phases (acquisition ≤40 ms, transmission ≤80 ms, execution ≤30 ms) that sum to ≤150 ms. DP-C is implementable, testable, and decoupled. No fundamental mismatch between FR and DP."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Teleoperation module may become large if it owns all latency optimization logic. Mitigation: plan sub-module decomposition in next level."
+      ],
+      "containment_notes": "Teleoperation module has high containment (95/100) and low diffusion (5/100) for DP-C. All latency optimization logic is cohesive and belongs within Teleoperation. External interfaces (Telemetry, Tasking, Network Link, SafetyAlert) are well-defined and minimal. No logic is scattered across Vehicle, Safety Services, or NGHE Solution. IM assignment is sound."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Refined FR-NGHE-008 is testable via instrumented teleoperation test harness measuring end-to-end latency across 1000+ cycles. Teleoperation module can be isolated and tested with mock Vehicle (Telemetry source) and mock Network Link (with configurable latency/jitter). Verification is feasible.",
+      "allocation_clarity": "Allocation of FR-NGHE-008 to Teleoperation module is clear. Sub-FRs (sensor acquisition, network transmission, command execution, latency monitoring) are allocated to Teleoperation sub-modules (to be defined in next level). No ambiguity or overlap with other modules."
+    },
+    "recommended_revisions": [
+      "Refine DP-C to specify: (1) sensor acquisition interval and buffering strategy, (2) network protocol choice (binary vs. text), (3) command prediction algorithm, (4) state reconciliation mechanism, (5) latency monitoring and fallback behavior.",
+      "Establish interface contracts with Vehicle (Telemetry timing guarantees), Network Link (bandwidth/jitter profile), and Safety Services (alert format and latency thresholds).",
+      "Plan Teleoperation sub-module decomposition (SensorAggregator, NetworkOptimizer, CommandPredictor, LatencyMonitor) to manage complexity.",
+      "Define testing strategy: unit tests for latency optimization logic, integration tests with Vehicle and Network Link, end-to-end system tests with operator-in-the-loop."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "Refined FR-NGHE-008 is non-atomic and has been decomposed into four sub-FRs (sensor acquisition, network transmission, command execution, latency monitoring). Selected DP-C is sound and well-matched to the FR. Assigned IM (Teleoperation) has high containment and low diffusion. All three gates (FR-DP, DP-IM, FR-IM) pass. However, DP-C requires further refinement (protocol choice, prediction algorithm, state reconciliation) before implementation can begin. The next level of decomposition should detail these design decisions and allocate sub-FRs to Teleoperation sub-modules. Proceeding to the next level is justified and necessary.",
+    "next_level_sub_frs": [
+      "FR-TELE-001: The teleoperation system shall acquire sensor data from the vehicle at deterministic intervals compatible with 150 ms end-to-end latency budget.",
+      "FR-TELE-002: The teleoperation system shall transmit operator commands over the network link with bounded latency compatible with 150 ms end-to-end budget.",
+      "FR-TELE-003: The teleoperation system shall execute received commands on vehicle actuators with minimal processing delay compatible with 150 ms end-to-end budget.",
+      "FR-TELE-004: The teleoperation system shall monitor and report network latency and link quality to the operator and safety services in real-time."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Network conditions remain within agreed profile (bandwidth ≥10 Mbps, jitter ≤50 ms, packet loss ≤1%).",
+        "Vehicle-side sensor hardware can support deterministic acquisition at ≤40 ms intervals.",
+        "Operator-side command prediction algorithm can be implemented with acceptable computational overhead.",
+        "Safety Services can consume latency alerts and enforce appropriate safety policies.",
+        "End-to-end latency measurement is feasible via instrumentation at sensor, network, and actuator boundaries."
+      ],
+      "open_risks": [
+        "Command prediction algorithm may diverge from actual vehicle state under high-latency conditions, creating safety hazard.",
+        "Buffering introduces memory overhead and potential data staleness.",
+        "Serialization/deserialization overhead may consume significant portion of latency budget.",
+        "Network conditions may exceed agreed profile, making latency targets unachievable.",
+        "Vehicle-side sensor hardware may not support required acquisition intervals.",
+        "Teleoperation module may become large and complex if it owns all latency optimization logic."
+      ],
+      "evidence_needed": [
+        "Network profile specification (bandwidth, jitter, packet loss under agreed conditions).",
+        "Vehicle sensor hardware specifications (acquisition interval, output format, timing guarantees).",
+        "Operator command prediction algorithm design and performance analysis.",
+        "State reconciliation mechanism design and safety analysis.",
+        "Latency monitoring and fallback behavior specification.",
+        "Test harness design and latency measurement methodology.",
+        "Integration test plan with Vehicle and Network Link modules.",
+        "End-to-end system test plan with operator-in-the-loop."
+      ]
+    }
+  }
+}

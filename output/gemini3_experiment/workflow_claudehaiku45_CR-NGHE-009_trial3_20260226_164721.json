@@ -1,0 +1,167 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation communication reliability within the customer-defined packet loss threshold during agreed network conditions.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting teleoperation capability and (2) meeting a specific quality metric (packet loss limit). The refined FR isolates the quality/reliability obligation as a single atomic requirement in the problem domain. It removes implementation bias ('communication quality') in favor of the measurable outcome ('packet loss threshold'). The phrase 'during agreed network conditions' acknowledges that acceptance is conditional on defined operational context, not on achieving performance under arbitrary conditions.",
+    "verification_idea": "Conduct teleoperation trials under agreed network conditions (latency, bandwidth, interference profile) and measure end-to-end packet loss across representative mission scenarios. Confirm that observed packet loss does not exceed the customer-defined threshold (e.g., ≤1%). Log packet loss statistics per trial and correlate with network condition parameters.",
+    "sub_frs": [
+      "FR-NGHE-009.1: The NGHE solution shall enable remote operation of heavy equipment from a tele-operator station.",
+      "FR-NGHE-009.2: The NGHE solution shall maintain teleoperation command and feedback transmission within the customer-defined packet loss limit under agreed network conditions."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Implement adaptive packet redundancy and selective retransmission based on real-time network quality metrics (latency, jitter, loss rate) to maintain effective throughput within acceptable operator response time.",
+      "DP2: Establish a dual-path communication architecture with independent network routes and automatic failover logic to ensure continuous command/telemetry flow during transient network degradation.",
+      "DP3: Deploy application-level forward error correction (FEC) encoding with configurable redundancy ratios, tuned to customer-agreed network conditions, to recover lost packets without requiring retransmission.",
+      "DP4: Implement a buffering and prioritization strategy that segregates critical control commands from non-critical telemetry, ensuring safety-critical packets are delivered within latency bounds even under packet loss.",
+      "DP5: Establish a network condition monitoring and operator notification system that alerts the operator when network quality degrades below thresholds, enabling manual intervention or graceful degradation of non-critical features."
+    ],
+    "selected_dp": "DP4 (Buffering and Prioritization) combined with DP3 (Application-level FEC) and DP5 (Monitoring and Notification). Rationale: This combination addresses the FR by decoupling safety-critical control paths from telemetry, applying FEC to reduce retransmission overhead (supporting agreed network conditions), and providing operator visibility into network state. This avoids over-engineering dual-path infrastructure (DP2) while maintaining reliability within the 1% packet loss threshold through logical separation and error correction rather than redundant hardware routes.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "DP3 (FEC) and DP4 (Prioritization) are loosely coupled: FEC operates on packet streams; prioritization determines which streams get FEC applied. Coupling is acceptable because both operate at the application layer and can be independently tuned.",
+        "DP5 (Monitoring) depends on metrics from DP3 and DP4 implementations, but this is a unidirectional dependency (monitoring observes, does not control logic), reducing coupling risk.",
+        "Risk: If FEC overhead becomes excessive under poor network conditions, it may paradoxically increase packet loss. Mitigation: DP5 monitoring must include FEC efficiency metrics to trigger adaptive reduction or fallback to DP4 prioritization alone."
+      ],
+      "notes": "The selected DP combination avoids tight coupling to specific network topologies or hardware redundancy. Each DP can be implemented and tested independently. The main coupling point is the shared network quality metric collection, which is a natural architectural boundary and does not violate independence principles."
+    },
+    "assumptions_risks": [
+      "Assumption: 'Agreed network conditions' are well-defined and stable during operation. Risk: If network conditions vary significantly beyond the agreed envelope, FEC tuning and prioritization thresholds may become suboptimal. Mitigation: DP5 monitoring must include adaptive recalibration triggers.",
+      "Assumption: Operator response time tolerance is known and documented. Risk: If latency introduced by buffering and FEC processing exceeds operator tolerance, the solution may degrade perceived reliability. Mitigation: Latency budget must be explicitly allocated and validated during design.",
+      "Assumption: Safety-critical commands can be cleanly separated from telemetry in the application protocol. Risk: If command and telemetry streams are interleaved or bidirectional, prioritization logic becomes complex. Mitigation: Protocol design must enforce clear separation or use explicit priority markers.",
+      "Assumption: Customer-defined packet loss threshold (≤1%) is achievable with application-level techniques alone. Risk: If underlying network is fundamentally unreliable (>5% loss), FEC and prioritization may be insufficient. Mitigation: Baseline network quality assessment must precede design; if baseline exceeds 3% loss, escalate to DP2 (dual-path) or network infrastructure upgrade.",
+      "Assumption: Operator can act on network degradation alerts in real-time. Risk: If operator is unavailable or unable to respond, DP5 notifications alone do not prevent loss of control. Mitigation: Define automatic graceful degradation policies (e.g., reduced speed, limited range) triggered by DP5 thresholds.",
+      "Assumption: Implementation modules (FEC codec, prioritization queue, monitoring agent) can be independently versioned and deployed. Risk: If these modules share state or configuration, version skew may cause failures. Mitigation: Define clear module interfaces and configuration contracts during IM design."
+    ],
+    "recommended_revision": "FR should be refined to explicitly state: (1) Latency budget for control commands (e.g., 'round-trip latency ≤ 500 ms'), (2) Definition of 'agreed network conditions' (e.g., 'WiFi 5 GHz in line-of-sight, <100 m range, <20 dBm interference'), (3) Operator response time tolerance, (4) Baseline network quality assessment results, and (5) Graceful degradation policy when network quality falls below thresholds. Additionally, clarify whether the 1% packet loss threshold applies to raw network packets or application-level messages (after FEC recovery). This will enable tighter DP-to-IM mapping and reduce implementation risk."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Encapsulates buffering, prioritization, application-level FEC, and monitoring/notification logic for teleoperated vehicle control. Owns the decoupling of safety-critical control paths from telemetry streams, error correction at the application layer, and operator-facing network state visibility."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives operator commands (control inputs); Teleoperation module buffers and prioritizes these with safety-critical precedence."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Emits safety-critical alerts when network conditions degrade below acceptable thresholds or FEC recovery fails; routed to Safety Services."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Transmits vehicle state, sensor data, and network monitoring metrics to operator; subject to buffering and prioritization logic within Teleoperation."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Bidirectional interface to physical network; Teleoperation applies FEC encoding on outbound telemetry and decoding on inbound tasking; monitors link quality metrics."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit. DP4 (buffering/prioritization), DP3 (FEC), and DP5 (monitoring/notification) are all core to teleoperation logic. Buffering and prioritization of control vs. telemetry is inherently a teleoperation concern. FEC at application layer is applied to telemetry streams managed by this module. Monitoring and operator notification are native to teleoperation UX. Minor diffusion: SafetyAlert interface requires coordination with Safety Services, but alert generation logic remains owned by Teleoperation."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor fit. Safety Services should own safety-critical decision logic and enforcement, not buffering/prioritization of telemetry or FEC encoding. DP4 and DP5 are primarily operational/UX concerns, not safety-critical logic. DP3 (FEC) is a network resilience mechanism, not a safety function. Placing these here would diffuse teleoperation logic across modules and blur safety vs. operational boundaries."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.25,
+        "diffusion_score": 0.75,
+        "notes": "Very poor fit. Vehicle module should own vehicle dynamics, actuators, and onboard sensors. DP4, DP3, and DP5 are all remote-side (operator/ground station) concerns. Placing buffering, FEC, and monitoring logic in Vehicle creates tight coupling between vehicle firmware and operator-side network management, violates separation of concerns, and makes vehicle logic dependent on teleoperation architecture."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Weak fit. NGHE Solution is likely a system-level integration boundary, not a functional module. Placing DP4, DP3, DP5 here would make them system-wide concerns rather than owned by a specific functional module, reducing clarity of responsibility and making testing/evolution harder. These DPs are best owned by a focused module (Teleoperation) and exposed via well-defined interfaces to NGHE."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the natural owner of buffering, prioritization, FEC, and monitoring/notification because: (1) buffering and prioritization of control vs. telemetry is a core teleoperation concern—safety-critical commands must be processed with low latency while telemetry can be buffered; (2) application-level FEC is applied to telemetry streams managed by Teleoperation to reduce retransmission overhead within agreed network conditions; (3) monitoring and operator notification are inherent to teleoperation UX and situational awareness. The module maintains a clean boundary: it receives Tasking (operator commands), applies buffering/prioritization/FEC logic, transmits Telemetry and SafetyAlert, and interfaces with Network Link for physical transmission. Safety Services remains independent, receiving SafetyAlert notifications when network conditions threaten safety thresholds.",
+    "containment_risks": [
+      "FEC encoding/decoding logic may require coordination with Vehicle module if vehicle-side decoding is needed; mitigate by defining FEC as application-layer (operator-side) only, with Vehicle treating FEC-encoded packets as opaque.",
+      "Monitoring and notification logic must not duplicate safety-critical checks already owned by Safety Services; mitigate by clearly separating operational monitoring (Teleoperation) from safety enforcement (Safety Services), with SafetyAlert as the integration point.",
+      "Buffering strategy must account for memory constraints on operator-side platform; mitigate by defining buffer sizing and overflow policies as part of DP4 specification.",
+      "Network Link interface must expose sufficient metrics (latency, packet loss, jitter) for Teleoperation to make buffering/prioritization decisions; mitigate by formalizing Network Link interface contract."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The FR specifies a measurable acceptance criterion (packet loss ≤ 1% under agreed network conditions). The Teleoperation IM owns buffering, prioritization, FEC, and monitoring—all directly observable and testable. Network Link interface exposes metrics (latency, packet loss, jitter) needed to validate that DP3+DP4+DP5 combination achieves the 1% threshold. Test harness can inject packet loss, measure recovery via FEC, and confirm operator visibility via SafetyAlert and Telemetry interfaces.",
+      "allocation_clarity": "Excellent. FR is allocated to a single, well-scoped IM (Teleoperation) with clear ownership of all three DPs. Interfaces are explicit: Tasking (in), SafetyAlert (out), Telemetry (out), Network Link (inout). No ambiguity about which module is responsible for meeting the 1% packet loss criterion. Safety Services remains decoupled, receiving only alerts when thresholds are breached."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP combination (DP3+DP4+DP5) is logically sound and directly addresses FR. DP3 (application-level FEC) reduces retransmission overhead and packet loss impact within agreed network conditions. DP4 (buffering/prioritization) decouples safety-critical control from telemetry, ensuring low-latency command delivery even under packet loss. DP5 (monitoring/notification) provides operator visibility into network state, enabling informed decisions and triggering SafetyAlert when conditions degrade. Rationale correctly justifies why DP2 (dual-path infrastructure) is avoided—logical separation and error correction are more cost-effective than hardware redundancy for the 1% threshold. No over-specification or under-specification detected."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "FEC encoding/decoding logic: If vehicle-side FEC decoding is later required, coordination with Vehicle module becomes necessary. Mitigation: Enforce application-layer FEC (operator-side only) in DP3 specification; Vehicle treats FEC-encoded packets as opaque. Document this boundary in Network Link interface contract.",
+        "Monitoring/notification duplication: Teleoperation's DP5 (monitoring) must not duplicate safety-critical checks owned by Safety Services. Risk: Operator-facing network state visibility could blur with safety-critical thresholds. Mitigation: Clearly separate operational monitoring (Teleoperation owns latency/jitter/packet-loss metrics for UX) from safety enforcement (Safety Services owns safety-critical decision logic). SafetyAlert is the integration point—Teleoperation emits alerts, Safety Services consumes and enforces.",
+        "Buffer sizing and overflow: DP4 (buffering) must account for operator-side platform memory constraints. Risk: Unbounded buffer growth under sustained packet loss could cause platform instability. Mitigation: Define buffer sizing policy, overflow handling (drop oldest telemetry vs. drop non-critical data), and memory limits as part of DP4 specification. Include in acceptance criteria.",
+        "Network Link interface contract: Teleoperation's buffering/prioritization decisions depend on Network Link exposing sufficient metrics (latency, packet loss, jitter, link quality). Risk: If Network Link interface is underspecified, Teleoperation cannot make informed decisions. Mitigation: Formalize Network Link interface contract with required metrics, update frequency, and accuracy guarantees."
+      ],
+      "containment_notes": "Teleoperation module achieves 0.92 containment score with 0.08 diffusion. Excellent fit: DP4 (buffering/prioritization of control vs. telemetry) is inherently a teleoperation concern. DP3 (application-level FEC on telemetry streams) is owned and applied by Teleoperation. DP5 (monitoring and operator notification) is native to teleoperation UX. Minor diffusion (SafetyAlert interface) is acceptable—Teleoperation generates alerts, Safety Services consumes them; this is a clean integration point, not diffusion. Alternative placements (Safety Services, Vehicle, NGHE Solution) all score poorly (0.25–0.65 containment) and would violate separation of concerns. Teleoperation is the correct owner."
+    },
+    "recommended_revisions": [
+      "Formalize DP3 specification to explicitly state FEC is applied at application layer (operator-side only) and Vehicle module treats FEC-encoded packets as opaque. Add to Network Link interface contract.",
+      "Define DP4 buffer sizing policy: maximum buffer depth, overflow strategy (drop oldest telemetry, drop non-critical data, or reject new data), and memory limits. Include in acceptance criteria and platform constraints.",
+      "Clarify DP5 monitoring scope: Teleoperation owns operational metrics (latency, jitter, packet loss, link quality) for operator UX; Safety Services owns safety-critical thresholds and enforcement. Document SafetyAlert as the integration point and define alert trigger conditions (e.g., packet loss > 1%, FEC recovery failure rate > threshold).",
+      "Formalize Network Link interface contract: specify required metrics (latency, packet loss, jitter, link quality), update frequency, accuracy guarantees, and error handling. Ensure Teleoperation can query link state to make buffering/prioritization decisions.",
+      "Add test plan to acceptance criteria: (1) Inject packet loss up to 1% and verify FEC recovery; (2) measure operator-side latency for safety-critical commands under packet loss; (3) verify SafetyAlert is emitted when packet loss exceeds threshold; (4) verify buffer does not exceed memory limits under sustained packet loss.",
+      "Document worksite safety plan integration: clarify how operator-facing network state visibility (DP5) informs worksite safety procedures and operator decision-making. Ensure SafetyAlert routing to Safety Services is compliant with worksite safety plan."
+    ]
+  },
+  "decision": {
+    "decision": "REVISE_CURRENT_LEVEL",
+    "justification": "All three gates (FR-IM, FR-DP, DP-IM) pass with high confidence, and the FR is well-scoped and measurable. However, the recommended_revisions identify critical specification gaps that must be resolved before proceeding to sub-FR decomposition. Specifically: (1) DP3 (FEC) lacks explicit application-layer boundary definition and Vehicle-side opacity contract; (2) DP4 (buffering) has no formalized sizing policy or overflow strategy; (3) DP5 (monitoring) conflates operational metrics with safety-critical thresholds, risking diffusion into Safety Services domain; (4) Network Link interface contract is underspecified, blocking Teleoperation's ability to make informed buffering decisions. These are not showstoppers—the logic is sound—but they are architectural debt that will propagate into sub-FR decomposition and implementation if left unresolved. Given high safety criticality, formalize these DPs now to establish clear ownership boundaries and prevent downstream rework.",
+    "next_level_sub_frs": [],
+    "revise": {
+      "target": "DP",
+      "why": "DP3, DP4, and DP5 require explicit specification refinement to eliminate ambiguity and establish clear module boundaries before sub-FR decomposition. Revisions needed: (1) DP3: Formalize FEC as application-layer (operator-side only), specify encoding/decoding algorithm family, and document Vehicle-side opacity contract in Network Link interface. (2) DP4: Define buffer sizing policy (max depth, overflow strategy, memory limits), prioritization rules (safety-critical control vs. telemetry), and latency guarantees for control commands. (3) DP5: Separate operational monitoring (Teleoperation owns latency/jitter/packet-loss metrics for UX) from safety-critical thresholds (Safety Services owns enforcement); formalize SafetyAlert trigger conditions and routing. (4) Network Link interface: Specify required metrics (latency, packet loss, jitter, link quality), update frequency, accuracy guarantees, and error handling to enable Teleoperation's buffering/prioritization decisions."
+    },
+    "record": {
+      "assumptions": [
+        "Network Link interface will expose sufficient metrics (latency, packet loss, jitter, link quality) with defined accuracy and update frequency to enable Teleoperation's buffering/prioritization logic.",
+        "Vehicle module will treat FEC-encoded packets as opaque and will not attempt to decode or re-encode them; FEC decoding occurs only at operator-side Teleoperation module.",
+        "Operator-side platform has sufficient memory to support buffering policy (max depth, overflow strategy) without causing platform instability under sustained packet loss.",
+        "SafetyAlert interface is the sole integration point between Teleoperation (operational monitoring) and Safety Services (safety-critical enforcement); no other cross-module dependencies exist.",
+        "Worksite safety plan defines acceptable operator decision-making latency and network state visibility requirements; Teleoperation's DP5 (monitoring) aligns with these requirements.",
+        "FEC algorithm selection (e.g., Reed-Solomon, Turbo codes) is compatible with agreed network conditions (latency, bandwidth, packet loss distribution) and does not introduce unacceptable encoding/decoding overhead."
+      ],
+      "open_risks": [
+        "FEC encoding/decoding logic diffusion: If Vehicle-side FEC decoding is later required (e.g., for vehicle-to-vehicle telemetry), coordination with Vehicle module becomes necessary. Mitigation: Enforce application-layer FEC (operator-side only) in DP3 specification; document Vehicle-side opacity contract in Network Link interface.",
+        "Monitoring/notification scope creep: Teleoperation's DP5 (operational monitoring) could blur with Safety Services' safety-critical thresholds, leading to diffusion and duplicate logic. Mitigation: Formalize separation of concerns—Teleoperation owns UX metrics, Safety Services owns safety enforcement; SafetyAlert is the integration point.",
+        "Buffer overflow under sustained packet loss: Unbounded buffer growth could cause operator-side platform instability. Mitigation: Define buffer sizing policy, overflow handling strategy, and memory limits as part of DP4 specification; include in acceptance criteria.",
+        "Network Link interface underspecification: If Network Link does not expose sufficient metrics or guarantees, Teleoperation cannot make informed buffering/prioritization decisions. Mitigation: Formalize Network Link interface contract with required metrics, update frequency, and accuracy guarantees.",
+        "FEC algorithm performance under agreed network conditions: If FEC encoding/decoding overhead exceeds latency budget or bandwidth constraints, DP3 may not be feasible. Mitigation: Validate FEC algorithm selection against network conditions and latency requirements during DP refinement.",
+        "Safety-critical command latency under buffering: DP4 (buffering/prioritization) must guarantee low-latency delivery of safety-critical commands even under packet loss. Risk: Prioritization logic could inadvertently delay critical commands. Mitigation: Formalize latency guarantees for safety-critical control commands in DP4 specification."
+      ],
+      "evidence_needed": [
+        "Formalized DP3 specification: FEC algorithm family, encoding/decoding parameters, application-layer boundary definition, Vehicle-side opacity contract, and integration with Network Link interface.",
+        "Formalized DP4 specification: Buffer sizing policy (max depth, overflow strategy, memory limits), prioritization rules (safety-critical control vs. telemetry), latency guarantees for control commands, and platform constraints.",
+        "Formalized DP5 specification: Operational monitoring scope (latency, jitter, packet loss, link quality metrics), SafetyAlert trigger conditions, alert routing to Safety Services, and operator UX requirements.",
+        "Formalized Network Link interface contract: Required metrics (latency, packet loss, jitter, link quality), update frequency, accuracy guarantees, error handling, and query API for Teleoperation's buffering/prioritization decisions.",
+        "Test plan: (1) Inject packet loss up to 1% and verify FEC recovery; (2) measure operator-side latency for safety-critical commands under packet loss; (3) verify SafetyAlert is emitted when packet loss exceeds threshold; (4) verify buffer does not exceed memory limits under sustained packet loss; (5) validate FEC algorithm performance against network conditions and latency budget.",
+        "Worksite safety plan alignment: Clarify how operator-facing network state visibility (DP5) informs worksite safety procedures and operator decision-making; ensure SafetyAlert routing is compliant with worksite safety plan."
+      ]
+    }
+  }
+}

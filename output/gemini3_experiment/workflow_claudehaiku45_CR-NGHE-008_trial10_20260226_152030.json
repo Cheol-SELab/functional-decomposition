@@ -1,0 +1,176 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall enable safe remote operation by maintaining end-to-end teleoperation latency within acceptable bounds for operator control.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting teleoperation capability, and (2) ensuring latency is compatible with safety. The refined version separates the functional intent (enable safe remote operation) from the performance constraint (latency bounds), making it solution-neutral and atomic. The phrase 'compatible with safe remote operation' is reframed as 'within acceptable bounds' to defer the specific numerical threshold to acceptance criteria rather than embedding it in the FR itself. This preserves the problem domain focus: what must be achieved (safe teleoperation) without prescribing how (specific latency targets or network technologies).",
+    "verification_idea": "Measure end-to-end latency (sensor-to-actuator round-trip time) under agreed network conditions and confirm it meets the acceptance criterion (p95 ≤ 150 ms). Conduct operator trials with Safety Manager oversight to validate that measured latency supports safe control during representative worksite tasks.",
+    "sub_frs": [
+      "FR-NGHE-008.1: The NGHE solution shall transmit operator control inputs from the tele-operator station to the remote equipment.",
+      "FR-NGHE-008.2: The NGHE solution shall transmit equipment state and sensor feedback from the remote equipment to the tele-operator station.",
+      "FR-NGHE-008.3: The NGHE solution shall minimize cumulative delay in the teleoperation control loop to support operator situational awareness and safe command execution."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Implement a hierarchical control architecture with local autonomous safety loops (operator-independent) and a remote command channel with bounded latency guarantees through network abstraction and adaptive transmission scheduling.",
+      "DP2: Decompose teleoperation into time-critical safety-critical commands (local execution with operator supervision) and non-critical state synchronization (asynchronous, best-effort), with explicit latency budgeting per command class.",
+      "DP3: Employ a dual-channel communication strategy: a low-latency, low-bandwidth command path (prioritized, QoS-enforced) and a high-bandwidth, higher-latency telemetry/feedback path (decoupled), with operator feedback mechanisms that account for latency asymmetry.",
+      "DP4: Design a predictive state model at the remote site that tolerates operator command delays by extrapolating equipment state and validating incoming commands against predicted safe envelopes before execution.",
+      "DP5: Implement network-agnostic latency management through a middleware abstraction layer that monitors end-to-end latency, adapts command transmission rates, buffers, and operator feedback timing to maintain p95 ≤ 150 ms within agreed network conditions."
+    ],
+    "selected_dp": "DP3 + DP5 (integrated): Employ a dual-channel communication strategy with explicit latency budgeting (command path: low-latency, QoS-enforced; telemetry path: decoupled, asynchronous) integrated with a network-agnostic latency management middleware that monitors end-to-end latency, adapts transmission scheduling, and provides operator feedback mechanisms calibrated to actual network conditions, ensuring p95 ≤ 150 ms for safety-critical commands under agreed network conditions.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between command prioritization logic (DP3) and network middleware (DP5) is acceptable and intentional: the middleware must be aware of command criticality to enforce QoS; this is a cohesive, not problematic, dependency.",
+        "Coupling between operator feedback timing and actual network latency (DP5) is necessary and managed through explicit latency monitoring; risk is low if feedback adaptation is decoupled from command execution logic.",
+        "Potential weak coupling: if telemetry path design (DP3) assumes specific buffering strategies without abstracting them, DP5 middleware may struggle to adapt. Mitigation: define telemetry path as a contract (max acceptable jitter, buffer semantics) rather than implementation."
+      ],
+      "notes": "DP3 + DP5 avoids tight coupling by separating concerns: DP3 defines logical channel strategy (what to separate), DP5 defines adaptive runtime management (how to meet latency bounds). Both are solution-neutral regarding network technology, allowing substitution of network implementations without redesign."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: 'Agreed network conditions' are well-defined, measurable, and stable during operation. RISK: If network conditions degrade beyond agreed bounds, p95 ≤ 150 ms may not be achievable. Mitigation: define fallback modes (reduced autonomy, operator-supervised local control) and network condition monitoring thresholds.",
+      "ASSUMPTION: Operator can tolerate asymmetric latency (command latency ≠ feedback latency). RISK: Operator confusion or unsafe commands if feedback delay is significantly longer than command delay. Mitigation: DP5 must explicitly manage feedback timing and provide operator awareness of latency state.",
+      "ASSUMPTION: Safety-critical commands can be identified and separated from non-critical state updates. RISK: Misclassification of command criticality could lead to unsafe execution or unnecessary latency overhead. Mitigation: worksite safety plan must define command taxonomy; DP implementation must enforce classification.",
+      "ASSUMPTION: Local autonomous safety loops (implicit in DP3/DP5) are feasible and do not require real-time operator intervention for all operations. RISK: If operator must approve every action, latency budget is consumed by human reaction time, not network. Mitigation: clarify operational modes (autonomous vs. supervised) in safety plan.",
+      "ASSUMPTION: Network middleware can be deployed and maintained independently of application logic. RISK: If middleware is tightly coupled to specific equipment or control algorithms, portability and testability suffer. Mitigation: DP5 must define clear middleware-application interface contract.",
+      "ASSUMPTION: p95 ≤ 150 ms is achievable under agreed network conditions with standard communication technologies. RISK: If network conditions include high jitter or packet loss, 150 ms may be unattainable without significant redundancy or error correction overhead. Mitigation: validate latency budget against network SLA; consider hybrid approaches (e.g., local prediction + remote validation)."
+    ],
+    "recommended_revision": "Refine FR to explicitly state: (1) which commands are safety-critical and require p95 ≤ 150 ms (e.g., emergency stop, collision avoidance) vs. which are non-critical (e.g., status queries); (2) acceptable operator feedback latency and asymmetry tolerance; (3) fallback behavior if network latency exceeds bounds; (4) definition of 'agreed network conditions' (bandwidth, jitter, packet loss, availability). This will enable DP5 middleware to be designed with precise latency budgets per command class and clear degradation modes. Additionally, introduce an explicit FR for 'operator situational awareness under latency' to ensure DP3's feedback strategy is evaluated against human factors, not just network metrics."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Encapsulates dual-channel communication orchestration (command and telemetry paths), latency budgeting logic, network condition monitoring, transmission scheduling adaptation, and operator feedback mechanisms. Owns the integration point between safety-critical command delivery and asynchronous telemetry collection."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives operator commands; Teleoperation enforces low-latency QoS and command-path prioritization before forwarding to Vehicle."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Emits vehicle state and sensor data via decoupled asynchronous path; Teleoperation manages buffering, scheduling, and operator feedback calibration."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Signals latency violations or network degradation to Safety Services; Teleoperation monitors end-to-end latency and triggers alerts when p95 > 150 ms."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Bidirectional network abstraction; Teleoperation queries link conditions (latency, jitter, packet loss) to adapt scheduling and provide feedback."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit. Teleoperation is the natural owner of dual-channel orchestration, latency budgeting, and operator feedback. Command/telemetry path separation aligns with its core responsibility. Minor diffusion: latency monitoring may require Safety Services coordination for alert thresholds, and Vehicle must implement command-path QoS enforcement (owned by Vehicle, not Teleoperation)."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.45,
+        "diffusion_score": 0.55,
+        "notes": "Poor fit as primary owner. Safety Services should enforce safety invariants (e.g., reject unsafe commands), not manage communication scheduling or operator feedback. Latency monitoring would diffuse across Teleoperation (scheduling), Vehicle (command execution), and Network Link (transmission). Creates coupling and responsibility confusion."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Weak fit. Vehicle owns command execution and telemetry generation, but not communication orchestration or network adaptation. Placing latency budgeting and scheduling in Vehicle couples it to network conditions and operator feedback, violating separation of concerns. Telemetry path decoupling would be difficult to enforce."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.5,
+        "diffusion_score": 0.5,
+        "notes": "Moderate fit if NGHE is a system-level integration layer. However, without clarity on NGHE's scope, it risks becoming a catch-all. If NGHE is meant to coordinate subsystems, it could own latency budgeting policy, but operational feedback and path-specific scheduling are better localized in Teleoperation."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the optimal boundary because it owns the operator-vehicle communication loop and is responsible for translating operator intent (Tasking) into vehicle commands and vehicle state into operator feedback (Telemetry). The dual-channel strategy (low-latency command path + decoupled telemetry path) is a communication architecture decision that belongs in Teleoperation. Latency budgeting, network monitoring, and scheduling adaptation are communication-layer concerns, not vehicle control or safety enforcement. This placement minimizes diffusion: Vehicle implements QoS on its side (owned responsibility), Safety Services enforces command safety (owned responsibility), and Network Link provides abstraction (owned responsibility). Teleoperation orchestrates these without duplicating logic.",
+    "containment_risks": [
+      "Risk: Latency monitoring requires real-time visibility into Vehicle command execution time. If Vehicle does not expose execution latency metrics, Teleoperation cannot accurately measure end-to-end latency. Mitigation: Define a telemetry interface that includes command acknowledgment timestamps.",
+      "Risk: Network Link abstraction may not expose sufficient detail (e.g., per-packet latency, jitter distribution) for Teleoperation to make fine-grained scheduling decisions. Mitigation: Extend Network Link interface to include latency statistics (p50, p95, p99) and link quality indicators.",
+      "Risk: Operator feedback mechanisms (e.g., visual/haptic cues for latency) may require Vehicle-specific knowledge (e.g., command criticality, execution state). Teleoperation must avoid tight coupling to Vehicle internals. Mitigation: Define feedback policy as a configuration parameter, not hardcoded logic.",
+      "Risk: Safety Services must veto commands that violate safety invariants before Teleoperation applies latency budgeting. If Safety Services is downstream, latency budgeting may mask safety violations. Mitigation: Ensure Safety Services is consulted before Tasking enters Teleoperation's latency pipeline."
+    ],
+    "recommended_revision": "No revision to DP required. The DP is well-scoped and logically sound. However, strengthen the DP specification by explicitly stating: (1) Teleoperation owns latency budgeting and scheduling; Vehicle owns command-path QoS enforcement and execution latency reporting; Safety Services owns command veto logic. (2) Define the Network Link interface to expose latency statistics (p95, jitter) and link quality metrics. (3) Clarify that operator feedback is calibrated to network conditions, not vehicle state, to avoid coupling Teleoperation to Vehicle internals. (4) Specify that latency monitoring is end-to-end (operator input → vehicle acknowledgment), not just network transit time."
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The acceptance criterion (p95 ≤ 150 ms for teleoperation latency under agreed network conditions) is measurable and testable. Teleoperation module can instrument end-to-end latency measurement (operator input timestamp → vehicle acknowledgment timestamp) and expose p95 metric via telemetry or monitoring interface. Network conditions must be explicitly defined in operational agreements (e.g., bandwidth, jitter bounds, packet loss thresholds) to establish baseline for acceptance testing.",
+      "allocation_clarity": "Clear. Teleoperation is the unambiguous owner of the FR realization. The module boundary encapsulates all required responsibilities: dual-channel orchestration, latency budgeting, network monitoring, scheduling adaptation, and operator feedback. Interfaces to Tasking (in), Telemetry (out), SafetyAlert (out), and Network Link (inout) are well-defined and non-overlapping with peer modules."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Latency monitoring diffusion: Teleoperation measures end-to-end latency but depends on Vehicle to report command execution time via telemetry. If Vehicle does not expose execution latency or acknowledgment timestamps, Teleoperation cannot close the measurement loop. Mitigation: Formalize Vehicle's telemetry interface to include command acknowledgment with timestamp and execution status.",
+        "Network Link abstraction gap: Teleoperation requires fine-grained latency statistics (p95, jitter, per-link latency) to make scheduling decisions, but Network Link may only expose coarse-grained metrics (average latency, link up/down). Mitigation: Extend Network Link interface specification to mandate exposure of latency percentiles and link quality indicators (packet loss, jitter distribution).",
+        "Operator feedback coupling risk: Feedback mechanisms (visual/haptic cues for latency degradation) may inadvertently couple Teleoperation to Vehicle state (e.g., command criticality, execution phase). This violates separation of concerns. Mitigation: Define operator feedback policy as a configuration parameter (e.g., 'alert if p95 > 120 ms') rather than hardcoded logic tied to vehicle internals.",
+        "Safety Services ordering: If Safety Services veto logic is applied downstream of Teleoperation's latency pipeline, safety violations may be masked by latency budgeting decisions. Mitigation: Ensure Safety Services is consulted before Tasking enters Teleoperation's command path (i.e., Safety Services is upstream, not downstream)."
+      ],
+      "containment_notes": "Excellent containment (0.92 score). Teleoperation is the natural and optimal owner of the DP. The module owns the operator-vehicle communication loop and is responsible for translating operator intent into vehicle commands while managing network-induced latency. The dual-channel strategy (low-latency command path + decoupled telemetry path) is a communication architecture decision that belongs in Teleoperation, not in Vehicle or Safety Services. Minor diffusion arises from dependencies on Vehicle (command execution latency reporting) and Network Link (latency statistics exposure), but these are external interface contracts, not ownership ambiguities. Teleoperation does not duplicate or scatter the DP logic across multiple modules."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "The DP is logically sound and directly addresses the FR. The dual-channel communication strategy (low-latency command path with QoS enforcement + decoupled asynchronous telemetry path) is a well-established pattern for teleoperation systems and directly mitigates latency variability. The integrated latency management middleware (monitoring, adaptation, feedback) provides the control mechanism to maintain p95 ≤ 150 ms. The DP is specific enough to guide implementation (e.g., command prioritization, transmission scheduling, network condition queries) while remaining technology-agnostic. No logical gaps or contradictions detected. The DP correctly decomposes the FR into two orthogonal concerns: (1) ensuring low-latency command delivery (safety-critical path), and (2) managing telemetry asynchronously (non-critical path). This separation is sound and reduces coupling."
+    },
+    "recommended_revisions": [
+      "Strengthen DP specification by explicitly assigning sub-responsibilities: (a) Teleoperation owns latency budgeting, scheduling adaptation, and operator feedback calibration; (b) Vehicle owns command-path QoS enforcement and execution latency reporting; (c) Safety Services owns command veto logic (applied before Teleoperation's latency pipeline). This clarifies the FR->DP->IM chain and prevents diffusion.",
+      "Extend Network Link interface specification to mandate exposure of latency statistics (p50, p95, p99 percentiles), jitter distribution, and link quality metrics (packet loss rate, link stability). Without these, Teleoperation cannot make data-driven scheduling decisions.",
+      "Formalize Vehicle's telemetry interface to include command acknowledgment with timestamp, execution status, and execution latency. This enables Teleoperation to measure true end-to-end latency (operator input → vehicle acknowledgment) rather than network transit time alone.",
+      "Define operator feedback policy as a configuration parameter (e.g., 'alert threshold: p95 > 120 ms', 'feedback modality: visual indicator') rather than hardcoded logic. This decouples Teleoperation from vehicle-specific knowledge and improves reusability.",
+      "Clarify in the DP that latency monitoring is end-to-end (operator input to vehicle acknowledgment), not just network transit time. This ensures the p95 ≤ 150 ms criterion accounts for all sources of delay (network, vehicle processing, feedback generation).",
+      "Document the 'agreed network conditions' baseline explicitly in operational policies (e.g., 'p95 ≤ 150 ms assumes bandwidth ≥ X Mbps, packet loss < Y%, jitter < Z ms'). This makes acceptance testing reproducible and clarifies when the DP is valid."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-IM, DP-IM, FR-DP) pass with high confidence (containment score 0.92, verification feasibility high, logical soundness confirmed). However, the recommended_revisions expose critical interface contracts and sub-responsibilities that must be decomposed to the next level to ensure diffusion risks are eliminated and ownership boundaries are unambiguous. Specifically: (1) Latency monitoring depends on Vehicle's telemetry interface (command acknowledgment with timestamp), which is not yet a formalized FR-DP-IM chain; (2) Network Link's latency statistics exposure is a dependency that requires explicit FR treatment; (3) Operator feedback policy parameterization and Safety Services ordering are sub-concerns that benefit from explicit decomposition. The high safety criticality of teleoperation (operator-vehicle control loop) mandates that these interface contracts and sub-responsibilities be elevated to formal FR-DP-IM chains at the next level, rather than left as informal 'mitigation notes'. Decomposition will also clarify the boundary between Teleoperation's latency management and Vehicle's command execution latency reporting, reducing diffusion risk from 'moderate' to 'low'.",
+    "next_level_sub_frs": [
+      "FR 2.1: Measure end-to-end command latency (operator input timestamp to vehicle acknowledgment timestamp) and expose p95, p99 percentiles to Teleoperation's latency adaptation logic.",
+      "FR 2.2: Enforce QoS (Quality of Service) on the command path to prioritize low-latency delivery under network congestion (e.g., command prioritization, transmission scheduling, packet marking).",
+      "FR 2.3: Adapt Teleoperation's scheduling and feedback modality based on real-time network condition metrics (latency percentiles, jitter, packet loss) to maintain p95 ≤ 150 ms.",
+      "FR 2.4: Parameterize operator feedback policy (alert thresholds, feedback modality, latency degradation cues) to decouple Teleoperation from vehicle-specific knowledge and enable reusability across vehicle types.",
+      "FR 2.5: Ensure Safety Services command veto logic is applied upstream of Teleoperation's latency pipeline (i.e., before command enters the low-latency path) to prevent safety violations from being masked by latency budgeting decisions.",
+      "FR 2.6: Expose latency statistics (p50, p95, p99 percentiles), jitter distribution, and link quality metrics (packet loss rate, link stability) from Network Link to enable Teleoperation's data-driven scheduling decisions."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "The current DP is logically sound but insufficiently detailed to guide implementation without ambiguity. Revise the DP to explicitly assign sub-responsibilities and interface contracts: (a) Teleoperation owns latency budgeting, scheduling adaptation, and operator feedback calibration; (b) Vehicle owns command-path QoS enforcement and execution latency reporting with timestamps; (c) Safety Services owns command veto logic (applied before Teleoperation's latency pipeline); (d) Network Link owns latency statistics exposure (p50, p95, p99, jitter, packet loss). This revision will eliminate the 'latency monitoring diffusion', 'Network Link abstraction gap', and 'Safety Services ordering' risks identified in the gate results. Additionally, clarify that latency monitoring is end-to-end (operator input to vehicle acknowledgment), not just network transit time, and document the 'agreed network conditions' baseline explicitly (bandwidth, packet loss, jitter bounds) to make acceptance testing reproducible."
+    },
+    "record": {
+      "assumptions": [
+        "Vehicle module can expose command acknowledgment with timestamp and execution latency via telemetry interface (formalized in FR 2.1).",
+        "Network Link module can expose fine-grained latency statistics (p50, p95, p99 percentiles, jitter, packet loss) rather than only coarse-grained metrics (formalized in FR 2.6).",
+        "Safety Services veto logic is applied upstream of Teleoperation's command path (formalized in FR 2.5).",
+        "Operator feedback policy can be parameterized as a configuration (e.g., alert threshold, modality) rather than hardcoded (formalized in FR 2.4).",
+        "Agreed network conditions (bandwidth, packet loss, jitter bounds) are documented in operational policies and remain stable during acceptance testing.",
+        "End-to-end latency measurement includes all sources of delay: network transit time, vehicle processing time, and feedback generation time."
+      ],
+      "open_risks": [
+        "Vehicle's telemetry interface may not expose command acknowledgment timestamps or execution latency, preventing Teleoperation from closing the measurement loop. Mitigation: Formalize Vehicle's telemetry interface in FR 2.1 and establish interface contract before implementation.",
+        "Network Link may not expose latency percentiles or jitter distribution, limiting Teleoperation's ability to make data-driven scheduling decisions. Mitigation: Formalize Network Link's interface in FR 2.6 and establish interface contract before implementation.",
+        "Operator feedback logic may inadvertently couple Teleoperation to vehicle-specific state (e.g., command criticality, execution phase), violating separation of concerns. Mitigation: Parameterize feedback policy in FR 2.4 and enforce decoupling via interface contracts.",
+        "Safety Services veto logic applied downstream of Teleoperation's latency pipeline may mask safety violations by allowing latency budgeting to override safety constraints. Mitigation: Formalize Safety Services ordering in FR 2.5 and establish interface contract to ensure veto is applied upstream.",
+        "Latency monitoring may measure only network transit time, not true end-to-end latency (operator input to vehicle acknowledgment). Mitigation: Clarify in FR 2.1 that measurement includes vehicle processing and feedback generation time."
+      ],
+      "evidence_needed": [
+        "Formal specification of Vehicle's telemetry interface: command acknowledgment message format, timestamp precision, execution latency reporting, and interface contract (FR 2.1).",
+        "Formal specification of Network Link's latency statistics interface: p50, p95, p99 percentiles, jitter distribution, packet loss rate, link stability metrics, and interface contract (FR 2.6).",
+        "Formal specification of operator feedback policy parameterization: configuration schema, alert thresholds, feedback modalities, and decoupling constraints (FR 2.4).",
+        "Formal specification of Safety Services ordering: veto logic placement (upstream vs. downstream), interface contract, and interaction with Teleoperation's latency pipeline (FR 2.5).",
+        "Documented 'agreed network conditions' baseline: bandwidth, packet loss, jitter bounds, and acceptance testing procedures (DP revision).",
+        "End-to-end latency measurement methodology: definition of 'operator input timestamp' and 'vehicle acknowledgment timestamp', inclusion of all delay sources, and measurement instrumentation (FR 2.1).",
+        "QoS enforcement mechanism specification: command prioritization rules, transmission scheduling algorithm, packet marking strategy, and interaction with Network Link (FR 2.2).",
+        "Latency adaptation algorithm specification: decision logic for scheduling changes, feedback modality adjustments, and thresholds for triggering adaptation (FR 2.3)."
+      ]
+    }
+  }
+}

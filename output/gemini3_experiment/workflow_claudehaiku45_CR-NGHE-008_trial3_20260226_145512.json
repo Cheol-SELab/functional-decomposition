@@ -1,0 +1,180 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall enable safe remote operation by maintaining end-to-end teleoperation latency within acceptable bounds for operator control.",
+    "rationale": "The original FR conflates two distinct obligations: (1) the capability to support teleoperation as a mode of operation, and (2) the latency performance requirement that makes that mode safe. The refined FR focuses on the functional requirement in the problem domain—enabling safe remote operation through latency control—without prescribing the specific 150 ms threshold (which is an acceptance criterion, not a functional requirement). This formulation is solution-neutral: it does not mandate network architecture, communication protocol, or hardware; it only states the functional obligation. The atomic nature is preserved because the FR addresses a single concern: latency performance as a prerequisite for safe teleoperation.",
+    "verification_idea": "Measure end-to-end latency (sensor input to actuator output) under representative worksite network conditions and operational scenarios. Confirm that measured latency supports safe operator control as validated by safety analysis and operator acceptance testing. Cross-reference against the acceptance criterion (p95 ≤ 150 ms) and worksite safety plan requirements.",
+    "sub_frs": [
+      "FR-NGHE-008.1: The NGHE solution shall acquire and transmit operator control inputs from the remote station to the equipment with minimal delay.",
+      "FR-NGHE-008.2: The NGHE solution shall acquire and transmit equipment state and sensor feedback from the equipment to the remote station with minimal delay.",
+      "FR-NGHE-008.3: The NGHE solution shall process and execute operator commands on the equipment with minimal delay."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Implement a hierarchical control architecture with local autonomous safety enforcement at the remote site, coupled with asynchronous command-response telemetry over a latency-tolerant network abstraction layer that decouples operator input timing from network jitter.",
+      "DP2: Deploy a dual-channel communication system with primary real-time control path (low-latency, deterministic) and secondary supervisory path (higher-latency, best-effort) such that safety-critical commands use the primary path while non-critical telemetry uses the secondary path.",
+      "DP3: Establish a predictive state synchronization mechanism where the remote site maintains a forward model of expected equipment state, allowing the operator to issue commands based on predicted state rather than waiting for acknowledgment, with periodic reconciliation to correct drift.",
+      "DP4: Implement edge-local decision logic with operator-in-the-loop validation, where time-critical safety decisions are made at the remote site using pre-authorized policies, and the operator receives real-time feedback for override or confirmation within the latency budget.",
+      "DP5: Use a network abstraction layer that provides bounded latency guarantees through traffic prioritization, packet scheduling, and adaptive payload compression, decoupling the logical control protocol from underlying network variability."
+    ],
+    "selected_dp": "DP2: Deploy a dual-channel communication system with primary real-time control path (low-latency, deterministic) and secondary supervisory path (higher-latency, best-effort) such that safety-critical commands use the primary path while non-critical telemetry uses the secondary path.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "State coherence risk: Primary and secondary channels may diverge if reconciliation logic is not explicit; recommend adding a tertiary heartbeat/sync channel to detect split-brain conditions.",
+        "Operator cognitive load: Dual-channel design requires clear demarcation of which commands route to which channel; poor UI/UX mapping could undermine safety intent.",
+        "Network dependency: Design assumes ability to provision or guarantee two independent network paths; if underlying infrastructure is shared (e.g., single ISP), coupling is hidden and risk is unmitigated.",
+        "Command ordering: Asynchronous dual-path execution may violate command sequence assumptions if operator expects strict ordering; requires explicit sequencing protocol."
+      ],
+      "notes": "DP2 is selected because it directly addresses the latency constraint by segregating safety-critical (low-latency) from non-critical (higher-latency) traffic, reducing contention and enabling use of deterministic scheduling for the primary path. It avoids over-coupling to a single network technology and allows independent optimization of each channel. However, coherence and ordering risks must be mitigated in the DP->IM transition."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Two logically or physically independent network paths are available or can be provisioned within cost/schedule constraints.",
+      "ASSUMPTION: Operator training and worksite safety plan explicitly define which commands are safety-critical vs. supervisory, enabling clear routing rules.",
+      "ASSUMPTION: The remote site has sufficient computational capacity to maintain state coherence and detect channel divergence without adding latency.",
+      "RISK: If network paths share common infrastructure (e.g., same backbone), latency correlation may violate independence assumption; p95 ≤ 150 ms may not be achievable under congestion.",
+      "RISK: Operator error in command routing (e.g., issuing safety-critical command on secondary path) could violate safety intent; requires strong UI/UX and procedural controls.",
+      "RISK: Reconciliation/heartbeat overhead on primary path may consume latency budget; requires careful protocol design to stay within p95 ≤ 150 ms.",
+      "RISK: If worksite safety plan is not finalized or is ambiguous, classification of commands as safety-critical vs. supervisory may be contested, delaying IM design."
+    ],
+    "recommended_revision": "Refine FR to explicitly state: (1) which equipment states or commands are classified as safety-critical and must complete within p95 ≤ 150 ms, and (2) acceptable latency for supervisory telemetry (e.g., video, sensor logs). Add a secondary FR: 'The NGHE solution shall detect and alert the operator to loss of coherence between primary and secondary control channels within [X] seconds.' This will clarify the boundary between DP2 (dual-channel routing) and the coherence-checking mechanism, reducing ambiguity in the DP->IM mapping and enabling clearer ownership of the heartbeat/sync module."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Encapsulates dual-channel communication orchestration, routing logic for primary (real-time control) and secondary (supervisory) paths, and channel selection based on command criticality."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives operator commands; Teleoperation module classifies criticality and routes to appropriate channel (primary for safety-critical, secondary for non-critical)."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Emits safety-critical command confirmations and channel-state alerts when primary path degrades or secondary path is used for non-critical telemetry."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Bidirectional interface to underlying network substrate; Teleoperation manages dual-channel abstraction over physical network resources (primary and secondary paths)."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Outputs vehicle state and diagnostic data; non-critical telemetry routed via secondary path, critical state updates via primary path."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit: Teleoperation is the natural locus for command routing, channel selection, and operator-vehicle communication orchestration. Dual-channel logic (primary vs. secondary) is inherently a teleoperation concern. Minor diffusion: Safety Services must validate criticality labels; Vehicle must execute commands received on either channel."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.65,
+        "diffusion_score": 0.35,
+        "notes": "Moderate fit: Safety Services could enforce criticality classification and validate channel routing, but would not naturally own the communication infrastructure itself. High diffusion: Teleoperation and Vehicle would still need to implement channel selection and transmission logic independently. Dual-channel communication is operational, not purely safety-validation."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.58,
+        "diffusion_score": 0.42,
+        "notes": "Weak fit: Vehicle is the receiver/executor of commands, not the orchestrator of dual-channel communication. Placing channel logic in Vehicle creates tight coupling between vehicle control and remote communication strategy. High diffusion: Teleoperation and Safety Services would need to coordinate channel selection externally."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.45,
+        "diffusion_score": 0.55,
+        "notes": "Poor fit: NGHE Solution is a top-level system container, not a functional module. Placing dual-channel logic here violates separation of concerns and creates diffusion across all child modules (Teleoperation, Vehicle, Safety Services). Overly broad boundary."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the optimal boundary because it owns the operator-to-vehicle communication contract. Dual-channel routing (primary real-time vs. secondary supervisory) is a communication orchestration concern that naturally resides at the teleoperation layer. The module receives Tasking (operator commands), classifies them by criticality, selects the appropriate channel, and emits SafetyAlert notifications and Telemetry outputs. This keeps channel logic cohesive and minimizes diffusion to Safety Services (for criticality validation) and Vehicle (for command execution).",
+    "containment_risks": [
+      "Criticality classification logic must be defined and validated by Safety Services; Teleoperation should not unilaterally decide what is 'safety-critical.' Recommend a shared criticality taxonomy or interface contract.",
+      "Network Link interface must reliably support dual-channel abstraction; if underlying network cannot guarantee deterministic primary path, DP becomes infeasible regardless of module boundary.",
+      "Vehicle module must be capable of receiving and executing commands from either channel without ambiguity; command format and sequencing must be channel-agnostic to avoid Vehicle-side diffusion.",
+      "Telemetry routing (critical vs. non-critical) requires Vehicle to tag outbound data; this creates a secondary coupling point. Consider whether Vehicle should own telemetry classification or Teleoperation should infer it from message type."
+    ],
+    "recommended_revision": "DP is well-formed and containment is strong in Teleoperation. No revision needed. However, recommend clarifying the DP to explicitly state: (1) Criticality classification is performed by Teleoperation in consultation with Safety Services (via interface contract), and (2) Vehicle executes commands identically regardless of channel origin, ensuring channel selection is transparent to vehicle control logic. This reinforces cohesion in Teleoperation and minimizes coupling to Vehicle."
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. Acceptance criterion 'Teleoperation latency p95 ≤ 150 ms' is measurable and directly traceable to the Teleoperation IM boundary. Dual-channel routing logic can be instrumented to log channel selection, latency per path, and command criticality classification. Network conditions must be formally specified (e.g., primary path RTT, secondary path RTT, jitter bounds) to enable reproducible testing. Vehicle command execution latency must also be characterized to isolate Teleoperation contribution from end-to-end latency.",
+      "allocation_clarity": "Clear. FR maps to DP (dual-channel strategy) and DP maps to Teleoperation IM with well-defined external interfaces (Tasking in, SafetyAlert out, Network Link inout, Telemetry out). Ownership boundary is unambiguous. However, allocation clarity depends on resolving three secondary allocation points: (1) Criticality classification ownership (Teleoperation vs. Safety Services interface contract), (2) Telemetry tagging ownership (Vehicle vs. Teleoperation inference), and (3) Network Link abstraction fidelity (whether dual-channel determinism is guaranteed by underlying substrate)."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Criticality classification logic is partially diffused: Teleoperation performs routing based on criticality labels, but Safety Services must validate and define the criticality taxonomy. Without a formal interface contract (e.g., criticality enum, validation rules), Teleoperation may implement classification logic that diverges from Safety Services intent, creating hidden coupling and validation gaps.",
+        "Telemetry routing creates secondary diffusion: Vehicle must tag outbound telemetry as critical or non-critical for Teleoperation to route correctly. If Vehicle owns this classification, Teleoperation depends on Vehicle-side logic; if Teleoperation infers it, Vehicle must emit structured data that Teleoperation can parse. Either approach introduces coupling. Recommend explicit ownership decision and interface contract.",
+        "Network Link abstraction fidelity: Teleoperation assumes the Network Link IM can reliably provide a deterministic primary path (p95 ≤ 150 ms) and a best-effort secondary path. If the underlying network substrate cannot guarantee this separation (e.g., single shared link with QoS tagging), the DP becomes infeasible. Teleoperation IM cannot compensate for network-layer failures. Recommend explicit network capability validation as a precondition.",
+        "Channel selection transparency to Vehicle: If Vehicle receives commands from either channel but must execute them identically, Vehicle must not be aware of channel origin. However, if Vehicle needs to log or audit channel provenance for safety traceability, Teleoperation must embed channel metadata in command frames. This creates a subtle coupling point. Recommend clarifying whether channel metadata is part of the command contract."
+      ],
+      "containment_notes": "Containment score of 0.92 for Teleoperation is justified. Dual-channel orchestration (primary real-time vs. secondary supervisory) is inherently a teleoperation concern and naturally resides at the operator-vehicle communication boundary. The module cohesively owns command routing, channel selection, and operator-facing alerts (SafetyAlert). Minor diffusion to Safety Services (criticality validation) and Vehicle (command execution) is acceptable and expected at module boundaries. Recommend formalizing these boundary contracts via interface specifications to minimize hidden coupling. No alternative module boundary (Safety Services, Vehicle, or NGHE Solution) would improve containment without introducing significantly higher diffusion."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP is well-formed and directly addresses the FR. The dual-channel strategy (primary real-time + secondary supervisory) is a sound design approach for maintaining safe remote operation within latency bounds. DP explicitly maps to the acceptance criterion (p95 ≤ 150 ms) by segregating safety-critical commands to a low-latency deterministic path. The DP is implementable and testable. No logical gaps or contradictions detected. However, DP feasibility depends on three external assumptions: (1) Network substrate can provide dual-channel separation with guaranteed primary-path latency, (2) Criticality classification is well-defined and validated by Safety Services, and (3) Vehicle can execute commands from either channel without ambiguity. Recommend documenting these assumptions as preconditions in the DP specification."
+    },
+    "recommended_revisions": [
+      "Formalize criticality classification interface: Create an explicit contract between Teleoperation and Safety Services that defines the criticality taxonomy (e.g., enum: SAFETY_CRITICAL, OPERATIONAL, DIAGNOSTIC), validation rules, and any dynamic reclassification logic. This prevents Teleoperation from unilaterally deciding criticality and ensures Safety Services can audit routing decisions.",
+      "Clarify telemetry routing ownership: Decide whether Vehicle tags outbound telemetry with criticality labels (Vehicle owns classification) or Teleoperation infers criticality from message type/source (Teleoperation owns inference). Document the chosen approach in the Telemetry interface specification to minimize coupling and enable independent testing.",
+      "Validate Network Link preconditions: Explicitly specify the network capability requirements for DP feasibility: primary path latency distribution (mean, p95, p99), secondary path latency distribution, jitter bounds, packet loss rates, and dual-channel isolation guarantees. Conduct network characterization testing under agreed worksite conditions before declaring DP feasible. If network cannot meet primary-path latency bounds, DP must be revised (e.g., hybrid approach with local autonomy fallback).",
+      "Embed channel metadata in command frames (optional but recommended): If Vehicle must audit or log channel provenance for safety traceability, define a channel-origin field in the command frame format. If channel origin is irrelevant to Vehicle execution, explicitly document that Teleoperation must strip channel metadata before forwarding to Vehicle to enforce channel-transparency. This prevents Vehicle from inadvertently coupling to communication strategy.",
+      "Define latency measurement methodology: Specify how p95 ≤ 150 ms is measured end-to-end: operator input → Teleoperation classification → channel transmission → Vehicle receipt → command execution start. Clarify whether 150 ms includes Vehicle execution latency or only Teleoperation + network latency. Recommend instrumenting both Teleoperation and Vehicle to isolate contributions and enable root-cause analysis of latency violations.",
+      "Document fallback and degradation behavior: Specify what happens if primary path degrades (latency exceeds p95 threshold, packet loss increases, or link fails). Does Teleoperation automatically failover to secondary path for safety-critical commands? Does it alert the operator and request manual intervention? Does it trigger a safety shutdown? Recommend explicit state machine or decision logic in DP to handle graceful degradation."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "Gate results show FR-DP-IM alignment is sound (all three gates pass), but diffusion risks and allocation clarity gaps are substantial enough to warrant decomposition before implementation. The dual-channel strategy is logically correct, but three critical secondary allocation points remain unresolved: (1) criticality classification ownership and interface contract between Teleoperation and Safety Services, (2) telemetry tagging ownership (Vehicle vs. Teleoperation inference), and (3) Network Link abstraction preconditions. These are not design flaws but rather architectural dependencies that must be explicitly decomposed into sub-FRs to ensure each allocation point has clear ownership, measurable acceptance criteria, and testable interfaces. High safety criticality amplifies the need for explicit decomposition: ambiguity in criticality classification or channel metadata handling could lead to undetected safety violations. Decomposing now prevents late-stage rework and enables parallel development of Teleoperation, Safety Services, and Vehicle modules with clear contracts.",
+    "next_level_sub_frs": [
+      "FR 1.1: Classify operator commands by safety criticality (SAFETY_CRITICAL, OPERATIONAL, DIAGNOSTIC) and route to appropriate channel (primary deterministic vs. secondary best-effort) based on validated criticality taxonomy.",
+      "FR 1.2: Validate criticality classification against Safety Services-defined taxonomy and reject or reclassify commands that violate safety rules before routing.",
+      "FR 1.3: Infer or receive telemetry criticality labels from Vehicle and route critical telemetry to operator via primary channel with p95 ≤ 150 ms latency; route non-critical telemetry via secondary channel.",
+      "FR 1.4: Ensure Network Link substrate provides dual-channel separation with primary path p95 latency ≤ 150 ms and secondary path best-effort delivery under specified network conditions (RTT, jitter, packet loss bounds).",
+      "FR 1.5: Embed or strip channel-origin metadata in command frames based on Vehicle audit requirements and enforce channel transparency to prevent Vehicle from coupling to communication strategy.",
+      "FR 1.6: Monitor primary channel latency in real-time and alert operator or trigger failover to secondary path if p95 latency exceeds threshold or link degrades.",
+      "FR 1.7: Define and execute graceful degradation behavior (failover, operator alert, safety shutdown) when primary path fails or secondary path becomes unavailable."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "DP is logically sound but lacks explicit specification of three critical sub-strategies: (1) criticality classification and validation logic (interface contract with Safety Services), (2) telemetry routing ownership and inference rules (interface contract with Vehicle), and (3) Network Link preconditions and latency monitoring (interface contract with Network Link IM). Revise DP to explicitly state these sub-strategies as part of the dual-channel orchestration design, making them decomposable into sub-FRs with measurable acceptance criteria. Current DP is too high-level to guide implementation without introducing hidden coupling or validation gaps."
+    },
+    "record": {
+      "assumptions": [
+        "Network substrate can provide dual-channel separation (primary deterministic, secondary best-effort) with guaranteed primary-path latency p95 ≤ 150 ms under specified worksite conditions.",
+        "Safety Services will define and validate a criticality taxonomy (enum or equivalent) that Teleoperation can use to classify commands without ambiguity.",
+        "Vehicle can execute commands from either channel identically and does not require channel-origin metadata for command execution (channel transparency enforced).",
+        "Telemetry from Vehicle is either pre-tagged with criticality labels by Vehicle or can be inferred by Teleoperation from message type/source without loss of safety information.",
+        "Operator input latency (human reaction time) is not included in the p95 ≤ 150 ms acceptance criterion; criterion applies only to Teleoperation + network + Vehicle execution latency.",
+        "Failover and degradation behavior (e.g., automatic failover vs. operator alert) is acceptable to Safety Services and does not violate safety requirements."
+      ],
+      "open_risks": [
+        "Criticality classification diffusion: If Teleoperation and Safety Services do not establish a formal interface contract, Teleoperation may implement classification logic that diverges from Safety Services intent, creating hidden coupling and undetected safety violations. Recommend explicit ownership decision and enum-based interface specification before implementation.",
+        "Telemetry routing coupling: If Vehicle owns criticality tagging, Teleoperation depends on Vehicle-side logic; if Teleoperation infers criticality, Vehicle must emit structured data that Teleoperation can parse reliably. Either approach introduces coupling. Recommend explicit ownership decision and interface contract to minimize coupling and enable independent testing.",
+        "Network Link abstraction fidelity: If underlying network substrate cannot guarantee dual-channel separation or primary-path latency bounds, DP becomes infeasible. Teleoperation IM cannot compensate for network-layer failures. Recommend explicit network capability validation (characterization testing) as a precondition before declaring DP feasible.",
+        "Channel metadata transparency: If Vehicle receives channel-origin metadata but must execute commands identically regardless of channel, Vehicle may inadvertently couple to communication strategy or use channel metadata for unintended purposes (e.g., audit logging without explicit contract). Recommend clarifying whether channel metadata is part of command contract and enforcing transparency at module boundary.",
+        "Latency measurement ambiguity: If p95 ≤ 150 ms is measured inconsistently (e.g., some tests include Vehicle execution latency, others do not), acceptance criterion becomes unmeasurable and validation becomes unreliable. Recommend explicit measurement methodology and instrumentation strategy before testing.",
+        "Failover and degradation behavior undefined: If Teleoperation does not have explicit logic for handling primary-path degradation, operator may be unaware of channel switch or safety shutdown may occur without warning. Recommend explicit state machine or decision logic in DP to handle graceful degradation and operator notification."
+      ],
+      "evidence_needed": [
+        "Formal interface specification between Teleoperation and Safety Services defining criticality taxonomy (enum, validation rules, dynamic reclassification logic).",
+        "Formal interface specification between Teleoperation and Vehicle defining telemetry routing ownership (Vehicle tagging vs. Teleoperation inference) and criticality label format.",
+        "Network characterization report specifying primary-path latency distribution (mean, p95, p99), secondary-path latency distribution, jitter bounds, packet loss rates, and dual-channel isolation guarantees under agreed worksite conditions.",
+        "Formal interface specification between Teleoperation and Network Link IM defining dual-channel separation guarantees, latency bounds, and failure modes.",
+        "Command frame format specification clarifying whether channel-origin metadata is included and, if so, whether Vehicle must strip it before execution (channel transparency enforcement).",
+        "Latency measurement methodology document specifying end-to-end measurement points (operator input → Teleoperation classification → channel transmission → Vehicle receipt → command execution start), instrumentation strategy, and acceptance criterion interpretation (whether 150 ms includes Vehicle execution latency).",
+        "Failover and degradation behavior specification (state machine, decision logic, operator alerts, safety shutdown triggers) for primary-path degradation, secondary-path unavailability, and dual-channel failure scenarios.",
+        "Test plan for criticality classification validation, telemetry routing correctness, latency compliance, and failover behavior under simulated network degradation conditions."
+      ]
+    }
+  }
+}

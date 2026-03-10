@@ -1,0 +1,171 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall propagate worksite model state changes to all authorized consumers within the customer-defined latency threshold.",
+    "rationale": "The original FR conflates two distinct obligations: (1) detecting/capturing state changes in the worksite model, and (2) delivering those changes to consumers within a time bound. The refined FR focuses on the propagation obligation (the primary latency concern) and removes the vague 'operational use' qualifier in favor of explicit reference to customer-defined acceptance criteria. The term 'propagate' is solution-neutral (avoids prescribing polling, pub-sub, or push mechanisms) and 'authorized consumers' acknowledges that different stakeholders (operator, tele-operator, safety manager, maintenance) may have different visibility and latency requirements.",
+    "verification_idea": "Measure end-to-end latency from the moment a worksite state change is committed (e.g., equipment position update, hazard detection, task completion) to the moment all subscribed authorized consumers receive the updated model state. Validate across representative update scenarios (e.g., equipment movement, sensor event, manual annotation) and confirm p95 latency ≤ customer-defined threshold (e.g., 1.0 s). Verify that unauthorized consumers do not receive restricted state changes.",
+    "sub_frs": [
+      "FR-NGHE-007.1: The NGHE solution shall detect and capture worksite model state changes from all authorized sources (equipment telemetry, sensors, manual input, external systems).",
+      "FR-NGHE-007.2: The NGHE solution shall deliver worksite model state changes to all authorized consumers within the customer-defined latency threshold.",
+      "FR-NGHE-007.3: The NGHE solution shall enforce access control such that only authorized consumers receive worksite model state changes relevant to their role."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Centralized event-driven state propagation with asynchronous message broker (decouples producers from consumers; supports fan-out to multiple authorized subscribers; enables latency-bounded delivery guarantees)",
+      "DP2: Synchronous request-response state synchronization with polling intervals (simple, but couples client availability to server; latency depends on poll frequency and network round-trip)",
+      "DP3: Hybrid push-pull with change-data-capture (CDC) stream and optional client-initiated refresh (captures all state mutations at source; allows consumers to subscribe to relevant change streams; supports both real-time and eventual consistency modes)",
+      "DP4: Peer-to-peer gossip protocol with eventual consistency (distributes state changes through direct node-to-node communication; reduces central bottleneck; latency is probabilistic and depends on network topology)",
+      "DP5: Publish-subscribe with topic-based filtering and authorization enforcement at broker (decouples producers and consumers; enables fine-grained access control; supports selective subscription based on worksite model segments)"
+    ],
+    "selected_dp": "DP3: Hybrid push-pull with change-data-capture (CDC) stream and optional client-initiated refresh. Rationale: (1) CDC at the source ensures no state mutation is lost, supporting audit and compliance with worksite safety policies. (2) Stream-based subscription allows authorized consumers to receive changes within bounded latency (push mode satisfies p95 ≤ 1.0 s requirement). (3) Optional pull/refresh decouples consumer availability from delivery guarantee, improving resilience. (4) Authorization filtering at the CDC layer (not at consumer) prevents unauthorized access to state changes. (5) Supports both real-time operational updates and eventual consistency for non-critical consumers, enabling flexible deployment across heterogeneous network conditions.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "CDC implementation tightly coupled to worksite model schema: mitigate by defining a schema versioning and evolution strategy; use logical change events (e.g., 'SafetyPlanUpdated') rather than raw field diffs.",
+        "Authorization logic duplicated across CDC filter and consumer validation: mitigate by centralizing authorization policy evaluation in a dedicated policy engine; CDC filter queries this engine, avoiding logic drift.",
+        "Consumer subscription state management: if consumers must track which changes they have processed, tight coupling to CDC offset/sequence semantics can emerge; mitigate by using idempotent change identifiers and allowing consumers to independently manage their consumption state.",
+        "Network latency variance: p95 ≤ 1.0 s assumes predictable network conditions; if network is highly variable, latency SLA may be violated; mitigate by defining fallback to pull-based refresh and monitoring end-to-end latency distribution."
+      ],
+      "notes": "DP3 decouples producers (worksite model writers) from consumers (authorized subscribers) via the CDC stream abstraction. Authorization is enforced at the stream boundary, not at each consumer, reducing coupling. The hybrid nature (push + optional pull) allows consumers to operate independently of producer availability. Schema evolution and offset management are the primary coupling risks; both are addressable through explicit versioning and idempotency contracts."
+    },
+    "assumptions_risks": [
+      "Assumption: CDC infrastructure (e.g., log-based change capture) is available and can be deployed within the NGHE architecture. Risk: If legacy worksite model storage does not support efficient change capture, CDC implementation cost may be high; mitigation: evaluate storage layer capabilities early; consider application-level event sourcing as alternative.",
+      "Assumption: Authorized consumer list is stable or changes infrequently. Risk: If authorization rules are highly dynamic (e.g., per-shift role changes), authorization filtering at CDC layer may become a bottleneck; mitigation: cache authorization decisions with short TTL; use event-driven authorization updates.",
+      "Assumption: Network latency between CDC broker and consumers is predictable and < 500 ms (p95). Risk: If worksite spans multiple geographic regions or uses unreliable connectivity, p95 ≤ 1.0 s may be unachievable; mitigation: define regional CDC replicas; allow consumers to subscribe to nearest replica; document latency SLA per deployment region.",
+      "Assumption: Worksite model state changes are infrequent enough that CDC stream throughput is manageable (< 1000 events/sec). Risk: If operational updates (e.g., real-time sensor data) are modeled as worksite state changes, stream volume may exceed broker capacity; mitigation: distinguish between worksite model (slow-changing) and operational telemetry (fast-changing); route telemetry separately.",
+      "Assumption: Consumers can tolerate brief periods of eventual consistency (e.g., 100–500 ms skew). Risk: If safety-critical decisions depend on strict consistency, eventual consistency may violate safety policies; mitigation: define consistency requirements per change type (e.g., safety plan changes require strong consistency; operational status updates allow eventual consistency); implement per-change-type routing.",
+      "Assumption: Customer-defined latency threshold is known and stable. Risk: If threshold is not yet defined or varies by use case, DP3 may over-engineer or under-deliver; mitigation: establish latency SLA negotiation process early; design DP3 to be tunable (e.g., batch size, flush interval) to meet different thresholds."
+    ],
+    "recommended_revision": "Refine FR to explicitly distinguish between worksite model state (slow-changing, safety-critical, requires strong consistency and audit trail) and operational telemetry (fast-changing, non-critical, eventual consistency acceptable). Revise DP3 to route these separately: worksite model changes via CDC stream with per-change-type consistency guarantees; operational telemetry via separate high-throughput stream or time-series store. Add explicit authorization policy specification to FR: define which consumer roles can subscribe to which worksite model change types. Introduce IM layer to map DP3 to candidate implementation modules: (IM1) CDC capture module (owns schema versioning, change detection), (IM2) Authorization policy engine (owns role-based filtering), (IM3) Stream broker (owns subscription management, latency SLA enforcement), (IM4) Consumer SDK (owns subscription, offset tracking, idempotent processing). This decomposition clarifies ownership boundaries and enables independent testing and deployment of each module."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Safety Services",
+      "scope": "Centralized module responsible for real-time safety state management, change-data-capture (CDC) stream orchestration, authorization-filtered event distribution, and compliance audit logging for worksite safety policies."
+    },
+    "external_interfaces": [
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Push-mode CDC stream subscription: Safety Services emits filtered safety state changes to authorized consumers (Vehicle, Teleoperation) with bounded latency (p95 ≤ 1.0 s)."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Inbound telemetry from Vehicle and Teleoperation subsystems; Safety Services ingests state mutations to populate CDC source."
+      },
+      {
+        "name": "Tasking",
+        "direction": "inout",
+        "details": "Optional client-initiated refresh/pull: consumers can request on-demand state snapshot via Tasking interface; Safety Services responds with current authorized state view."
+      },
+      {
+        "name": "Network Link",
+        "direction": "out",
+        "details": "Resilience fallback: Safety Services uses Network Link to detect consumer availability and gracefully degrade to eventual-consistency mode if push delivery fails."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Safety Services",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit: CDC source, authorization filtering, audit logging, and stream orchestration are all safety-domain concerns. DP3's compliance and audit requirements align directly with Safety Services' charter. Minor diffusion: Network Link resilience logic may require coordination with NGHE Solution for global availability tracking."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.65,
+        "diffusion_score": 0.35,
+        "notes": "Moderate fit: NGHE Solution could host the CDC infrastructure and stream broker, but authorization filtering and compliance audit logging are safety-specific concerns that would diffuse into Safety Services anyway. Overly broad boundary; would couple infrastructure concerns with domain logic."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Poor fit: Vehicle is a consumer of safety state, not the authoritative source or distributor. CDC source, stream orchestration, and authorization filtering belong upstream. Significant diffusion: safety logic would leak into vehicle control logic."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.25,
+        "diffusion_score": 0.75,
+        "notes": "Poor fit: Teleoperation is also a consumer. Placing CDC and authorization here would create asymmetric coupling and violate single responsibility. Audit and compliance concerns are not teleoperation-specific."
+      }
+    ],
+    "ownership_candidate": "Safety Services",
+    "containment_hypothesis": "Safety Services is the authoritative owner of worksite safety state mutations and their audit trail. By centralizing CDC at the source (Safety Services), implementing authorization filtering before distribution, and offering both push (SafetyAlert stream) and pull (Tasking refresh) modes, the DP3 logic remains cohesive within a single domain boundary. Consumers (Vehicle, Teleoperation) depend on Safety Services via well-defined interfaces, reducing coupling and enabling independent scaling of the CDC infrastructure.",
+    "containment_risks": [
+      "Risk: If Safety Services becomes a bottleneck for CDC stream throughput, latency may exceed p95 ≤ 1.0 s SLA. Mitigation: implement stream partitioning and consumer-group management within Safety Services; monitor end-to-end latency.",
+      "Risk: Authorization filtering logic may need to evolve rapidly as safety policies change. Mitigation: externalize authorization rules (e.g., policy engine) as a dependency of Safety Services, not embedded in DP3 logic.",
+      "Risk: Network Link resilience fallback may require global state coordination across NGHE Solution. Mitigation: define clear handoff protocol between Safety Services and NGHE Solution for availability detection and graceful degradation.",
+      "Risk: Audit logging volume could grow unbounded if all state mutations are captured. Mitigation: implement retention policies and archival strategy within Safety Services; ensure compliance with worksite safety audit requirements."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The FR specifies a measurable latency constraint (p95 ≤ 1.0 s) and authorization scope ('all authorized consumers'). Safety Services IM boundary is equipped with CDC stream orchestration, authorization filtering at source, and audit logging—all directly testable. Latency can be instrumented end-to-end from state mutation ingestion (Telemetry) through SafetyAlert emission. Authorization filtering can be validated against worksite safety policies via compliance audit logs.",
+      "allocation_clarity": "Clear. Safety Services owns the authoritative worksite safety state source, CDC capture, authorization filtering, and audit trail. Consumers (Vehicle, Teleoperation) depend on Safety Services via SafetyAlert (push) and Tasking (pull) interfaces. Ownership boundary is unambiguous and aligns with domain responsibility (safety-critical state management)."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP3 (Hybrid push-pull with CDC and optional client-initiated refresh) directly addresses all FR requirements: (1) CDC at source ensures no state mutation is lost, satisfying 'propagate...state changes' with audit trail for compliance. (2) Push-mode stream subscription with bounded latency (p95 ≤ 1.0 s) satisfies 'within customer-defined latency threshold'. (3) Authorization filtering at CDC layer (not at consumer) satisfies 'to all authorized consumers' by enforcing access control upstream. (4) Optional pull/refresh decouples consumer availability from delivery guarantee, improving resilience for heterogeneous network conditions. Rationale is sound and grounded in safety/compliance and operational requirements."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Minor diffusion: Network Link resilience logic (graceful degradation to eventual-consistency mode) may require coordination with NGHE Solution for global availability tracking. Recommend defining a clear handoff protocol between Safety Services and NGHE Solution to avoid split ownership of fallback behavior.",
+        "Moderate diffusion risk if authorization policy rules are embedded directly in Safety Services code rather than externalized. As safety policies evolve, embedded rules create tight coupling and slow iteration. Recommend externalizing authorization rules to a policy engine dependency.",
+        "Latency bottleneck risk: If CDC stream throughput becomes constrained at Safety Services, p95 ≤ 1.0 s SLA may be violated. Mitigation requires stream partitioning and consumer-group management within Safety Services; this is architecturally sound but operationally complex. Recommend load-testing and capacity planning early.",
+        "Audit logging volume diffusion: Unbounded growth of audit logs could degrade Safety Services performance or violate storage constraints. Recommend implementing retention policies and archival strategy as part of IM design, not deferred to operations."
+      ],
+      "containment_notes": "Excellent containment (0.92 score). CDC source, authorization filtering, audit logging, and stream orchestration are all safety-domain concerns and belong in Safety Services. The DP3 logic is cohesive within a single boundary. Consumers (Vehicle, Teleoperation) are correctly positioned as external subscribers, not owners of safety state. The four external interfaces (SafetyAlert, Telemetry, Tasking, Network Link) are well-defined and minimize coupling. No significant diffusion into Vehicle or Teleoperation; no overly broad NGHE Solution boundary. Ownership hypothesis is validated: Safety Services is the authoritative owner of worksite safety state mutations and their audit trail."
+    },
+    "recommended_revisions": [
+      "Externalize authorization policy rules from Safety Services code into a dedicated policy engine or configuration service. This decouples safety policy evolution from CDC implementation and reduces diffusion risk.",
+      "Define explicit handoff protocol between Safety Services and NGHE Solution for Network Link resilience fallback. Specify: (a) how availability detection is triggered, (b) who owns graceful degradation decision, (c) how eventual-consistency mode is signaled to consumers, (d) recovery path back to push mode.",
+      "Add stream partitioning and consumer-group management design to Safety Services IM specification. Specify partition key strategy (e.g., by worksite zone or consumer type) to ensure p95 ≤ 1.0 s latency is achievable under peak load.",
+      "Implement audit log retention and archival policy as part of Safety Services IM design. Define: (a) retention period aligned with worksite safety compliance requirements, (b) archival destination and format, (c) query interface for compliance audits, (d) storage cost and performance impact.",
+      "Add end-to-end latency instrumentation specification to Safety Services IM. Define measurement points: (1) state mutation arrival at Telemetry, (2) CDC capture timestamp, (3) authorization filtering completion, (4) SafetyAlert emission, (5) consumer receipt. Ensure p95 latency is observable and alertable."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-IM, FR-DP, DP-IM) pass with high confidence. Verification feasibility is high (measurable latency, testable authorization, auditable state mutations). Allocation clarity is clear (Safety Services owns authoritative state, CDC, filtering, audit trail). Containment score is excellent (0.92). However, the recommended_revisions identify four critical design decisions that must be decomposed into sub-FRs to avoid deferring safety-critical and architectural concerns to implementation: (1) authorization policy externalization (decoupling safety rules from CDC code), (2) Network Link resilience handoff protocol (explicit ownership between Safety Services and NGHE Solution), (3) stream partitioning and consumer-group management (latency SLA assurance under peak load), and (4) audit log retention and archival (compliance and storage sustainability). These are not minor implementation details—they are functional requirements that must be explicitly designed, verified, and owned. Decomposing them now ensures safety criticality and architectural coherence are maintained through detailed design.",
+    "next_level_sub_frs": [
+      "FR3.1: Externalize and enforce worksite safety authorization policies independent of CDC stream orchestration logic, enabling policy evolution without code changes and supporting compliance audit traceability.",
+      "FR3.2: Establish explicit handoff protocol between Safety Services and NGHE Solution for Network Link resilience, including availability detection triggers, graceful degradation decision ownership, eventual-consistency mode signaling, and recovery path specification.",
+      "FR3.3: Partition CDC stream and manage consumer groups within Safety Services to ensure p95 latency ≤ 1.0 s is achievable under peak load (defined by worksite zone, consumer type, or state mutation frequency).",
+      "FR3.4: Implement audit log retention, archival, and compliance query interface aligned with worksite safety regulatory requirements, ensuring unbounded log growth does not degrade Safety Services performance or violate storage constraints."
+    ],
+    "revise": {
+      "target": "IM",
+      "why": "Safety Services IM specification must be revised to explicitly incorporate the four sub-FR design decisions before detailed implementation begins. Current IM description is sound but incomplete: it does not specify (a) authorization policy engine dependency and externalization interface, (b) NGHE Solution handoff protocol and fallback ownership, (c) stream partitioning strategy and consumer-group configuration, (d) audit log retention policy and archival destination. These gaps create risk of diffusion (split ownership, embedded rules, deferred capacity planning) and must be closed at the IM level to maintain safety criticality and architectural coherence. Recommend updating Safety Services IM specification to include: (1) Policy Engine dependency (external or internal), (2) NGHE Solution interface contract for Network Link resilience, (3) Stream partition key strategy and consumer-group topology, (4) Audit log lifecycle policy and compliance query SLA."
+    },
+    "record": {
+      "assumptions": [
+        "Authorization policy rules can be externalized to a dedicated policy engine or configuration service without introducing unacceptable latency overhead (< 50 ms per authorization decision).",
+        "NGHE Solution has clear ownership and capability to detect Network Link availability and signal graceful degradation to Safety Services.",
+        "Stream partitioning strategy (by worksite zone, consumer type, or mutation frequency) is feasible and does not require cross-partition coordination that would violate p95 ≤ 1.0 s latency SLA.",
+        "Worksite safety compliance requirements define a specific audit log retention period (e.g., 1 year, 7 years) that is known and stable.",
+        "End-to-end latency instrumentation can be implemented without introducing > 5% performance overhead."
+      ],
+      "open_risks": [
+        "Authorization policy engine latency: If policy evaluation adds > 100 ms per decision, p95 ≤ 1.0 s SLA may be violated. Mitigation: benchmark policy engine performance early; consider caching or pre-computation strategies.",
+        "NGHE Solution ownership ambiguity: If NGHE Solution does not have clear ownership of Network Link resilience, graceful degradation decision may be deferred or duplicated. Mitigation: establish explicit handoff protocol and ownership contract in FR3.2 decomposition.",
+        "Stream partitioning complexity: If partition key strategy is poorly chosen, some partitions may become hot spots, violating latency SLA. Mitigation: load-test partition strategy under realistic peak load; consider dynamic rebalancing.",
+        "Audit log storage cost: If retention period is long (e.g., 7 years) and mutation frequency is high, storage cost and query performance may become prohibitive. Mitigation: implement tiered archival (hot/warm/cold) and define compliance query SLA.",
+        "Latency instrumentation overhead: If instrumentation adds > 5% latency, it may mask or exacerbate latency violations. Mitigation: use sampling-based instrumentation and validate overhead in staging environment."
+      ],
+      "evidence_needed": [
+        "Worksite safety compliance requirements document specifying authorization policy scope, audit log retention period, and regulatory audit frequency.",
+        "NGHE Solution architecture and capability assessment for Network Link availability detection and graceful degradation signaling.",
+        "Benchmark results for authorization policy engine latency (p95, p99) under peak load with realistic policy rule complexity.",
+        "Stream partitioning strategy analysis: partition key options, hot-spot risk assessment, and load-test results under peak mutation frequency.",
+        "Audit log volume projection: estimated mutations per second, log entry size, retention period, and storage cost/performance impact.",
+        "End-to-end latency instrumentation design: measurement points, sampling strategy, overhead analysis, and alerting thresholds."
+      ]
+    }
+  }
+}

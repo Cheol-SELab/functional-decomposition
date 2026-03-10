@@ -1,0 +1,173 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and work-zone boundaries, with sufficient fidelity to support autonomous path planning and operator situational awareness.",
+    "rationale": "The original FR was vague on fidelity requirements, update frequency, and data sources. Refinement clarifies that the model must support both planning (path generation) and execution (real-time awareness), distinguishes static from dynamic content, and anchors acceptance to the stated constraint that the model be 'available to planning/execution functions.' High safety criticality demands explicit hazard representation.",
+    "verification_idea": "Acceptance test: (1) Terrain model accuracy within ±0.5 m vertical over mapped area; (2) Obstacle detection latency <2 s for static features, <1 s for dynamic hazards; (3) Model accessible via documented API to planning and execution subsystems; (4) Coverage of agreed site features per worksite safety plan.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire terrain and obstacle data from onboard and/or external sensors.",
+      "CR-NGHE-006.2: Fuse multi-source sensor data into a unified spatial model.",
+      "CR-NGHE-006.3: Detect and classify static obstacles (terrain, structures, vegetation).",
+      "CR-NGHE-006.4: Detect and track dynamic hazards (personnel, moving equipment).",
+      "CR-NGHE-006.5: Represent work-zone boundaries and operational constraints.",
+      "CR-NGHE-006.6: Expose worksite model via standardized interface to planning and execution functions.",
+      "CR-NGHE-006.7: Log and report model confidence/uncertainty metrics to Safety Services."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Onboard LiDAR + camera fusion with local occupancy grid; periodic upload to cloud for archival.",
+      "DP-B: Tele-operator visual input + manual annotation of obstacles; stored in centralized database.",
+      "DP-C: Hybrid: onboard LiDAR/camera for real-time local model + tele-operator oversight for validation and dynamic hazard annotation; model synchronized to Vehicle and Teleoperation modules.",
+      "DP-D: External survey drone + pre-computed static map; onboard sensors detect only dynamic changes relative to baseline."
+    ],
+    "selected_dp": "DP-C: Hybrid onboard sensor fusion (LiDAR + camera) for real-time local worksite model generation, with tele-operator visual validation and dynamic hazard annotation; model state synchronized bidirectionally between Vehicle (autonomous execution) and Teleoperation (remote oversight) modules, with confidence metrics and change logs exposed to Safety Services.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Sensor data acquisition (LiDAR, camera) is decoupled from model fusion logic via standardized sensor driver interfaces.",
+        "Model representation (occupancy grid, feature map) is decoupled from planning algorithms via a published model API.",
+        "Tele-operator annotation is decoupled from autonomous execution via asynchronous message passing (Tasking interface).",
+        "Safety Services integration is decoupled via explicit SafetyAlert interface for confidence/uncertainty reporting."
+      ],
+      "notes": "DP-C exhibits low coupling because sensor inputs, fusion logic, model storage, and downstream consumers (planner, executor, safety monitor) are logically separated. The hybrid approach (onboard + tele-operator) avoids single-point-of-failure and supports both autonomous and supervised modes."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Onboard compute (Vehicle module) has sufficient CPU/GPU for real-time LiDAR + camera fusion at operational frame rates (≥10 Hz).",
+      "ASSUMPTION: Tele-operator has sufficient bandwidth and latency (<500 ms round-trip) to annotate dynamic hazards in near-real-time.",
+      "ASSUMPTION: Worksite safety plan specifies which site features must be modeled (e.g., personnel exclusion zones, equipment staging areas).",
+      "RISK: If onboard compute is insufficient, model generation latency may exceed safety thresholds, requiring offload to edge/cloud (increases network dependency).",
+      "RISK: Tele-operator annotation introduces human error and cognitive load; validation procedures must be defined.",
+      "RISK: Model synchronization between Vehicle and Teleoperation modules may diverge under network latency or packet loss; conflict resolution strategy needed."
+    ],
+    "recommended_revision": "Clarify compute budget and latency requirements for model fusion. Define tele-operator annotation workflow and validation criteria. Specify model synchronization protocol (e.g., eventual consistency, conflict resolution) and fallback behavior if network link degrades."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "The Vehicle module owns the real-time worksite model generation and maintenance. It integrates onboard LiDAR and camera sensors, performs sensor fusion and occupancy grid updates, detects and classifies static obstacles, and exposes the model state via the Telemetry interface. The Vehicle module also receives dynamic hazard annotations from Teleoperation and updates the model accordingly. Model confidence metrics are reported to Safety Services via SafetyAlert."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle publishes worksite model state (occupancy grid, feature map, confidence metrics, timestamp) to Telemetry. Consumers: Teleoperation (for operator visualization), planning/execution functions (for path generation and collision avoidance)."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives dynamic hazard annotations and model update commands from Teleoperation via Tasking interface (e.g., 'mark personnel at coordinates X,Y,Z', 'update work-zone boundary')."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Vehicle reports model confidence/uncertainty metrics and anomalies (e.g., 'LiDAR degradation detected', 'occupancy grid confidence <80%') to Safety Services via SafetyAlert."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Vehicle uses Network Link to synchronize model state with Teleoperation module and to receive tele-operator annotations. Also used for periodic model archival to cloud storage (optional, for post-mission analysis)."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "Vehicle is the natural owner of onboard sensor integration, real-time fusion, and local model generation. Sensor drivers, fusion algorithms, and occupancy grid storage are tightly coupled to vehicle hardware and compute. Minimal diffusion: only model API and confidence reporting leak to external interfaces."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 40,
+        "diffusion_score": 60,
+        "notes": "Teleoperation could host tele-operator annotation UI and validation logic, but the core model generation (sensor fusion, occupancy grid) must remain on Vehicle for real-time performance. Assigning model generation to Teleoperation would create high latency and network dependency. Teleoperation should consume model via Telemetry and contribute annotations via Tasking."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Safety Services should monitor model confidence and anomalies, but should not own model generation. Assigning model generation to Safety Services would violate separation of concerns and create circular dependencies (Safety Services would need to integrate sensors, which is Vehicle's responsibility)."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 10,
+        "diffusion_score": 90,
+        "notes": "NGHE Solution is the system-level container; model generation is a subsystem function that must be allocated to a specific module (Vehicle). Assigning to NGHE Solution would leave ownership ambiguous and prevent clear interface definition."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module is the optimal owner of worksite model generation because: (1) onboard sensors (LiDAR, camera) are physically integrated into the vehicle; (2) real-time fusion requires low-latency local compute; (3) model state is tightly coupled to vehicle localization and motion planning; (4) external consumers (Teleoperation, Safety Services, planning functions) access the model via well-defined interfaces (Telemetry, SafetyAlert), avoiding diffusion.",
+    "containment_risks": [
+      "RISK: If Vehicle module compute is overloaded, model generation may be delayed, impacting safety. Mitigation: define compute budget and latency SLAs; monitor CPU/GPU utilization; consider offload to edge compute if needed.",
+      "RISK: Model synchronization between Vehicle and Teleoperation may diverge under network latency. Mitigation: define synchronization protocol (e.g., Vehicle is source-of-truth, Teleoperation receives updates via Telemetry; annotations flow back via Tasking with timestamps for conflict resolution).",
+      "RISK: Tele-operator annotations (dynamic hazards) may conflict with onboard detections. Mitigation: define merge strategy (e.g., union of detections, with confidence weighting)."
+    ],
+    "recommended_revision": "Explicitly define the model synchronization protocol and conflict resolution strategy between Vehicle and Teleoperation. Specify compute budget and latency SLAs for model fusion. Define fallback behavior if onboard compute is insufficient (e.g., degrade to lower-fidelity model, request tele-operator assistance)."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid onboard + tele-operator) directly addresses the refined FR: it generates a real-time worksite model (via onboard fusion), represents terrain and obstacles (LiDAR + camera), detects dynamic hazards (tele-operator annotation), and exposes the model to planning/execution functions (via Telemetry interface). The DP is feasible, testable, and aligns with high safety criticality (hybrid approach provides redundancy and human oversight)."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Model API must be clearly defined and versioned to prevent tight coupling between Vehicle and downstream consumers.",
+        "Tele-operator annotation workflow must be documented to ensure consistent model updates across Vehicle and Teleoperation modules.",
+        "Network synchronization protocol must be robust to latency and packet loss to prevent model divergence."
+      ],
+      "containment_notes": "Vehicle module contains the core model generation logic (sensor fusion, occupancy grid) with high cohesion. External interfaces (Telemetry, Tasking, SafetyAlert, Network Link) are well-defined and minimize diffusion. Tele-operator annotation is handled via Tasking interface, avoiding tight coupling. Model confidence reporting is decoupled via SafetyAlert."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible: (1) model accuracy can be tested against ground-truth survey data; (2) latency can be measured via instrumentation; (3) API compliance can be validated via integration tests; (4) confidence metrics can be logged and analyzed post-mission.",
+      "allocation_clarity": "Allocation is clear: Vehicle owns model generation and maintenance; Teleoperation provides tele-operator interface for annotation; Safety Services monitors confidence metrics. Interfaces are explicit (Telemetry, Tasking, SafetyAlert, Network Link)."
+    },
+    "recommended_revisions": [
+      "Define model API specification (data structures, update frequency, versioning) before detailed design.",
+      "Specify compute budget and latency SLAs for Vehicle module (e.g., model update rate ≥10 Hz, fusion latency <100 ms).",
+      "Define tele-operator annotation workflow and validation criteria (e.g., annotation must be confirmed by Site Manager before model update).",
+      "Specify network synchronization protocol and fallback behavior (e.g., Vehicle is source-of-truth; Teleoperation receives updates via Telemetry; annotations flow back via Tasking with conflict resolution).",
+      "Define model confidence/uncertainty metrics and thresholds for SafetyAlert reporting (e.g., alert if confidence <80%)."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The refined FR is well-defined and decomposed into 7 atomic sub-FRs. The selected DP (hybrid onboard + tele-operator) is feasible and low-coupling. The assigned IM (Vehicle) is optimal with high containment and clear external interfaces. All gates pass. The next level of decomposition is needed to detail the sub-FRs (sensor acquisition, fusion algorithms, model representation, dynamic hazard detection, work-zone representation, API design, confidence reporting) and to define the model API specification, compute budget, latency SLAs, and synchronization protocol.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire terrain and obstacle data from onboard LiDAR and camera sensors with specified frame rates and accuracy.",
+      "CR-NGHE-006.2: Fuse multi-source sensor data (LiDAR, camera, vehicle odometry) into a unified occupancy grid and feature map.",
+      "CR-NGHE-006.3: Detect and classify static obstacles (terrain, structures, vegetation) from sensor data.",
+      "CR-NGHE-006.4: Detect and track dynamic hazards (personnel, moving equipment) from sensor data and tele-operator annotations.",
+      "CR-NGHE-006.5: Represent work-zone boundaries and operational constraints in the model.",
+      "CR-NGHE-006.6: Expose worksite model via standardized API (Telemetry interface) to planning and execution functions.",
+      "CR-NGHE-006.7: Log and report model confidence/uncertainty metrics to Safety Services via SafetyAlert interface."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Onboard compute (Vehicle module) has sufficient CPU/GPU for real-time LiDAR + camera fusion at ≥10 Hz.",
+        "Tele-operator has sufficient bandwidth and latency (<500 ms round-trip) for near-real-time hazard annotation.",
+        "Worksite safety plan specifies which site features must be modeled.",
+        "Model synchronization between Vehicle and Teleoperation uses eventual consistency with conflict resolution.",
+        "Vehicle is source-of-truth for model state; Teleoperation receives updates via Telemetry and contributes annotations via Tasking."
+      ],
+      "open_risks": [
+        "Onboard compute may be insufficient for real-time fusion; mitigation: define compute budget and latency SLAs; consider offload to edge compute if needed.",
+        "Tele-operator annotation introduces human error; mitigation: define validation procedures and confidence weighting.",
+        "Model synchronization may diverge under network latency; mitigation: define synchronization protocol and conflict resolution strategy.",
+        "Model confidence metrics may not be sufficient to detect all safety-critical anomalies; mitigation: define anomaly detection thresholds and SafetyAlert reporting criteria."
+      ],
+      "evidence_needed": [
+        "Compute budget analysis for Vehicle module (CPU/GPU utilization, latency measurements).",
+        "Network latency and bandwidth analysis for Teleoperation link.",
+        "Worksite safety plan specifying required site features and modeling fidelity.",
+        "Model API specification and versioning strategy.",
+        "Tele-operator annotation workflow and validation criteria.",
+        "Model synchronization protocol and conflict resolution strategy.",
+        "Confidence metric definitions and SafetyAlert thresholds.",
+        "Ground-truth survey data for model accuracy validation."
+      ]
+    }
+  }
+}

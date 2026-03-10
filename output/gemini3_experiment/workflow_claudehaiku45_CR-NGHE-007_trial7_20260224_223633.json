@@ -1,0 +1,177 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall propagate worksite model state changes to all authorized consumers within the customer-defined latency threshold.",
+    "rationale": "The original FR conflates two distinct obligations: (1) detecting/capturing state changes in the worksite model, and (2) delivering those changes to consumers within a time bound. The refined FR focuses on the propagation obligation (the primary latency concern) and removes the vague 'operational use' qualifier in favor of explicit reference to customer-defined acceptance criteria. The term 'propagate' is solution-neutral (avoids prescribing polling, pub-sub, or push mechanisms) and 'authorized consumers' acknowledges that different stakeholders (operator, tele-operator, safety manager, maintenance) may have different visibility and latency requirements.",
+    "verification_idea": "Measure end-to-end latency from the moment a worksite state change is committed (e.g., equipment position update, hazard detection, task completion) to the moment all authorized consumer applications receive and can act on that change. Validate across supported update scenarios (e.g., position updates, safety alerts, task status) and confirm p95 latency ≤ customer-defined threshold (e.g., 1.0 s). Verify that unauthorized consumers do not receive restricted state changes.",
+    "sub_frs": [
+      "FR-NGHE-007.1: The NGHE solution shall detect and capture worksite model state changes (e.g., equipment position, hazard events, task status) from authoritative sources.",
+      "FR-NGHE-007.2: The NGHE solution shall propagate worksite model state changes to all authorized consumers within the customer-defined latency threshold.",
+      "FR-NGHE-007.3: The NGHE solution shall enforce access control such that only authorized consumers receive worksite model state changes relevant to their role."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Centralized event-driven state propagation with asynchronous message broker (decouples producers from consumers; supports fan-out to multiple authorized subscribers; enables latency-bounded delivery guarantees)",
+      "DP2: Synchronous request-response state synchronization with polling intervals (simple but couples client to server; latency depends on poll frequency; not suitable for p95 ≤ 1.0s without aggressive polling)",
+      "DP3: Hybrid push-pull model with server-initiated notifications for critical updates and client-initiated polling for non-critical state (balances responsiveness and resource efficiency; requires dual-path logic)",
+      "DP4: Peer-to-peer state replication with eventual consistency (eliminates central broker; high latency variance; difficult to enforce authorization and ordering guarantees)",
+      "DP5: Change-data-capture (CDC) stream with filtered topic-based subscriptions (decouples worksite model from propagation; enables selective authorization per consumer; supports ordered, bounded-latency delivery)"
+    ],
+    "selected_dp": "DP5: Change-data-capture (CDC) stream with filtered topic-based subscriptions. Rationale: CDC isolates the worksite model from propagation concerns (single responsibility); topic-based filtering enables fine-grained authorization without coupling consumers to each other; ordered, durable streams support p95 latency SLA enforcement; scales horizontally as consumer count grows.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Authorization logic tightly bound to topic subscription (mitigated by centralizing authz checks at subscription time, not in stream processing)",
+        "Consumer-specific filtering logic embedded in CDC pipeline (mitigated by pushing filtering to consumer side or using parameterized topic schemas)",
+        "Worksite model schema changes requiring CDC schema evolution (mitigated by versioning and backward-compatible schema design)"
+      ],
+      "notes": "DP5 achieves low coupling by separating concerns: worksite model changes are captured independently; authorization is applied at subscription boundary; consumers subscribe to filtered streams without knowledge of other consumers. Risk: if CDC lag exceeds latency threshold, p95 SLA fails—requires monitoring and tuning of capture frequency."
+    },
+    "assumptions_risks": [
+      "Assumption: Worksite model state changes are discrete, identifiable events (e.g., equipment added, safety zone updated). Risk: If changes are continuous or high-frequency, CDC may not keep pace; mitigation: batch or debounce changes at source.",
+      "Assumption: Authorization rules are stable and can be evaluated at subscription time. Risk: If authorization is dynamic (e.g., role-based access changes mid-session), CDC filtering alone is insufficient; mitigation: add runtime authorization checks at consumer.",
+      "Assumption: p95 ≤ 1.0s latency is achievable with CDC infrastructure (broker, network, consumer processing). Risk: If infrastructure latency + CDC capture lag + consumer processing > 1.0s, SLA fails; mitigation: establish latency budget and monitor end-to-end.",
+      "Assumption: 'Authorized consumers' are known at design time or can be dynamically registered. Risk: If authorization is ad-hoc or context-dependent, topic-based filtering may not suffice; mitigation: combine topic filtering with attribute-based access control (ABAC).",
+      "Assumption: Worksite model updates are infrequent enough that CDC does not become a bottleneck. Risk: High-frequency updates (e.g., real-time sensor data) may overwhelm CDC; mitigation: distinguish between model updates (infrequent, critical) and telemetry (frequent, non-critical) and route separately."
+    ],
+    "recommended_revision": "Refine FR to explicitly state: (1) Expected frequency and volume of worksite model updates (e.g., 'up to 100 updates/minute'); (2) Definition of 'authorized consumers' (e.g., 'users with role X for worksite Y'); (3) Acceptable failure modes (e.g., 'eventual consistency acceptable for non-safety-critical updates'); (4) Latency measurement point (e.g., 'from model change commit to consumer notification received'). This will enable tighter DP selection and IM boundary definition. Additionally, clarify whether 'worksite model state' includes real-time sensor telemetry or only discrete operational state changes; if the former, consider a separate high-frequency telemetry stream to avoid coupling with low-latency model propagation."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "Enterprise-level data integration and event streaming layer that mediates between worksite model state changes and distributed consumers (Vehicle, Teleoperation, Safety Services). Owns CDC infrastructure, topic schema definitions, subscription management, and filtering logic."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Ingests worksite model state changes (position, status, resource allocation) that trigger CDC events"
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Publishes filtered task-related CDC events to Vehicle and Teleoperation consumers based on topic subscriptions"
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Publishes safety-critical CDC events (e.g., hazard zone changes, equipment state transitions) to Safety Services with guaranteed ordering and durability"
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Underlying transport for CDC stream replication, consumer subscription management, and topic-based message routing across distributed nodes"
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit. NGHE Solution is the natural enterprise integration layer responsible for state synchronization across heterogeneous subsystems. CDC stream infrastructure, topic schema governance, and subscription filtering are core NGHE responsibilities. Minimal diffusion: only Network Link (transport) and Telemetry (source) leak outside; all filtering logic, durability guarantees, and authorization remain internal."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.15,
+        "diffusion_score": 0.85,
+        "notes": "Poor fit. Vehicle is a consumer of CDC events, not the owner of the streaming infrastructure. Placing CDC here couples the vehicle subsystem to enterprise-wide event propagation concerns, violates single responsibility (Vehicle should focus on motion control and local autonomy), and forces all other consumers (Teleoperation, Safety Services) to depend on Vehicle's infrastructure. High diffusion across Teleoperation and Safety Services."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.18,
+        "diffusion_score": 0.82,
+        "notes": "Poor fit. Teleoperation is a consumer of CDC events for remote control state synchronization, not the owner of the streaming backbone. Placing CDC here creates artificial coupling between teleoperation concerns and enterprise data integration, forces Vehicle and Safety Services to depend on Teleoperation's infrastructure, and violates separation of concerns. High diffusion."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Poor fit. Safety Services is a critical consumer of CDC events (especially safety-critical state changes), but should not own the CDC infrastructure itself. Placing CDC here couples safety logic to enterprise streaming concerns, forces Vehicle and Teleoperation to depend on Safety Services' infrastructure, and creates a single point of failure for non-safety consumers. High diffusion."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "The CDC stream with topic-based subscriptions is fundamentally an enterprise-level data integration pattern that decouples worksite model state changes from consumer-specific concerns. NGHE Solution is the only module with sufficient scope and responsibility to own this infrastructure without creating artificial dependencies or violating single responsibility. Vehicle, Teleoperation, and Safety Services are all consumers of CDC events, not owners of the streaming backbone. Placing CDC in NGHE Solution ensures that filtering logic, durability guarantees, authorization, and topic schema governance remain centralized and reusable across all consumers.",
+    "containment_risks": [
+      "NGHE Solution may become a bottleneck if CDC stream processing is not horizontally scalable; mitigation: ensure CDC infrastructure supports partitioned topics and distributed consumer groups.",
+      "Topic schema evolution could impact multiple consumers if not versioned carefully; mitigation: establish schema registry and versioning policy within NGHE Solution.",
+      "Authorization filtering logic in NGHE Solution must be kept generic and consumer-agnostic to avoid coupling to specific consumer policies; mitigation: use attribute-based access control (ABAC) or policy-as-code patterns.",
+      "Network Link dependency is external; if transport fails, all CDC consumers are affected; mitigation: implement circuit breakers and fallback mechanisms at consumer boundaries."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP5 (CDC stream with filtered topic-based subscriptions) directly addresses the FR requirement to propagate worksite model state changes to authorized consumers within latency thresholds. The DP rationale explicitly maps to FR constraints: (1) ordered, durable streams support p95 latency SLA enforcement; (2) topic-based filtering enables fine-grained authorization without consumer coupling; (3) horizontal scalability accommodates growing consumer count. The design isolates propagation concerns from the worksite model (single responsibility), satisfying the logical separation required by the FR."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Authorization filtering logic (part of DP5) risks diffusion if consumer-specific policies leak into NGHE Solution's topic schema or subscription rules. Mitigation: enforce attribute-based access control (ABAC) or policy-as-code patterns to keep filtering logic generic and reusable.",
+        "Topic schema governance (part of DP5) risks diffusion if schema evolution is not centrally versioned. Mitigation: establish schema registry within NGHE Solution with explicit versioning and backward-compatibility policies.",
+        "CDC stream processing scalability (part of DP5) risks becoming a bottleneck if partitioned topics and distributed consumer groups are not properly configured. Mitigation: document horizontal scaling strategy and partition key selection criteria in NGHE Solution design.",
+        "Network Link dependency (external transport layer) creates a single point of failure for all CDC consumers. Mitigation: implement circuit breakers and fallback mechanisms at consumer boundaries (Vehicle, Teleoperation, Safety Services) to isolate failures.",
+        "Telemetry interface (inbound state changes) risks tight coupling if worksite model change events are not normalized before CDC ingestion. Mitigation: define a canonical event schema at the Telemetry boundary to decouple source system variations from CDC stream contract."
+      ],
+      "containment_notes": "NGHE Solution achieves 0.92 containment score with 0.08 diffusion. The module boundary is well-scoped: CDC infrastructure, topic schema definitions, subscription management, and filtering logic are all owned internally. Vehicle, Teleoperation, and Safety Services are correctly positioned as consumers (not owners) of CDC events. The only external dependencies are Telemetry (source) and Network Link (transport), both appropriate for an enterprise integration layer. Ownership allocation is clear and non-redundant: no competing modules claim CDC responsibility, and no DP5 logic is scattered across multiple module boundaries."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The FR acceptance criterion (p95 latency ≤ 1.0 s) is measurable and testable against NGHE Solution's CDC stream implementation. Verification approach: (1) instrument CDC topic ingestion and consumer subscription latency; (2) measure end-to-end propagation time from worksite model state change to consumer receipt across supported update scenarios; (3) validate that p95 percentile meets customer-defined threshold under nominal and peak load conditions. Topic-based filtering authorization can be verified through policy compliance testing (e.g., confirm that unauthorized consumers do not receive restricted topics).",
+      "allocation_clarity": "Clear. The FR is allocated entirely to NGHE Solution's CDC stream infrastructure. No ambiguity exists regarding which module owns propagation responsibility. External interfaces (Telemetry, Tasking, SafetyAlert, Network Link) are explicitly defined with direction and purpose, enabling unambiguous traceability from FR to IM boundary. Consumer modules (Vehicle, Teleoperation, Safety Services) have clear subscription contracts with NGHE Solution, reducing coupling and enabling independent verification of consumer-side latency compliance."
+    },
+    "recommended_revisions": [
+      "Explicitly document the canonical event schema for worksite model state changes at the Telemetry interface boundary. This schema should normalize source system variations and define the contract for CDC topic ingestion, reducing coupling between Telemetry source and NGHE Solution's CDC stream.",
+      "Define a schema registry and versioning policy within NGHE Solution to govern topic schema evolution. Include backward-compatibility rules and deprecation timelines to prevent breaking changes to consumer subscriptions.",
+      "Specify the authorization model (e.g., ABAC, role-based access control, policy-as-code) for topic-based filtering. Document how customer-defined authorization policies are translated into subscription rules without coupling NGHE Solution to consumer-specific logic.",
+      "Document the horizontal scaling strategy for CDC stream processing, including partition key selection criteria, consumer group configuration, and load balancing across distributed nodes. This addresses the containment risk of CDC becoming a bottleneck.",
+      "Define circuit breaker and fallback mechanisms at consumer boundaries (Vehicle, Teleoperation, Safety Services) to isolate failures in the Network Link or NGHE Solution's CDC infrastructure. Specify recovery behavior and graceful degradation strategies.",
+      "Add a non-functional requirement (NFR) to the FR or acceptance criteria specifying the maximum acceptable jitter or variance in propagation latency. This enables tighter verification of the p95 latency SLA and helps identify performance regressions during integration testing."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass with high confidence and clear ownership allocation. However, the safety criticality factor (high) and the presence of critical diffusion risks—particularly around authorization filtering logic, CDC stream bottleneck potential, and Network Link single-point-of-failure—warrant decomposition of DP5 into sub-level FRs to ensure safety-critical concerns are explicitly addressed and verified. The recommended revisions indicate that several non-functional and safety-related concerns (circuit breakers, fallback mechanisms, canonical event schema, authorization model) are not yet captured as formal requirements. Decomposing to the next level will make these concerns explicit, traceable, and verifiable.",
+    "next_level_sub_frs": [
+      "FR5.1: Ensure worksite model state changes are propagated to authorized consumers with p95 latency ≤ 1.0 s and zero message loss under nominal and peak load conditions.",
+      "FR5.2: Enforce fine-grained authorization policies such that only consumers with explicit permission receive topic-based CDC events, with no unauthorized data leakage.",
+      "FR5.3: Isolate CDC stream processing failures from consumer applications through circuit breaker and graceful degradation mechanisms to prevent cascading failures.",
+      "FR5.4: Normalize and validate inbound worksite model state changes at the Telemetry boundary to decouple source system variations from CDC stream contract.",
+      "FR5.5: Govern CDC topic schema evolution with versioning, backward-compatibility rules, and deprecation timelines to prevent breaking changes to consumer subscriptions.",
+      "FR5.6: Scale CDC stream processing horizontally to accommodate growing consumer count and worksite model update frequency without introducing latency degradation or bottlenecks."
+    ],
+    "revise": {
+      "target": "FR",
+      "why": "The parent FR5 ('Propagate worksite model state changes to authorized consumers within latency thresholds') is correct in intent but does not explicitly capture safety-critical concerns (failure isolation, authorization enforcement, schema governance) that are essential for a high-safety-criticality system. Sub-level FRs will decompose these concerns into verifiable, independently testable requirements. Additionally, FR5 should be augmented with an explicit non-functional requirement (NFR) specifying maximum acceptable jitter/variance in propagation latency to tighten the p95 SLA verification criterion."
+    },
+    "record": {
+      "assumptions": [
+        "CDC stream infrastructure (Kafka, Pulsar, or equivalent) is available and can be deployed within NGHE Solution's ownership boundary.",
+        "Telemetry source system can emit normalized, schema-compliant worksite model state change events.",
+        "Network Link provides reliable, ordered message transport with acceptable latency characteristics (sub-100ms typical).",
+        "Consumer applications (Vehicle, Teleoperation, Safety Services) can implement circuit breaker and fallback logic to handle CDC stream unavailability.",
+        "Authorization policies can be expressed in a declarative, policy-as-code format (e.g., ABAC rules) without requiring custom code per consumer.",
+        "Schema registry and versioning infrastructure can be deployed and maintained within NGHE Solution."
+      ],
+      "open_risks": [
+        "Authorization filtering logic may diffuse into consumer-specific policy implementations if ABAC/policy-as-code patterns are not rigorously enforced. Mitigation: establish governance board and automated policy validation at CDC subscription boundary.",
+        "CDC stream processing may become a bottleneck if partition key selection and consumer group configuration are not optimized for worksite model update patterns. Mitigation: conduct load testing and capacity planning during FR5.6 decomposition.",
+        "Network Link single-point-of-failure may cause cascading failures across all CDC consumers if circuit breakers are not implemented. Mitigation: define circuit breaker thresholds and fallback behavior during FR5.3 decomposition.",
+        "Telemetry source system variations may leak into CDC stream contract if canonical event schema is not enforced at ingestion boundary. Mitigation: implement schema validation and transformation at Telemetry interface during FR5.4 decomposition.",
+        "Schema evolution may break consumer subscriptions if backward-compatibility rules are not enforced. Mitigation: establish schema registry governance and automated compatibility checks during FR5.5 decomposition.",
+        "High safety criticality requires that authorization enforcement (FR5.2) and failure isolation (FR5.3) be verified through formal testing and potentially formal methods. Current verification approach (policy compliance testing, latency instrumentation) may be insufficient for safety-critical claims."
+      ],
+      "evidence_needed": [
+        "Formal specification of authorization model (ABAC, RBAC, or policy-as-code) with examples of how customer-defined policies are translated into CDC subscription rules.",
+        "Load testing results demonstrating CDC stream throughput, latency, and scalability under nominal and peak load conditions (e.g., 1000+ consumers, 100+ updates/sec).",
+        "Circuit breaker and fallback mechanism design document with failure scenarios, recovery behavior, and graceful degradation strategies.",
+        "Canonical event schema definition for worksite model state changes, including versioning strategy and backward-compatibility rules.",
+        "Schema registry implementation plan with governance policies, deprecation timelines, and automated compatibility validation.",
+        "Partition key selection criteria and consumer group configuration strategy for CDC stream processing.",
+        "Safety analysis (FMEA, FTA, or equivalent) addressing authorization enforcement, failure isolation, and latency SLA compliance under failure conditions.",
+        "Integration test plan covering end-to-end propagation latency, authorization enforcement, failure isolation, and schema evolution scenarios."
+      ]
+    }
+  }
+}

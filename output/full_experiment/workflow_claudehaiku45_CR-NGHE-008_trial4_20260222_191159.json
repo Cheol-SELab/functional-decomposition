@@ -1,0 +1,167 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall enable end-to-end teleoperation communication with latency that permits safe remote operation by a tele-operator.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting teleoperation capability, and (2) ensuring latency is compatible with safety. The refined version separates the functional intent (enable teleoperation communication) from the performance constraint (latency compatible with safety). The acceptance criterion (p95 ≤ 150 ms) is a quantified design parameter, not part of the FR itself. The FR now resides purely in the problem domain—what capability must exist—without prescribing how latency will be achieved or what specific threshold defines 'safe.'",
+    "verification_idea": "Measure end-to-end latency (sensor input to actuator command output) under agreed network conditions. Validate that measured latency supports safe operation as defined in the worksite safety plan and operational policies. Cross-reference with tele-operator acceptance testing and safety manager sign-off.",
+    "sub_frs": [
+      "FR-NGHE-008.1: The NGHE solution shall transmit tele-operator control inputs from the remote station to the equipment with measurable latency.",
+      "FR-NGHE-008.2: The NGHE solution shall transmit equipment state feedback (sensor data, video, telemetry) from the equipment to the remote station with measurable latency.",
+      "FR-NGHE-008.3: The NGHE solution shall provide tele-operator situational awareness (visual, auditory, or haptic feedback) sufficient to enable safe remote operation decisions."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Implement a deterministic, low-latency communication pipeline with end-to-end latency budgeting across acquisition, encoding, transmission, decoding, and actuation stages, with per-stage latency targets that sum to ≤150 ms p95.",
+      "DP2: Establish a dual-channel architecture (primary high-bandwidth channel for video/sensor streams; secondary low-latency control channel for operator commands) with independent buffering and prioritization strategies.",
+      "DP3: Deploy adaptive quality-of-service (QoS) management that dynamically adjusts encoding parameters, frame rates, and transmission redundancy based on real-time network condition monitoring to maintain latency bounds.",
+      "DP4: Implement a predictive state synchronization model where the remote system maintains a local predictive model of operator intent, reducing dependency on round-trip acknowledgment for safety-critical actions.",
+      "DP5: Use a time-synchronized, event-driven architecture where operator commands and sensor updates are timestamped and processed in causal order, with explicit latency instrumentation at each stage for observability and tuning."
+    ],
+    "selected_dp": "DP5: Use a time-synchronized, event-driven architecture where operator commands and sensor updates are timestamped and processed in causal order, with explicit latency instrumentation at each stage for observability and tuning.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between time synchronization mechanism and network transport layer (mitigation: abstract clock source via interface; support both NTP and PTP variants).",
+        "Coupling between event ordering logic and buffering strategy (mitigation: separate event queue abstraction from ordering policy; allow pluggable ordering implementations).",
+        "Coupling between latency instrumentation and core teleoperation logic (mitigation: use non-invasive instrumentation hooks; avoid embedding timing code in critical path).",
+        "Dependency on network condition observability for QoS feedback (mitigation: design telemetry collection as optional but recommended; core latency guarantee does not require it, but tuning does)."
+      ],
+      "notes": "DP5 is selected because it provides a logical foundation that decouples the latency guarantee mechanism (event ordering + timestamping) from specific transport, encoding, or network technologies. It enables independent evolution of each stage and supports both DP2 (dual-channel) and DP3 (adaptive QoS) as complementary refinements. Coupling risks are manageable through interface abstraction and optional instrumentation."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Network conditions remain within agreed bounds (latency jitter, packet loss, bandwidth). RISK: If actual network conditions exceed assumptions, p95 ≤150 ms may not be achievable without fallback policies. MITIGATION: Define network SLA explicitly; implement graceful degradation (e.g., reduced fidelity mode) if SLA is violated.",
+      "ASSUMPTION: Time synchronization between operator station and remote system can be maintained to sub-millisecond accuracy. RISK: Clock drift or synchronization failure could cause event ordering violations. MITIGATION: Implement clock health monitoring; define maximum acceptable skew; use hybrid logical clocks as fallback.",
+      "ASSUMPTION: Operator cognitive latency and safety margins are accounted for in the 150 ms budget. RISK: If 150 ms is the total system latency, operator reaction time (typically 200–300 ms) may dominate; perceived responsiveness could be poor. MITIGATION: Clarify whether 150 ms is system-only or includes operator loop; consider predictive feedback (haptic, visual) to reduce perceived latency.",
+      "ASSUMPTION: Safety-critical actions (e.g., emergency stop) do not require bidirectional confirmation within the 150 ms budget. RISK: If confirmation is required, latency budget is consumed by round-trip delay. MITIGATION: Separate safety-critical commands from teleoperation streams; use independent, ultra-low-latency safety channel (e.g., hardwired or dedicated low-latency protocol).",
+      "ASSUMPTION: Worksite safety plan and operational policies are compatible with remote operation at 150 ms latency. RISK: Policies may impose stricter latency or require human-in-the-loop validation that conflicts with the DP. MITIGATION: Validate DP against safety plan early; involve safety stakeholders in latency budget allocation.",
+      "ASSUMPTION: Teleoperation is primarily operator-initiated (pull model), not event-driven from remote system (push model). RISK: If remote system must push urgent sensor alerts, event ordering and latency guarantees become bidirectional and more complex. MITIGATION: Clarify communication model; if bidirectional, extend DP to cover both directions explicitly."
+    ],
+    "recommended_revision": "Refine FR to explicitly state: (1) whether 150 ms is system latency only or includes operator cognitive loop; (2) whether safety-critical commands (e.g., emergency stop) are included in the teleoperation latency budget or handled separately; (3) the network SLA (latency, jitter, packet loss, bandwidth) under which p95 ≤150 ms must be achieved; (4) whether the communication model is unidirectional (operator → remote) or bidirectional (operator ↔ remote with sensor feedback). This will eliminate ambiguity and allow DP5 to be refined into a more precise design specification with clear stage-level latency targets and fallback policies."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Centralized event-driven command processing, sensor update ingestion, causal ordering, timestamping, and latency instrumentation for all teleoperated vehicle interactions"
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives operator commands (timestamped, queued for causal processing)"
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Emits sensor updates with embedded latency metadata and causal ordering guarantees"
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "Receives safety constraints; emits latency-instrumented safety-critical events for validation"
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Transmits timestamped commands and receives timestamped sensor data; latency measurements at ingress/egress"
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit: event-driven architecture, command/sensor synchronization, and latency instrumentation are core to teleoperation. Timestamping and causal ordering naturally belong here. Minor diffusion: Safety Services must validate latency bounds; Vehicle must execute commands with timing guarantees."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.45,
+        "diffusion_score": 0.55,
+        "notes": "Poor fit: Safety Services owns safety constraints and alerts, not the event-driven orchestration. Latency instrumentation would diffuse across Teleoperation and Vehicle. Causal ordering is a teleoperation concern, not safety-specific."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor fit: Vehicle executes commands but does not own command ingestion, operator interface, or network synchronization. Event-driven architecture and timestamping belong upstream in Teleoperation. Latency instrumentation would span multiple modules."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Very poor fit: NGHE Solution is a top-level system container. Placing event-driven orchestration here violates separation of concerns and creates diffusion across all subsystems. Too broad and abstract."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the natural owner of event-driven command/sensor synchronization because it sits at the boundary between operator intent (Tasking) and vehicle state (Telemetry). Timestamping, causal ordering, and latency instrumentation are intrinsic to reliable remote operation and belong in the module that orchestrates the command-response loop. Safety Services validates latency bounds; Vehicle executes with timing guarantees; but Teleoperation owns the synchronization logic itself.",
+    "containment_risks": [
+      "Latency instrumentation may require hooks in Vehicle and Safety Services to measure end-to-end delays; ensure these are passive observers (telemetry emission) rather than active controllers.",
+      "Causal ordering enforcement depends on Network Link delivering timestamped packets reliably; if Network Link is unreliable, Teleoperation must implement recovery logic, increasing coupling.",
+      "If operator commands arrive out-of-order or with clock skew, Teleoperation must buffer and reorder; this adds complexity and memory overhead—ensure buffer limits are documented.",
+      "Safety Services must be able to reject commands that violate latency bounds; define a clear SafetyAlert interface for this veto without creating circular dependencies."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The FR specifies a quantitative acceptance criterion (p95 ≤ 150 ms latency) and a qualitative safety requirement (permits safe remote operation). The Teleoperation IM boundary includes explicit latency instrumentation at each stage, enabling direct measurement against the p95 threshold. Causal ordering and timestamping are observable properties that can be validated through integration testing and field trials under agreed network conditions. Worksite safety plan integration is a governance concern, not a technical verification blocker.",
+      "allocation_clarity": "Clear. The FR maps unambiguously to the Teleoperation IM as the primary owner of end-to-end command-response synchronization. External interfaces (Tasking, Telemetry, SafetyAlert, Network Link) define the contract boundaries. The containment hypothesis correctly identifies that Teleoperation orchestrates the synchronization logic while Safety Services validates latency bounds and Vehicle executes with timing guarantees. Ownership is not diffused across multiple modules."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP5 directly addresses the FR's core requirement: time-synchronized, event-driven architecture with explicit latency instrumentation enables safe remote operation by providing observability and tuning capability. The DP is solution-neutral (does not prescribe specific technologies) and is testable against the p95 ≤ 150 ms criterion. Causal ordering and timestamping are necessary mechanisms to prevent command reordering and race conditions that could compromise safety. The DP is neither over-constrained nor under-specified."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Latency instrumentation hooks in Vehicle and Safety Services must be passive telemetry emitters, not active controllers. If Vehicle or Safety Services attempt to enforce timing guarantees independently, causal ordering logic will diffuse. Mitigation: Define a read-only latency telemetry interface; Vehicle and Safety Services report timestamps but do not make ordering decisions.",
+        "Network Link reliability is a critical dependency. If Network Link cannot guarantee timestamped packet delivery or introduces significant clock skew, Teleoperation must implement buffer management and reordering logic. This increases coupling and memory overhead. Mitigation: Document Network Link SLA (packet loss rate, clock synchronization tolerance); establish buffer size limits in Teleoperation design.",
+        "SafetyAlert veto mechanism (Safety Services rejecting commands that violate latency bounds) creates a potential circular dependency if not carefully designed. If Safety Services must query Teleoperation state to make veto decisions, and Teleoperation must wait for Safety Services approval before processing, deadlock risk emerges. Mitigation: Define SafetyAlert as a one-way constraint broadcast; Teleoperation checks constraints before command ingestion, not after.",
+        "Operator command buffering and reordering in Teleoperation adds memory overhead and introduces a new failure mode (buffer overflow). If buffer limits are not documented or enforced, out-of-order commands could be silently dropped or cause latency spikes. Mitigation: Specify maximum buffer size, overflow behavior (drop oldest, reject new, alert operator), and monitoring thresholds."
+      ],
+      "containment_notes": "Teleoperation IM achieves 0.92 containment score with 0.08 diffusion. This is excellent fit. The module naturally owns event-driven orchestration, timestamping, and causal ordering because it sits at the operator-vehicle boundary. Minor diffusion is acceptable: Safety Services validates latency bounds (passive constraint check), and Vehicle executes commands with timing guarantees (passive execution). These are not ownership transfers; they are interface contracts. The recommended revision is to explicitly document the passive nature of latency instrumentation in Vehicle and Safety Services to prevent scope creep."
+    },
+    "recommended_revisions": [
+      "Clarify latency instrumentation interface: Vehicle and Safety Services shall emit timestamped telemetry (passive observers) but shall not make causal ordering or command sequencing decisions. Teleoperation owns all ordering logic.",
+      "Document Network Link SLA: Specify acceptable clock skew tolerance, packet loss rate, and timestamp precision. If Network Link cannot meet these, Teleoperation must implement compensating logic (e.g., clock synchronization protocol, packet retransmission). Add this as a design constraint.",
+      "Define SafetyAlert veto protocol: Safety Services broadcasts latency constraints to Teleoperation at initialization and on change. Teleoperation checks constraints before command ingestion. SafetyAlert is a one-way constraint channel, not a request-response gate, to avoid circular dependencies.",
+      "Specify command buffer management: Document maximum buffer size, overflow behavior (recommend: drop oldest command and alert operator), and monitoring thresholds. Add buffer utilization to latency instrumentation telemetry.",
+      "Add end-to-end latency measurement points: Instrument at (1) operator input, (2) Tasking interface ingress, (3) Teleoperation command ingestion, (4) Network Link egress, (5) Vehicle command receipt, (6) Vehicle execution start, (7) sensor capture, (8) Network Link ingress, (9) Teleoperation sensor update processing, (10) Telemetry interface egress. Publish p50, p95, p99 latencies for each segment to enable root cause analysis.",
+      "Validate p95 ≤ 150 ms criterion under agreed network conditions: Define test scenarios (nominal, degraded network, high command frequency, sensor burst). Establish acceptance test protocol and pass/fail criteria. Include worksite safety plan review as a gate before field deployment."
+    ]
+  },
+  "decision": {
+    "decision": "REVISE_CURRENT_LEVEL",
+    "justification": "Both FR-DP and FR-IM gates pass with high confidence, and the DP is well-formed and testable. However, the gate results expose five critical diffusion risks and design ambiguities that must be resolved before decomposition proceeds. The recommended revisions are not minor clarifications—they address ownership boundaries (latency instrumentation passivity), interface contracts (SafetyAlert veto protocol), dependency management (Network Link SLA), and failure modes (command buffer overflow). Proceeding to sub-FR decomposition without resolving these would propagate ambiguity into lower levels and increase rework cost. The high safety criticality of this system demands that the current level be hardened first. Revision is faster and lower-risk than decomposition followed by rework.",
+    "next_level_sub_frs": [],
+    "revise": {
+      "target": "DP",
+      "why": "DP5 is logically sound but under-specifies critical design decisions that the gate identified as diffusion vectors. The revision must explicitly address: (1) latency instrumentation as a passive telemetry contract (not active control), (2) SafetyAlert as a one-way constraint broadcast (not a request-response gate), (3) Network Link SLA requirements (clock skew tolerance, packet loss, timestamp precision), (4) command buffer management policy (size limits, overflow behavior, monitoring), and (5) end-to-end latency measurement instrumentation points. These additions do not change the DP's core concept (time-synchronized, event-driven architecture) but make it sufficiently concrete to prevent diffusion during implementation. The revised DP should include a design constraint section documenting these interface contracts and dependencies."
+    },
+    "record": {
+      "assumptions": [
+        "Network Link can deliver timestamped packets with clock skew within acceptable tolerance (to be defined in revised DP).",
+        "Vehicle and Safety Services can emit passive latency telemetry without introducing active control logic or circular dependencies.",
+        "Operator command buffering overhead (memory, latency) is acceptable within the p95 ≤ 150 ms budget.",
+        "SafetyAlert constraint broadcast can be delivered to Teleoperation before command ingestion begins (initialization or change notification).",
+        "Worksite safety plan integration is a governance gate, not a technical blocker, and can be validated through documented procedures and field trials."
+      ],
+      "open_risks": [
+        "Latency instrumentation diffusion: If Vehicle or Safety Services interpret their telemetry role as including active timing enforcement, causal ordering logic will scatter across modules. Mitigation: Explicit passive-observer contract in revised DP.",
+        "SafetyAlert circular dependency: If Safety Services veto mechanism requires querying Teleoperation state and Teleoperation waits for Safety Services approval, deadlock risk emerges. Mitigation: One-way constraint broadcast protocol in revised DP.",
+        "Network Link SLA not yet defined: Clock skew, packet loss, and timestamp precision tolerances are unknown. If Network Link cannot meet implicit assumptions, Teleoperation must implement compensating logic (clock sync, retransmission), increasing complexity. Mitigation: Explicit SLA in revised DP; acceptance test protocol.",
+        "Command buffer overflow failure mode: Maximum buffer size and overflow behavior not yet specified. Silent drops or latency spikes could compromise safety. Mitigation: Buffer management policy in revised DP; monitoring thresholds.",
+        "End-to-end latency measurement coverage: Current instrumentation plan is incomplete. Root cause analysis of p95 violations requires measurement at 10 distinct points. If instrumentation is sparse, debugging will be difficult. Mitigation: Comprehensive measurement point specification in revised DP."
+      ],
+      "evidence_needed": [
+        "Revised DP5 with explicit design constraints: latency instrumentation interface (passive telemetry contract), SafetyAlert veto protocol (one-way broadcast), Network Link SLA (clock skew, packet loss, timestamp precision), command buffer management (size, overflow behavior, monitoring).",
+        "Network Link SLA specification: acceptable clock skew tolerance, packet loss rate, timestamp precision, and any compensating logic required in Teleoperation if SLA cannot be met.",
+        "SafetyAlert constraint broadcast protocol: initialization sequence, change notification mechanism, and proof that one-way broadcast avoids circular dependencies with Teleoperation.",
+        "Command buffer design specification: maximum size, overflow behavior (recommend: drop oldest + alert), monitoring thresholds, and memory overhead analysis.",
+        "End-to-end latency instrumentation plan: 10 measurement points (operator input through Telemetry egress), telemetry format, p50/p95/p99 reporting, and root cause analysis procedure.",
+        "Acceptance test protocol: test scenarios (nominal, degraded network, high command frequency, sensor burst), pass/fail criteria for p95 ≤ 150 ms, and worksite safety plan review gate."
+      ]
+    }
+  }
+}

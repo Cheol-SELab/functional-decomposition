@@ -1,0 +1,167 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall propagate worksite model state changes to all authorized consumers within the customer-defined latency threshold.",
+    "rationale": "The original FR conflates two distinct obligations: (1) detecting/capturing state changes in the worksite model, and (2) delivering those changes to consumers within a time bound. The refined FR focuses on the propagation obligation (the primary latency concern) and removes the vague 'operational use' qualifier in favor of explicit reference to customer-defined acceptance criteria. The term 'propagate' is solution-neutral (avoids prescribing polling, pub-sub, or push mechanisms) and 'authorized consumers' acknowledges that different stakeholders (operator, tele-operator, safety manager, maintenance) may have different visibility and latency requirements.",
+    "verification_idea": "Measure end-to-end latency from the moment a worksite state change is committed (e.g., equipment position update, hazard detection, task completion) to the moment all subscribed authorized consumers receive the updated model state. Validate across representative update scenarios (position updates, safety events, task transitions) and confirm p95 latency ≤ customer-defined threshold (e.g., 1.0 s). Verify that unauthorized consumers do not receive restricted state changes.",
+    "sub_frs": [
+      "FR-NGHE-007.1: The NGHE solution shall detect and capture worksite model state changes from all monitored sources (equipment, sensors, operator input, external systems).",
+      "FR-NGHE-007.2: The NGHE solution shall maintain a consistent, authoritative worksite model that reflects the current state of the worksite.",
+      "FR-NGHE-007.3: The NGHE solution shall enforce access control such that only authorized consumers receive worksite model state changes relevant to their role."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Centralized event-driven state propagation with asynchronous message broker (decouples producers from consumers; supports fan-out to multiple authorized subscribers; enables latency-bounded delivery guarantees)",
+      "DP2: Synchronous request-response state synchronization with polling intervals (simple but couples client to server; latency depends on poll frequency; not suitable for p95 ≤ 1.0s without aggressive polling)",
+      "DP3: Hybrid push-pull model with server-initiated notifications for critical updates and client-initiated polling for non-critical state (balances responsiveness and resource efficiency; requires state classification logic)",
+      "DP4: Direct peer-to-peer state replication with eventual consistency (eliminates central broker; high coupling between consumers; difficult to enforce authorization and latency bounds)",
+      "DP5: Publish-subscribe pattern with topic-based filtering and authorization enforcement at subscription boundary (decouples producers from consumers; enables selective propagation based on authorization; supports latency SLA via broker guarantees)"
+    ],
+    "selected_dp": "DP5: Publish-subscribe pattern with topic-based filtering and authorization enforcement at subscription boundary. Producers emit worksite model state changes as immutable events to a logical topic namespace. A broker layer enforces authorization rules at subscription time and guarantees message delivery within the customer-defined latency threshold (p95 ≤ 1.0s). Consumers subscribe to topics matching their authorization scope and receive state change events asynchronously. Topic structure reflects worksite model hierarchy (e.g., /worksite/{id}/zone/{id}/hazard, /worksite/{id}/personnel) to enable fine-grained filtering without coupling producers to individual consumer needs.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Authorization logic tightly coupled to broker implementation (risk: changes to authorization policy require broker reconfiguration). Mitigation: externalize authorization as a policy service queried at subscription time.",
+        "Topic schema evolution (risk: adding new state change types requires consumer code changes). Mitigation: use versioned event schemas and support backward-compatible schema evolution.",
+        "Latency SLA enforcement depends on broker performance and network conditions (risk: p95 ≤ 1.0s may not be achievable in all deployment contexts). Mitigation: make latency threshold configurable per customer; monitor broker metrics; establish SLA monitoring and alerting.",
+        "Consumer subscription management (risk: orphaned subscriptions or authorization drift if consumer lifecycle not properly managed). Mitigation: implement subscription lifecycle hooks and periodic authorization re-validation."
+      ],
+      "notes": "DP5 achieves loose coupling between state producers and consumers by introducing a broker abstraction. Authorization is enforced at the boundary (subscription), not embedded in producer logic, supporting independent evolution. Topic-based filtering allows consumers to express interest declaratively without producer knowledge. Latency is bounded by broker guarantees, not by polling intervals or synchronous round-trips."
+    },
+    "assumptions_risks": [
+      "Assumption: A message broker (logical component) is available and can guarantee p95 ≤ 1.0s delivery latency under expected workload. Risk: If broker is unavailable or overloaded, latency SLA is violated. Mitigation: define broker redundancy, capacity planning, and failover strategy.",
+      "Assumption: Worksite model state changes are discrete, event-like phenomena (not continuous streams). Risk: If state changes are high-frequency or bursty, broker throughput may be insufficient. Mitigation: implement event batching, throttling, or state compression strategies.",
+      "Assumption: Authorization rules are stable and can be evaluated at subscription time. Risk: If authorization is dynamic (e.g., role-based access control with time-varying permissions), subscription-time enforcement may be insufficient. Mitigation: implement periodic re-authorization or push authorization updates to subscribers.",
+      "Assumption: Consumers are tolerant of eventual consistency (i.e., brief windows where different consumers see different state). Risk: If strong consistency is required, DP5 may not be suitable. Mitigation: clarify consistency requirements with customer; consider adding a state query service for strong-consistency reads.",
+      "Assumption: Topic namespace and filtering logic are well-defined and stable. Risk: If topic structure is unclear or changes frequently, consumers may subscribe incorrectly or miss updates. Mitigation: document topic schema; provide topic discovery/introspection API.",
+      "Assumption: Network latency between broker and consumers is predictable and within acceptable bounds. Risk: High-latency or unreliable networks may violate p95 ≤ 1.0s SLA. Mitigation: measure network latency; consider edge caching or regional broker deployments.",
+      "Assumption: Worksite safety plan and operational policies do not require synchronous acknowledgment of state changes (e.g., no requirement for 'state change was received and processed'). Risk: If synchronous semantics are required, DP5 must be augmented with acknowledgment mechanisms. Mitigation: clarify whether asynchronous delivery is acceptable; if not, add request-response overlay."
+    ],
+    "recommended_revision": "Refine FR to explicitly state: (1) consistency model (eventual vs. strong), (2) whether asynchronous delivery is acceptable or if synchronous acknowledgment is required, (3) expected frequency and volume of state changes, (4) whether authorization is static (evaluated at subscription) or dynamic (re-evaluated continuously), (5) whether consumers require state query capability (in addition to change notifications). These clarifications will validate DP5 suitability and inform IM (implementation module) design decisions regarding broker technology, topic schema, and authorization service architecture."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Safety Services",
+      "scope": "Centralized publish-subscribe broker for worksite model state change events, with topic-based filtering, authorization enforcement at subscription boundary, and guaranteed message delivery within p95 ≤ 1.0s latency. Owns topic namespace hierarchy, subscription authorization rules, event immutability contracts, and broker-level delivery guarantees."
+    },
+    "external_interfaces": [
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Safety Services publishes hazard state change events (e.g., /worksite/{id}/zone/{id}/hazard) as immutable events to authorized subscribers via SafetyAlert interface."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Producers (Vehicle, Teleoperation, NGHE Solution) emit worksite model state changes (personnel location, zone status, equipment state) as telemetry events that Safety Services ingests and republishes as filtered, authorized topic subscriptions."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Safety Services uses Network Link to guarantee message delivery within latency threshold and to enforce subscription-time authorization checks across distributed consumer endpoints."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Safety Services",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit. Safety Services is the natural owner of authorization enforcement, event brokering, and state change dissemination. Topic-based filtering and latency guarantees align with safety-critical event delivery. Minor diffusion: producers (Vehicle, Teleoperation, NGHE Solution) must emit events in agreed format, but this is a producer contract, not architectural diffusion. Subscription authorization rules remain fully contained."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor fit. NGHE Solution is a consumer/orchestrator, not a broker. Placing pub-sub broker logic here couples the solution layer to infrastructure concerns (message delivery guarantees, topic namespace management, authorization enforcement). Authorization rules would diffuse across multiple consumer modules. Broker latency guarantees become entangled with application logic."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.15,
+        "diffusion_score": 0.85,
+        "notes": "Very poor fit. Vehicle is a producer/consumer endpoint, not a broker. Placing pub-sub broker here creates tight coupling between vehicle-specific logic and global event distribution. Topic namespace, authorization rules, and latency guarantees would diffuse across all other system modules. Violates separation of concerns."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Very poor fit. Teleoperation is a consumer/control interface, not a broker. Placing pub-sub broker here couples remote operation logic to event infrastructure. Authorization enforcement and topic filtering would diffuse to producers and other consumers. Latency guarantees become entangled with teleoperation control loops."
+      }
+    ],
+    "ownership_candidate": "Safety Services",
+    "containment_hypothesis": "Safety Services is the single authoritative owner of worksite model state change events, authorization rules, and event delivery guarantees. It acts as the central broker that decouples producers (Vehicle, Teleoperation, NGHE Solution) from consumers by enforcing authorization at subscription time and filtering events by topic. Producers emit events via Telemetry interface; Safety Services ingests, authorizes, and republishes via SafetyAlert interface. Network Link provides the underlying transport and latency enforcement. This design keeps authorization logic, topic namespace, and delivery guarantees fully contained within Safety Services, minimizing diffusion to other modules.",
+    "containment_risks": [
+      "Producer contract drift: If producers emit events in inconsistent formats or schemas, Safety Services must absorb schema validation and normalization logic, increasing complexity. Mitigation: establish strict event schema contracts at Telemetry interface.",
+      "Latency threshold enforcement: Achieving p95 ≤ 1.0s requires tight integration with Network Link and careful queue management. If Network Link cannot guarantee latency, Safety Services cannot meet the DP requirement. Mitigation: validate Network Link SLA before finalizing DP.",
+      "Authorization rule explosion: If authorization rules become highly dynamic or context-dependent (e.g., time-based, location-based), Safety Services may need to pull authorization state from external services, increasing coupling. Mitigation: define authorization rule scope and update frequency upfront.",
+      "Topic namespace coupling: If producers or consumers expect custom topic structures outside the worksite model hierarchy, Safety Services must either enforce strict hierarchy or support dynamic topic registration, both increasing complexity. Mitigation: lock topic structure to worksite model hierarchy in DP contract."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP5 correctly maps to FR by specifying a publish-subscribe pattern with topic-based filtering and authorization enforcement as the mechanism to propagate worksite model state changes to authorized consumers. The DP explicitly addresses the latency requirement (p95 ≤ 1.0s) through broker-level delivery guarantees and immutable event contracts. The topic hierarchy (/worksite/{id}/zone/{id}/hazard, /worksite/{id}/personnel) directly enables fine-grained filtering without producer-consumer coupling. DP is logically sound and complete."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Producer contract drift: Producers (Vehicle, Teleoperation, NGHE Solution) must emit events in agreed schema format. If schema contracts are not strictly enforced at Telemetry interface, Safety Services will absorb schema validation and normalization logic, increasing complexity and diffusing producer responsibility into the broker. Mitigation: establish and version event schema contracts at Telemetry interface with strict validation gates.",
+        "Latency threshold enforcement coupling: Achieving p95 ≤ 1.0s is jointly owned by Safety Services (broker logic, queue management) and Network Link (transport SLA). If Network Link cannot guarantee latency, Safety Services cannot meet the DP requirement. This creates a hidden dependency that could diffuse latency responsibility across module boundaries. Mitigation: validate Network Link SLA and establish explicit latency contract before finalizing DP; document latency ownership split.",
+        "Authorization rule explosion: If authorization rules become highly dynamic (time-based, location-based, context-dependent), Safety Services may need to pull authorization state from external services (e.g., identity/policy service), increasing coupling and complexity. This could diffuse authorization logic across multiple modules. Mitigation: define authorization rule scope, update frequency, and caching strategy upfront; establish clear boundary between Safety Services and external policy sources.",
+        "Topic namespace coupling: If producers or consumers expect custom topic structures outside the worksite model hierarchy, Safety Services must either enforce strict hierarchy (breaking flexibility) or support dynamic topic registration (increasing complexity and diffusion). Mitigation: lock topic structure to worksite model hierarchy in DP contract; document topic structure governance rules."
+      ],
+      "containment_notes": "Safety Services is the correct and natural owner of DP5 with containment score 0.92 and diffusion score 0.08. The module cleanly owns authorization enforcement, event brokering, topic namespace hierarchy, immutability contracts, and delivery guarantees. Producers and consumers interact via well-defined interfaces (Telemetry in, SafetyAlert out, Network Link for transport). The four diffusion risks identified are all mitigable through strict interface contracts and upfront governance decisions. No architectural diffusion is inherent to the DP-IM mapping itself; all risks are contract/governance risks, not structural risks."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The FR requirement (propagate worksite model state changes to authorized consumers within p95 ≤ 1.0s latency) is directly verifiable through: (1) latency measurement of state change events from producer emission to consumer receipt (p95 metric), (2) authorization audit logs confirming only authorized consumers receive events, (3) topic filtering validation confirming events match subscription scope. Safety Services module boundary provides a single point of instrumentation and measurement. Acceptance criteria are quantifiable and testable.",
+      "allocation_clarity": "Clear. Safety Services is the single authoritative owner of the DP realization. Producers (Vehicle, Teleoperation, NGHE Solution) have a clear contract: emit worksite model state changes as telemetry events in agreed schema to Telemetry interface. Consumers subscribe to topics matching their authorization scope via SafetyAlert interface. Network Link provides transport and latency enforcement. Ownership boundaries are explicit and non-overlapping. One minor clarity gap: the DP states 'authorization enforcement at subscription boundary' but does not specify whether authorization is re-evaluated on each message delivery or only at subscription time. Recommend clarifying authorization refresh semantics in DP contract."
+    },
+    "recommended_revisions": [
+      "Add explicit event schema versioning and validation contract to Telemetry interface. Specify schema registry ownership (Safety Services or external), validation enforcement point, and backward compatibility rules.",
+      "Establish and document Network Link SLA for message delivery latency. Define the split of latency responsibility: Safety Services (broker queue time, filtering time) vs. Network Link (transport time). Specify how Safety Services will handle Network Link latency violations (e.g., circuit breaker, fallback).",
+      "Define authorization rule scope and update semantics: (1) Are authorization rules static (loaded at startup) or dynamic (pulled from external service)? (2) What is the maximum authorization rule staleness acceptable? (3) Is authorization re-evaluated per message or only at subscription time? Document in DP contract.",
+      "Lock topic structure to worksite model hierarchy in DP contract. Specify allowed topic patterns (e.g., /worksite/{id}/zone/{id}/hazard, /worksite/{id}/personnel) and governance process for adding new topic patterns. Prohibit dynamic topic registration outside this hierarchy.",
+      "Add immutability contract specification: define which fields in state change events are immutable, which are mutable, and how versioning is handled. Specify event retention policy and archival strategy.",
+      "Clarify producer-broker interaction: specify whether producers emit events directly to Safety Services or via an intermediate ingestion layer. If direct, specify producer authentication and rate-limiting rules at Telemetry interface."
+    ]
+  },
+  "decision": {
+    "decision": "REVISE_CURRENT_LEVEL",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass with high confidence, and Safety Services is the correct architectural owner with 0.92 containment and 0.08 diffusion. However, the recommended_revisions identify six critical contract and governance gaps that must be resolved before decomposition can proceed safely. Given high safety criticality, these gaps represent unacceptable ambiguity in authorization semantics, latency ownership, schema evolution, and topic governance. Revising the DP and IM specifications to close these gaps is prerequisite to deriving sub-FRs; proceeding to decomposition without these clarifications would propagate ambiguity into lower levels and create diffusion risks at implementation time. The revisions are targeted, non-structural, and do not invalidate the FR-DP-IM mapping.",
+    "next_level_sub_frs": [],
+    "revise": {
+      "target": "DP",
+      "why": "DP5 is logically sound but incomplete in critical contract specifications. The six recommended revisions must be incorporated into the DP specification before sub-FR decomposition: (1) event schema versioning and validation contract at Telemetry interface, (2) Network Link SLA and latency responsibility split, (3) authorization rule scope and refresh semantics (static vs. dynamic, re-evaluation frequency), (4) topic structure lock and governance rules, (5) immutability contract and event retention policy, (6) producer-broker interaction and authentication/rate-limiting rules. These are not design changes but rather explicit contract definitions that eliminate ambiguity in the DP realization. Once revised, DP5 will be ready for sub-FR decomposition."
+    },
+    "record": {
+      "assumptions": [
+        "Network Link SLA can be negotiated to support p95 ≤ 1.0s latency requirement; if not, DP5 is infeasible and FR must be revised.",
+        "Authorization rules are assumed to be static or semi-static (loaded at startup, refreshed on schedule); if authorization must be real-time dynamic, Safety Services complexity increases significantly and sub-FR decomposition must account for external policy service coupling.",
+        "Event schema contracts are assumed to be enforceable at Telemetry interface; if producers cannot be held to schema compliance, Safety Services must absorb schema normalization logic, increasing diffusion risk.",
+        "Topic structure is locked to worksite model hierarchy; producers and consumers cannot request custom topic patterns outside this hierarchy.",
+        "Authorization is re-evaluated at subscription time, not per-message; if per-message re-evaluation is required, latency impact must be quantified and DP revised.",
+        "Producers emit events directly to Safety Services Telemetry interface; no intermediate ingestion layer is assumed."
+      ],
+      "open_risks": [
+        "Producer contract drift: If event schema contracts are not strictly enforced at Telemetry interface, producers may emit non-compliant events, forcing Safety Services to absorb schema validation and normalization. Mitigation: establish schema registry with strict validation gates and version control.",
+        "Latency threshold enforcement coupling: If Network Link cannot guarantee p95 ≤ 1.0s, Safety Services cannot meet DP requirement. Mitigation: validate Network Link SLA before finalizing DP; establish explicit latency contract and ownership split.",
+        "Authorization rule explosion: If authorization rules become highly dynamic (time-based, location-based, context-dependent), Safety Services may need to pull authorization state from external services, increasing coupling and complexity. Mitigation: define authorization rule scope, update frequency, and caching strategy upfront.",
+        "Topic namespace coupling: If producers or consumers expect custom topic structures outside worksite model hierarchy, Safety Services must either enforce strict hierarchy (breaking flexibility) or support dynamic topic registration (increasing complexity). Mitigation: lock topic structure in DP contract and document governance rules.",
+        "Authorization refresh semantics ambiguity: Current DP does not specify whether authorization is re-evaluated on each message delivery or only at subscription time. This ambiguity could lead to security gaps or latency violations. Mitigation: clarify authorization refresh semantics in revised DP contract.",
+        "Event immutability and retention policy undefined: DP does not specify which fields are immutable, how versioning is handled, or event retention/archival strategy. This could lead to data consistency issues or compliance violations. Mitigation: add immutability contract specification to revised DP."
+      ],
+      "evidence_needed": [
+        "Network Link SLA documentation: latency percentiles (p50, p95, p99), jitter bounds, failure modes, and recovery time objectives.",
+        "Event schema registry design: schema versioning strategy, validation enforcement point, backward compatibility rules, and ownership model.",
+        "Authorization rule specification: scope (static vs. dynamic), update frequency, staleness tolerance, re-evaluation semantics (subscription-time vs. per-message), and external policy service interface (if applicable).",
+        "Topic structure governance document: allowed topic patterns, naming conventions, hierarchy rules, and process for adding new patterns.",
+        "Immutability contract specification: field-level mutability rules, versioning strategy, event retention policy, and archival procedures.",
+        "Producer authentication and rate-limiting specification: authentication mechanism at Telemetry interface, rate-limiting rules, and enforcement point.",
+        "Latency measurement and monitoring plan: instrumentation points (producer emission, broker ingestion, broker delivery, consumer receipt), p95 calculation methodology, and alerting thresholds.",
+        "Authorization audit and compliance evidence: audit log format, retention period, and compliance verification procedures."
+      ]
+    }
+  }
+}

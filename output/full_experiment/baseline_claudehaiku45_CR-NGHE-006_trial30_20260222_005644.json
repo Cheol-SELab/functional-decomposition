@@ -1,0 +1,168 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and work-zone boundaries, with sufficient fidelity to support autonomous path planning and operator situational awareness.",
+    "rationale": "The original FR was vague regarding fidelity requirements, update frequency, and scope of representable features. Refinement clarifies that the model must support both planning (path generation) and execution (real-time awareness), distinguishes static from dynamic content, and anchors acceptance to the constraint that the model is 'available to planning/execution functions.' High safety criticality demands explicit inclusion of hazard representation.",
+    "verification_idea": "Acceptance test: (1) Worksite model generated within 5 minutes of site survey; (2) Terrain elevation accuracy ±0.5 m over 90% of mapped area; (3) Static obstacles detected and represented with ≥95% recall; (4) Dynamic hazards updated at ≥2 Hz; (5) Model accessible via standardized interface to planning and execution subsystems; (6) Safety Manager can validate hazard zones before operations commence.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire worksite sensor data (LiDAR, camera, GNSS) and fuse into unified coordinate frame.",
+      "CR-NGHE-006.2: Classify and segment terrain, obstacles, and hazard zones from fused sensor data.",
+      "CR-NGHE-006.3: Maintain and update worksite model state in real-time during operations.",
+      "CR-NGHE-006.4: Expose worksite model via standardized interface to planning and execution functions.",
+      "CR-NGHE-006.5: Validate worksite model against safety policies and alert on constraint violations."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized mapping service (on-vehicle compute) that fuses multi-sensor data, maintains a 3D occupancy grid, and publishes model updates via REST/gRPC to planning and execution modules.",
+      "DP-B: Distributed sensor processing (edge compute on each sensor node) with eventual consistency model aggregating local maps to a cloud-based worksite model repository.",
+      "DP-C: Hybrid approach: on-vehicle real-time occupancy grid for immediate planning; asynchronous cloud sync for persistent model and cross-vehicle sharing.",
+      "DP-D: Operator-assisted manual annotation of worksite features via teleoperation interface, with semi-autonomous refinement via onboard sensors."
+    ],
+    "selected_dp": "DP-C: Hybrid on-vehicle real-time occupancy grid (for immediate planning and safety) synchronized asynchronously to a cloud-based persistent worksite model (for multi-vehicle coordination, historical analysis, and safety audit trail). The on-vehicle component uses LiDAR + camera fusion with a rolling 3D grid updated at ≥2 Hz; the cloud component ingests updates via Telemetry interface and provides model queries via Tasking interface.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between sensor fusion (CR-NGHE-006.1) and real-time grid maintenance (CR-NGHE-006.3) is acceptable—both are tightly coupled within the on-vehicle mapping service.",
+        "Coupling between on-vehicle grid and cloud model is loose (asynchronous, eventual consistency)—acceptable for non-safety-critical sharing.",
+        "Coupling to planning/execution (CR-NGHE-006.4) is via well-defined Tasking interface—decoupled."
+      ],
+      "notes": "DP-C avoids tight coupling to cloud infrastructure (DP-B risk) while maintaining real-time responsiveness. Hybrid approach aligns with high safety criticality: on-vehicle grid is deterministic and low-latency; cloud model is for coordination and audit, not real-time safety decisions."
+    },
+    "assumptions_risks": [
+      "Assumption: On-vehicle compute has sufficient capacity (GPU/FPGA) for real-time sensor fusion and grid updates. Risk: If compute is undersized, grid update latency may exceed 2 Hz, degrading safety.",
+      "Assumption: Network link to cloud is intermittent but eventually available. Risk: If network is unavailable for extended periods, multi-vehicle coordination is degraded (acceptable for single-vehicle operations).",
+      "Assumption: Sensor calibration and extrinsic alignment are maintained throughout mission. Risk: Miscalibration causes systematic errors in grid; mitigation: periodic auto-calibration checks.",
+      "Assumption: Safety policies are encoded as constraints on the model (e.g., no-go zones, personnel exclusion radii). Risk: Policy changes require model revalidation; mitigation: Safety Manager approval gate before operations."
+    ],
+    "recommended_revision": "Clarify latency and consistency SLAs: (1) On-vehicle grid update latency ≤500 ms (2 Hz); (2) Cloud model consistency lag ≤5 minutes; (3) Safety-critical constraints (no-go zones, personnel proximity) enforced on-vehicle grid only, not cloud model. Add explicit requirement for grid uncertainty quantification (e.g., occupancy probability per cell) to support risk-aware planning."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "The Vehicle module owns the on-vehicle real-time worksite mapping service, including sensor fusion (LiDAR, camera, GNSS), 3D occupancy grid maintenance, and local model queries. The Vehicle module also owns the interface to cloud synchronization (via Telemetry) and receives planning directives (via Tasking). Safety Services module owns validation and alerting on model constraint violations."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle publishes occupancy grid updates, sensor metadata, and model uncertainty estimates to cloud-based worksite model repository. Frequency: ≥1 Hz (or on significant change). Payload: grid cells with occupancy probability, timestamp, vehicle pose, sensor quality metrics."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives planning queries (e.g., 'is path (x1,y1,z1)→(x2,y2,z2) collision-free?') and model requests (e.g., 'get terrain elevation at (x,y)') from planning/execution functions. Frequency: on-demand, latency SLA ≤100 ms. Payload: query type, coordinates, confidence threshold."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Vehicle publishes model-based safety alerts (e.g., 'personnel detected in work zone', 'terrain slope exceeds safe limit') to Safety Services. Frequency: event-driven, latency SLA ≤200 ms. Payload: alert type, location, confidence, recommended action."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Vehicle maintains network connectivity to cloud and planning/execution services. Supports Telemetry (out), Tasking (in), and SafetyAlert (out) flows. Resilient to intermittent connectivity; on-vehicle grid operates independently if network is unavailable."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "Vehicle is the natural owner of on-vehicle sensor fusion, real-time grid, and local model queries. Sensor hardware (LiDAR, camera) is physically on Vehicle. Compute for fusion and grid maintenance is on-vehicle. Only external interface is Telemetry (cloud sync), which is a thin, asynchronous coupling. Diffusion risk: minimal—all core logic is contained."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 60,
+        "diffusion_score": 40,
+        "notes": "NGHE Solution is the system-level integrator and could own the mapping service as a cross-vehicle capability. However, this would require Vehicle to delegate sensor fusion and grid maintenance to NGHE Solution, creating tight coupling and latency risk. Not recommended for real-time safety-critical mapping."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Teleoperation is for remote operator control, not autonomous mapping. Assigning mapping to Teleoperation would create high diffusion (operator-in-the-loop for every grid update) and violate separation of concerns. Not suitable."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 30,
+        "diffusion_score": 70,
+        "notes": "Safety Services owns validation and alerting on model constraints, not the model generation itself. Assigning mapping to Safety Services would couple safety logic to sensor fusion, violating modularity. Safety Services consumes the model via SafetyAlert interface."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module is the optimal owner because: (1) Sensor hardware is physically on Vehicle; (2) Real-time grid maintenance requires low-latency, deterministic compute on-vehicle; (3) On-vehicle grid is independent of cloud connectivity, supporting safety-critical operations; (4) External interfaces (Telemetry, Tasking, SafetyAlert) are thin and asynchronous, minimizing coupling; (5) Ownership boundary is clear: Vehicle owns real-time mapping, Safety Services owns constraint validation, NGHE Solution owns cloud model persistence.",
+    "containment_risks": [
+      "Risk: Vehicle module becomes overloaded if sensor fusion and grid maintenance consume excessive compute. Mitigation: Allocate dedicated GPU/FPGA for mapping; monitor CPU/memory utilization; implement graceful degradation (e.g., reduce grid resolution if compute is saturated).",
+      "Risk: On-vehicle grid diverges from cloud model if Telemetry updates are delayed or lost. Mitigation: Cloud model is for coordination only, not safety-critical decisions. On-vehicle grid is source of truth for real-time safety.",
+      "Risk: Multiple Vehicle instances (multi-vehicle operations) each maintain independent grids, leading to inconsistent worksite models. Mitigation: Cloud model aggregates grids from all vehicles; planning functions query cloud model for multi-vehicle coordination. Single-vehicle operations use on-vehicle grid directly.",
+      "Risk: Sensor calibration drift causes systematic errors in grid over time. Mitigation: Periodic auto-calibration checks (e.g., compare LiDAR and camera depth estimates); alert operator if calibration error exceeds threshold."
+    ],
+    "recommended_revision": "Explicitly define the boundary between Vehicle-owned real-time grid and NGHE Solution-owned cloud model: (1) Vehicle publishes grid updates via Telemetry; (2) NGHE Solution (or cloud service) aggregates updates and maintains persistent model; (3) Planning/execution functions query Vehicle (for real-time, low-latency queries) or NGHE Solution (for multi-vehicle, historical queries). Add interface specification for grid query protocol (e.g., OGC 3D Tiles, voxel grid format) to ensure interoperability."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid on-vehicle + cloud model) directly addresses all sub-FRs: (1) Sensor fusion and fusing (CR-NGHE-006.1) → on-vehicle LiDAR + camera fusion; (2) Classification and segmentation (CR-NGHE-006.2) → occupancy grid with semantic labels; (3) Real-time updates (CR-NGHE-006.3) → 2 Hz grid refresh; (4) Model exposure (CR-NGHE-006.4) → Tasking interface for queries; (5) Safety validation (CR-NGHE-006.5) → SafetyAlert interface to Safety Services. No functional gaps. Coupling is acceptable (on-vehicle tight coupling is necessary for real-time safety; cloud coupling is loose)."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Diffusion risk: If Vehicle module does not have dedicated compute for mapping, sensor fusion may be delayed or preempted by other Vehicle tasks (e.g., motion control). Mitigation: Allocate separate compute thread/core for mapping; use real-time OS scheduling.",
+        "Diffusion risk: If Telemetry interface is not well-specified, cloud model may receive incomplete or inconsistent grid updates. Mitigation: Define Telemetry payload schema (grid cell format, timestamp, pose, uncertainty); implement versioning for backward compatibility.",
+        "Diffusion risk: If Tasking interface latency exceeds 100 ms, planning functions may use stale grid data. Mitigation: Implement local caching of recent grid queries; prioritize Tasking requests in Vehicle scheduler."
+      ],
+      "containment_notes": "Vehicle module containment is strong (95/100). All core mapping logic (sensor fusion, grid maintenance) is contained within Vehicle. External interfaces are thin and asynchronous. No diffusion of mapping logic to other modules. Ownership boundary is clear and defensible."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible via: (1) Simulation: inject synthetic sensor data, verify grid generation and update latency; (2) Hardware-in-the-loop: connect real sensors to Vehicle compute, measure grid accuracy and latency; (3) Field test: deploy on actual worksite, compare grid to ground truth (e.g., surveyed terrain, manual obstacle marking), measure update frequency and consistency. Acceptance criteria are measurable (terrain accuracy ±0.5 m, obstacle recall ≥95%, update frequency ≥2 Hz).",
+      "allocation_clarity": "Allocation is clear: Vehicle owns on-vehicle real-time grid (CR-NGHE-006.1, CR-NGHE-006.2, CR-NGHE-006.3, CR-NGHE-006.4); Safety Services owns constraint validation and alerting (CR-NGHE-006.5); NGHE Solution owns cloud model persistence and multi-vehicle coordination (implicit). Interfaces are well-defined (Telemetry, Tasking, SafetyAlert, Network Link). No ambiguity in ownership or responsibility."
+    },
+    "recommended_revisions": [
+      "Clarify compute resource allocation: specify minimum GPU/FPGA capacity for on-vehicle sensor fusion and grid maintenance. Add performance SLA: grid update latency ≤500 ms, Tasking query latency ≤100 ms.",
+      "Define grid format and schema: specify voxel size, coordinate frame (e.g., UTM), occupancy probability representation, semantic labels (terrain, obstacle, hazard). Ensure interoperability with planning/execution functions.",
+      "Add safety validation gate: before operations commence, Safety Manager must approve worksite model (verify hazard zones, no-go areas, personnel exclusion radii). Model validation is part of CR-NGHE-006.5 (Safety Services responsibility).",
+      "Specify sensor calibration and maintenance: define auto-calibration checks, calibration error thresholds, and operator alerts. Add requirement for periodic (e.g., weekly) manual calibration verification."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "CR-NGHE-006 is not atomic; it comprises five sub-FRs (sensor fusion, classification, real-time updates, model exposure, safety validation). DP-C (hybrid on-vehicle + cloud model) is sound and well-coupled to the refined FR. Vehicle module is the optimal owner with strong containment (95/100) and clear external interfaces. However, to ensure detailed design quality and risk mitigation, the next level must decompose each sub-FR into detailed DPs and IMs. Specifically: (1) CR-NGHE-006.1 (sensor fusion) requires detailed DP for LiDAR-camera calibration and fusion algorithm; (2) CR-NGHE-006.2 (classification) requires DP for semantic segmentation (e.g., neural network, rule-based); (3) CR-NGHE-006.3 (real-time updates) requires DP for grid data structure and update algorithm; (4) CR-NGHE-006.4 (model exposure) requires DP for Tasking interface protocol; (5) CR-NGHE-006.5 (safety validation) requires DP for constraint checking and alerting logic. Proceeding to next level is necessary to validate feasibility and allocate detailed ownership.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire and fuse multi-sensor worksite data (LiDAR, camera, GNSS) into a unified coordinate frame with calibrated extrinsics and synchronized timestamps.",
+      "CR-NGHE-006.2: Classify and segment fused sensor data into semantic categories (terrain, static obstacles, dynamic hazards, work zones) with confidence scores.",
+      "CR-NGHE-006.3: Maintain and update a real-time 3D occupancy grid from classified sensor data, with occupancy probability and semantic labels per cell, at ≥2 Hz update frequency.",
+      "CR-NGHE-006.4: Expose worksite model via standardized Tasking interface to planning and execution functions, supporting collision-free path queries and terrain elevation queries with ≤100 ms latency.",
+      "CR-NGHE-006.5: Validate worksite model against safety policies (no-go zones, personnel exclusion radii, terrain slope limits) and publish SafetyAlert events on constraint violations."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "On-vehicle compute has sufficient capacity (GPU/FPGA) for real-time sensor fusion and grid updates at ≥2 Hz.",
+        "Network link to cloud is intermittent but eventually available; on-vehicle grid operates independently if network is unavailable.",
+        "Sensor calibration and extrinsic alignment are maintained throughout mission; periodic auto-calibration checks are feasible.",
+        "Safety policies are encoded as constraints on the model (no-go zones, personnel exclusion radii, terrain slope limits).",
+        "Planning and execution functions can query worksite model via Tasking interface with ≤100 ms latency tolerance.",
+        "Safety Manager can validate worksite model before operations commence (CR-NGHE-006.5 gate)."
+      ],
+      "open_risks": [
+        "Risk: Vehicle module compute overload if sensor fusion and grid maintenance consume excessive resources. Mitigation: Allocate dedicated GPU/FPGA; monitor utilization; implement graceful degradation.",
+        "Risk: On-vehicle grid diverges from cloud model if Telemetry updates are delayed or lost. Mitigation: Cloud model is for coordination only; on-vehicle grid is source of truth for real-time safety.",
+        "Risk: Sensor calibration drift causes systematic errors in grid over time. Mitigation: Periodic auto-calibration checks; alert operator if calibration error exceeds threshold.",
+        "Risk: Tasking interface latency exceeds 100 ms if Vehicle scheduler is overloaded. Mitigation: Prioritize Tasking requests; implement local caching of recent queries.",
+        "Risk: Multi-vehicle operations have inconsistent worksite models if cloud aggregation is delayed. Mitigation: Cloud model is for coordination; single-vehicle operations use on-vehicle grid directly.",
+        "Risk: Safety policies are not properly encoded in model validation logic (CR-NGHE-006.5). Mitigation: Safety Manager approval gate before operations; periodic policy audit."
+      ],
+      "evidence_needed": [
+        "Detailed specification of on-vehicle compute platform (GPU/FPGA model, memory, I/O bandwidth) and performance benchmarks for sensor fusion and grid updates.",
+        "Sensor calibration procedure and auto-calibration algorithm; calibration error thresholds and operator alerts.",
+        "Grid data structure specification (voxel size, coordinate frame, occupancy probability representation, semantic labels) and interoperability with planning/execution functions.",
+        "Tasking interface protocol specification (query types, payload format, latency SLA, error handling).",
+        "Safety policy encoding specification (no-go zones, personnel exclusion radii, terrain slope limits) and constraint validation algorithm.",
+        "Field test results: grid accuracy (terrain elevation ±0.5 m, obstacle recall ≥95%), update frequency (≥2 Hz), Tasking latency (≤100 ms), multi-vehicle consistency.",
+        "Safety Manager approval of worksite model validation procedure and policy audit schedule."
+      ]
+    }
+  }
+}

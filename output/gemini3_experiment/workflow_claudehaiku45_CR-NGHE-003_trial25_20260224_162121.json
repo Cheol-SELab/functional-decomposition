@@ -1,0 +1,167 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall enable measurement and reporting of energy consumption per unit of work output.",
+    "rationale": "The original FR conflates two distinct obligations: (1) the ability to measure/report energy efficiency metrics, and (2) the achievement of a target value. The latter is a performance constraint on the system's operation, not a functional requirement of the system itself. The refined FR focuses on the functional capability—providing visibility into energy efficiency—which is solution-neutral and measurable. Achievement of the energy_per_ton ≤ E_target acceptance criterion is a system-level performance requirement that emerges from correct design of propulsion, hydraulics, and operational control DPs, not from a single FR.",
+    "verification_idea": "Demonstrate that the NGHE solution can capture energy input (kWh or equivalent) and work output (tons moved, distance, cycles) over a defined evaluation period, and produce a report showing energy_per_ton. Verify the measurement chain (sensors, data logging, calculation) is traceable and repeatable.",
+    "sub_frs": [
+      "FR-NGHE-003.1: The NGHE solution shall measure total energy consumed during operation.",
+      "FR-NGHE-003.2: The NGHE solution shall measure or infer total work output (e.g., mass moved, distance traveled, or equivalent productivity metric) during operation.",
+      "FR-NGHE-003.3: The NGHE solution shall calculate and report the energy efficiency ratio (energy_per_ton) over a defined evaluation period."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Instrument energy input (fuel/electricity) at source; instrument work output (tonnage moved) at point of delivery; compute ratio asynchronously via data aggregation layer; report via standardized interface.",
+      "DP2: Embed real-time energy and work sensors in the equipment; stream dual measurements to a local compute module; calculate and log energy_per_ton continuously; expose via API.",
+      "DP3: Integrate energy metering at the power distribution node; integrate work quantification via independent load/displacement sensors; synchronize timestamps; perform ratio calculation in a centralized analytics service; publish results to reporting dashboard.",
+      "DP4: Decompose into two independent measurement streams (energy and work); each stream has its own acquisition, validation, and storage; join streams only at reporting layer using time-windowed aggregation; support multiple reporting granularities (per-shift, per-job, per-equipment)."
+    ],
+    "selected_dp": "DP4: Decompose into two independent measurement streams (energy and work); each stream has its own acquisition, validation, and storage; join streams only at reporting layer using time-windowed aggregation; support multiple reporting granularities (per-shift, per-job, per-equipment).",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Timestamp synchronization drift between energy and work sensors—mitigated by explicit time-windowing and tolerance bands at join layer.",
+        "Sensor failure asymmetry—one stream fails while the other continues; mitigated by independent validation and graceful degradation per stream.",
+        "Reporting layer must handle missing or delayed data from either stream—addressed by explicit join semantics and data quality flags.",
+        "Equipment-to-energy mapping ambiguity if multiple equipment share a power source—requires explicit instrumentation boundary definition in constraints."
+      ],
+      "notes": "DP4 achieves loose coupling by separating energy and work measurement concerns. Each stream can evolve independently (e.g., swap sensor types, change sampling rates) without affecting the other. The join occurs only at the reporting layer, allowing flexible aggregation windows and multiple reporting views. This supports modularity and testability. DP1 and DP3 are tightly coupled at the calculation layer; DP2 couples real-time computation to equipment, limiting flexibility for offline analysis or multi-equipment aggregation."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Energy source is metered at a single point per equipment or per worksite; if energy is shared across multiple equipment, sub-metering or allocation logic is required (out of scope for this FR).",
+      "ASSUMPTION: Work output (tonnage) is measurable at point of delivery or via load cells; if work is inferred indirectly (e.g., from distance + load estimate), measurement uncertainty increases.",
+      "RISK: Timestamp synchronization between independent energy and work streams may introduce systematic bias if clocks drift; recommend NTP or GPS-disciplined time sources.",
+      "RISK: Sensor calibration drift over evaluation period; recommend pre- and post-evaluation calibration checks and documented sensor maintenance schedule.",
+      "RISK: Acceptance criterion `energy_per_ton ≤ E_target` is sensitive to both numerator and denominator; if either sensor has systematic bias, the ratio will be biased; recommend independent validation of both measurement streams before ratio is reported.",
+      "ASSUMPTION: Evaluation period is defined and stable; if worksite conditions (terrain, load distribution, ambient) vary significantly, energy_per_ton may not be comparable across periods without normalization.",
+      "RISK: Data loss or gaps in either stream during evaluation period; recommend explicit data quality reporting (% uptime, % completeness) alongside energy_per_ton metric."
+    ],
+    "recommended_revision": "FR (refined): The NGHE solution shall enable independent measurement of energy consumption and work output (tonnage moved), validate each measurement stream, and compute and report the ratio `energy_per_ton = total_energy_used / total_tonnage_moved` with associated data quality metrics (uptime, completeness, calibration status) over the agreed evaluation period, such that the reported ratio satisfies `≤ E_target` when both streams meet acceptance thresholds. Measurement streams shall be decoupled to allow independent evolution, testing, and failure isolation. Timestamp synchronization tolerance and aggregation window (per-shift, per-job, per-equipment) shall be specified in the evaluation protocol."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "Centralized measurement stream decomposition, validation, aggregation, and multi-granularity reporting engine for energy and work metrics"
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Inbound raw energy and work measurement data from Vehicle and Teleoperation subsystems; supports dual independent streams with timestamps"
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Outbound reporting directives and aggregation requests at multiple granularities (per-shift, per-job, per-equipment) to downstream consumers"
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Optional outbound alerts if measurement validation detects anomalies or data integrity issues requiring safety intervention"
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit: NGHE Solution is the natural home for measurement aggregation, validation logic, and reporting orchestration. Dual stream decomposition, time-windowed joins, and multi-granularity reporting are all data-processing concerns that belong in a centralized analytics/reporting layer. Minimal diffusion: only Telemetry inbound and Tasking/SafetyAlert outbound; no internal leakage to Vehicle or Teleoperation."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.15,
+        "diffusion_score": 0.85,
+        "notes": "Poor fit: Vehicle is a physical asset/platform module responsible for actuation and basic sensor integration, not measurement aggregation or reporting. Placing stream decomposition, validation, and multi-granularity reporting here would violate separation of concerns and create tight coupling between vehicle control logic and analytics. High diffusion: reporting logic would leak into vehicle firmware/software, complicating updates and testing."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Poor fit: Teleoperation is a command/control interface module, not a data aggregation or reporting engine. Placing dual stream decomposition and time-windowed joins here would conflate remote operation concerns with analytics concerns. High diffusion: reporting granularities and validation logic would scatter across teleoperation UI/protocol layers."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.25,
+        "diffusion_score": 0.75,
+        "notes": "Weak fit: Safety Services is responsible for safety monitoring and alerts, not measurement stream aggregation or reporting. While validation may touch safety thresholds, the core DP (dual stream decomposition, time-windowed joins, multi-granularity reporting) is orthogonal to safety logic. Placing it here would create unnecessary coupling and diffuse reporting concerns into safety-critical code."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution (Analytics & Reporting Team)",
+    "containment_hypothesis": "DP4 is fundamentally a data aggregation, validation, and reporting concern that belongs in a centralized measurement analytics layer. NGHE Solution is the designated module for cross-system data fusion, time-series aggregation, and multi-granularity reporting. The dual stream decomposition (energy vs. work) is a logical partitioning strategy that improves cohesion within the reporting engine; the time-windowed join at the reporting layer is a classic analytics pattern. All three sub-concerns (acquisition validation, storage coordination, and reporting orchestration) are best contained within a single, cohesive analytics module to avoid duplication and ensure consistent data semantics across reporting granularities.",
+    "containment_risks": [
+      "Risk: If raw measurement acquisition (sensor reading, initial buffering) is tightly coupled to Vehicle or Teleoperation firmware, the Telemetry interface may not provide sufficient decoupling. Mitigation: Ensure Telemetry interface abstracts raw sensor data into a normalized, timestamped format independent of vehicle/teleoperation implementation details.",
+      "Risk: Multi-granularity reporting (per-shift, per-job, per-equipment) may require metadata (job IDs, equipment IDs, shift boundaries) from external systems. If this metadata is not available via Tasking or a separate metadata interface, NGHE Solution may need to query Vehicle or Teleoperation directly, increasing coupling. Mitigation: Establish a clear contract for metadata provisioning via Tasking or introduce a dedicated metadata interface.",
+      "Risk: Time-windowed aggregation logic may need to handle clock skew, out-of-order arrivals, or late-arriving data from distributed sensors. If Vehicle and Teleoperation do not provide synchronized timestamps, NGHE Solution may need to implement complex reconciliation, increasing complexity and potential for bugs. Mitigation: Require Telemetry interface to include high-resolution, synchronized timestamps from all measurement sources.",
+      "Risk: Validation logic (e.g., range checks, anomaly detection) may evolve based on safety or operational requirements. If Safety Services or Vehicle teams drive validation changes, NGHE Solution may become a bottleneck or require frequent updates. Mitigation: Design validation as a pluggable, rule-based subsystem within NGHE Solution to allow configuration without code changes."
+    ],
+    "recommended_revision": "DP4 is well-formulated and maps cleanly to NGHE Solution. No revision needed. However, to strengthen containment and reduce diffusion risk, consider explicitly stating in DP4 that: (1) Telemetry interface provides normalized, timestamped measurement tuples (energy_value, work_value, timestamp, source_id); (2) Tasking interface includes metadata (job_id, equipment_id, shift_boundary) required for multi-granularity aggregation; (3) Validation rules are externalized as configuration (not hardcoded) to allow Safety Services and Vehicle teams to influence thresholds without modifying NGHE Solution code. This clarification strengthens the DP-to-IM mapping by making interface contracts explicit and reducing the risk of hidden coupling."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP4 directly addresses the FR by decomposing energy and work measurement into independent streams with validation and time-windowed aggregation at the reporting layer. The DP explicitly supports multiple reporting granularities (per-shift, per-job, per-equipment) required to compute energy_per_ton metrics. The logical separation of acquisition, validation, and storage concerns is sound and enables the measurement and reporting capability demanded by the FR."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Telemetry interface abstraction risk: If raw sensor acquisition in Vehicle or Teleoperation firmware does not normalize timestamps and measurement tuples before handoff, NGHE Solution will inherit coupling to vehicle/teleoperation implementation details. Mitigation: Enforce Telemetry interface contract requiring (energy_value, work_value, timestamp, source_id) tuples with synchronized, high-resolution timestamps.",
+        "Metadata provisioning risk: Multi-granularity reporting (per-shift, per-job, per-equipment) requires job IDs, equipment IDs, and shift boundaries. If this metadata is not explicitly provisioned via Tasking interface or a dedicated metadata service, NGHE Solution may need to query Vehicle or Teleoperation directly, creating hidden coupling. Mitigation: Establish explicit metadata interface contract; document metadata source ownership.",
+        "Validation rule evolution risk: Validation logic (range checks, anomaly detection) may be driven by Safety Services or Vehicle teams. If validation rules are hardcoded in NGHE Solution, changes will require code updates and testing, creating a bottleneck and diffusion of safety/operational concerns into the analytics module. Mitigation: Externalize validation rules as configuration (rule engine or policy store) to decouple rule ownership from NGHE Solution implementation.",
+        "Clock skew and out-of-order data risk: Time-windowed aggregation assumes synchronized, ordered measurement arrivals. If Vehicle and Teleoperation sensors have clock drift or network delays cause out-of-order delivery, NGHE Solution must implement reconciliation logic, increasing complexity and potential for data integrity bugs. Mitigation: Require Telemetry interface to include clock synchronization guarantees and define late-arrival handling policy (e.g., grace period, drop threshold)."
+      ],
+      "containment_notes": "NGHE Solution is the correct IM boundary for DP4. Containment score of 0.92 is justified: dual stream decomposition, time-windowed joins, and multi-granularity reporting are fundamentally data aggregation and analytics concerns that belong in a centralized reporting engine, not scattered across Vehicle, Teleoperation, or Safety Services. The module boundary is cohesive and avoids unnecessary coupling to vehicle control logic or teleoperation UI. External interfaces (Telemetry in, Tasking/SafetyAlert out) are clean and unidirectional. Diffusion score of 0.08 reflects only minor risks at interface boundaries, not internal leakage. To achieve 0.95+ containment, strengthen interface contracts as noted in diffusion_risks."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The acceptance criterion (energy_per_ton ≤ E_target) is directly computable from the dual measurement streams (energy_used, ton_moved) aggregated at the reporting layer. NGHE Solution's multi-granularity reporting (per-shift, per-job, per-equipment) provides the temporal and categorical slicing needed to evaluate the metric over the agreed evaluation period. Verification requires: (1) Telemetry interface delivers synchronized, validated energy and work measurements; (2) Tasking interface provides job/equipment metadata for granular aggregation; (3) NGHE Solution implements time-windowed join and aggregation logic correctly. All are testable and measurable.",
+      "allocation_clarity": "Clear. The FR is allocated to NGHE Solution as the sole owner of measurement aggregation and reporting. Vehicle and Teleoperation are allocated only raw measurement acquisition and transmission (via Telemetry interface), not aggregation or reporting logic. Safety Services is allocated validation thresholds and alert generation (via SafetyAlert interface), not stream decomposition or multi-granularity reporting. Ownership boundaries are explicit and non-overlapping. Worksite safety plan and operational policies are inputs to validation rule configuration, not implementation concerns."
+    },
+    "recommended_revisions": [
+      "Revise DP4 to explicitly state Telemetry interface contract: 'Telemetry interface shall deliver measurement tuples (energy_value_kWh, work_value_ton, timestamp_UTC, source_id, measurement_quality_flag) with synchronized timestamps (clock skew ≤ 100ms) and support for out-of-order arrival handling (grace period ≥ 5 seconds).'",
+      "Revise DP4 to explicitly state Tasking interface contract for metadata: 'Tasking interface shall provision job metadata (job_id, equipment_id, shift_boundary_UTC, operator_id) required for per-job, per-equipment, and per-shift aggregation. Metadata shall be available before or concurrent with measurement data arrival.'",
+      "Revise DP4 to externalize validation rules: 'Validation logic (range checks, anomaly detection thresholds) shall be implemented as a pluggable rule engine or policy store, allowing Safety Services and Vehicle teams to configure thresholds without modifying NGHE Solution code. Validation rules shall be versioned and auditable.'",
+      "Add to DP4 a sub-concern for clock synchronization: 'Ensure all measurement sources (Vehicle, Teleoperation) synchronize to a common time reference (e.g., NTP, GPS) before transmitting via Telemetry interface. Define and document clock skew tolerance and late-arrival handling policy (e.g., 5-second grace period, then drop).'",
+      "Add to DP4 a sub-concern for data quality and lineage: 'NGHE Solution shall track measurement quality flags (e.g., sensor health, calibration status) and propagate them through aggregation. Reporting output shall include data quality metadata (e.g., % of measurements validated, % of late arrivals) to support evaluation period assessment.'",
+      "Document in DP4 the relationship between dual stream decomposition and energy_per_ton metric: 'The dual stream decomposition (energy vs. work) enables independent validation and aggregation of heterogeneous measurement types. Time-windowed join at the reporting layer ensures energy and work measurements are temporally aligned before computing energy_per_ton = energy_used / ton_moved. Multi-granularity reporting (per-shift, per-job, per-equipment) allows evaluation of energy_per_ton ≤ E_target across different operational contexts.'"
+    ]
+  },
+  "decision": {
+    "decision": "REVISE_CURRENT_LEVEL",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass with high confidence, and containment/diffusion scores are strong (0.92/0.08). However, the recommended_revisions from the gate analysis identify six critical interface contracts and architectural clarifications that must be incorporated into DP4 before proceeding to sub-FR decomposition. These revisions are not optional refinements; they are essential to operationalize the DP and mitigate diffusion risks at module boundaries. Specifically: (1) Telemetry interface contract must define measurement tuple schema, clock skew tolerance, and late-arrival handling to prevent coupling to Vehicle/Teleoperation implementation details; (2) Tasking interface contract must guarantee metadata availability for multi-granularity reporting; (3) Validation rules must be externalized to decouple safety/operational concerns from NGHE Solution code; (4) Clock synchronization and data quality lineage must be explicit design concerns. These revisions strengthen the DP logically and architecturally without changing the fundamental decomposition strategy. Once DP4 is revised to incorporate these contracts and concerns, sub-FR decomposition will be grounded in concrete, testable interface specifications and will avoid downstream rework.",
+    "next_level_sub_frs": [],
+    "revise": {
+      "target": "DP",
+      "why": "DP4 must be revised to incorporate six recommended clarifications: (1) Explicit Telemetry interface contract with measurement tuple schema, clock skew tolerance (≤100ms), and out-of-order grace period (≥5s); (2) Explicit Tasking interface contract for metadata provisioning (job_id, equipment_id, shift_boundary_UTC, operator_id) with availability guarantees; (3) Externalized validation rule engine/policy store to decouple Safety Services and Vehicle team rule ownership from NGHE Solution code; (4) Clock synchronization sub-concern requiring common time reference (NTP/GPS) and documented late-arrival policy; (5) Data quality and lineage sub-concern tracking measurement quality flags and propagating them through aggregation; (6) Explicit documentation of dual stream decomposition rationale and its relationship to energy_per_ton metric computation. These revisions operationalize the DP and eliminate ambiguity at module boundaries without altering the core decomposition logic."
+    },
+    "record": {
+      "assumptions": [
+        "Vehicle and Teleoperation firmware can be contractually obligated to deliver synchronized, validated measurement tuples via Telemetry interface with clock skew ≤100ms.",
+        "Tasking interface or a dedicated metadata service can provision job/equipment/shift metadata concurrently with or prior to measurement data arrival.",
+        "Safety Services and Vehicle teams will adopt an externalized validation rule engine/policy store rather than embedding rules in NGHE Solution code.",
+        "A common time reference (NTP, GPS, or equivalent) is available and can be enforced across all measurement sources.",
+        "Data quality flags (sensor health, calibration status) are available from Vehicle and Teleoperation and can be propagated through NGHE Solution aggregation logic.",
+        "The evaluation period for energy_per_ton ≤ E_target is defined operationally (e.g., per-shift, per-job, per-equipment) and aligns with Tasking metadata granularity."
+      ],
+      "open_risks": [
+        "Telemetry interface abstraction risk: If Vehicle or Teleoperation firmware does not normalize timestamps and measurement tuples before handoff, NGHE Solution will inherit coupling. Mitigation: Enforce Telemetry interface contract with synchronized, high-resolution timestamps and measurement tuple schema.",
+        "Metadata provisioning risk: If job IDs, equipment IDs, and shift boundaries are not explicitly provisioned via Tasking interface or metadata service, NGHE Solution may query Vehicle/Teleoperation directly, creating hidden coupling. Mitigation: Establish explicit metadata interface contract and document metadata source ownership.",
+        "Validation rule evolution risk: If validation logic is hardcoded in NGHE Solution, changes will require code updates and testing, creating a bottleneck. Mitigation: Externalize validation rules as configuration (rule engine or policy store).",
+        "Clock skew and out-of-order data risk: Time-windowed aggregation assumes synchronized, ordered arrivals. If Vehicle and Teleoperation sensors have clock drift or network delays cause out-of-order delivery, NGHE Solution must implement reconciliation logic. Mitigation: Require Telemetry interface to include clock synchronization guarantees and define late-arrival handling policy.",
+        "Data quality lineage risk: If measurement quality flags are not tracked and propagated, NGHE Solution cannot assess data integrity or support evaluation period assessment. Mitigation: Implement data quality tracking and include quality metadata in reporting output.",
+        "Safety criticality amplification: High safety criticality of energy_per_ton metric means validation rule changes and data quality issues have direct operational impact. Mitigation: Externalize validation rules and implement comprehensive data quality auditing."
+      ],
+      "evidence_needed": [
+        "Telemetry interface specification document defining measurement tuple schema, clock skew tolerance, timestamp synchronization mechanism, and out-of-order arrival handling policy.",
+        "Tasking interface specification document defining metadata schema (job_id, equipment_id, shift_boundary_UTC, operator_id) and availability guarantees relative to measurement data arrival.",
+        "Validation rule engine/policy store design document or prototype demonstrating how Safety Services and Vehicle teams can configure thresholds without modifying NGHE Solution code.",
+        "Clock synchronization architecture document specifying common time reference (NTP/GPS), synchronization mechanism, and clock skew tolerance enforcement.",
+        "Data quality tracking design document specifying measurement quality flags, propagation through aggregation, and quality metadata in reporting output.",
+        "Test plan for Telemetry interface contract compliance, including clock skew tolerance verification, out-of-order arrival handling, and measurement tuple schema validation.",
+        "Test plan for Tasking interface metadata availability and correctness relative to measurement data arrival.",
+        "Operational policy document defining evaluation period granularity (per-shift, per-job, per-equipment) and alignment with Tasking metadata.",
+        "Safety analysis (FMEA or equivalent) assessing impact of validation rule changes, data quality issues, and clock skew on energy_per_ton metric accuracy and operational safety."
+      ]
+    }
+  }
+}

@@ -1,0 +1,164 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and designated work zones with sufficient fidelity to support autonomous path planning and operator situational awareness.",
+    "rationale": "The original FR was vague on scope (what constitutes 'area analysis') and lacked specificity on fidelity requirements, update frequency, and consumer functions. Refinement clarifies that the worksite model must be dynamic, multi-layered (terrain + obstacles + hazards + zones), and directly consumable by planning/execution and safety functions. High safety criticality demands explicit hazard representation.",
+    "verification_idea": "Acceptance: (1) Model generated within 5 minutes of site entry; (2) Terrain elevation accuracy ±0.5 m over 95% of mapped area; (3) Static obstacles detected with >90% recall; (4) Dynamic hazards updated at ≥2 Hz; (5) Work zones editable by Site Manager and persisted; (6) Model accessible to planning, execution, and safety services via standardized interface.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire and fuse multi-sensor data (LiDAR, camera, GNSS, IMU) to construct terrain and obstacle point clouds.",
+      "CR-NGHE-006.2: Classify and segment terrain, static obstacles, dynamic hazards, and work zones from sensor fusion output.",
+      "CR-NGHE-006.3: Maintain and update worksite model state with temporal consistency and conflict resolution.",
+      "CR-NGHE-006.4: Expose worksite model via standardized query/subscription interface to planning, execution, and safety consumers.",
+      "CR-NGHE-006.5: Validate model completeness and accuracy against acceptance criteria and alert Safety Services if coverage gaps or anomalies detected."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized mapping service (runs on Vehicle compute, fuses onboard sensors, publishes model via Telemetry interface to cloud/tele-op; Site Manager edits zones via Tasking interface).",
+      "DP-B: Distributed mapping (Vehicle acquires raw sensor data, transmits via Network Link to cloud mapping engine; cloud maintains authoritative model, pushes updates back to Vehicle and Tele-operator via Telemetry).",
+      "DP-C: Hybrid mapping (Vehicle runs lightweight local SLAM for real-time obstacle avoidance; cloud runs authoritative mapping for planning; periodic sync via Network Link; Site Manager edits zones in cloud, propagates to Vehicle)."
+    ],
+    "selected_dp": "DP-C: Hybrid mapping architecture with local Vehicle SLAM for real-time safety-critical obstacle detection and cloud-authoritative model for planning, zone management, and tele-operator situational awareness. Rationale: (1) High safety criticality demands low-latency local hazard detection independent of network; (2) Site Manager zone editing and multi-stakeholder access require cloud persistence; (3) Hybrid avoids single point of failure and network dependency for safety-critical functions; (4) Aligns with NGHE architecture pattern of Vehicle autonomy + cloud coordination.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between Vehicle local SLAM and cloud model: mitigated by explicit sync protocol and conflict resolution rules (cloud is authoritative for static features, Vehicle is authoritative for dynamic hazards within local horizon).",
+        "Coupling between Tasking (zone edits) and Telemetry (model updates): mitigated by separate interface channels and versioning.",
+        "Coupling between Safety Services and mapping: Safety Services consumes model via Telemetry; mapping does not depend on Safety Services output (one-way dependency)."
+      ],
+      "notes": "DP-C exhibits acceptable decoupling: Vehicle and cloud mapping are loosely coupled via Network Link with clear ownership boundaries. Safety-critical path (local SLAM) is independent of network. Planning and tele-op paths depend on cloud model but degrade gracefully if cloud unavailable (Vehicle operates on local model)."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Vehicle has sufficient onboard compute (GPU/CPU) to run real-time SLAM at ≥10 Hz with <100 ms latency.",
+      "ASSUMPTION: Network Link provides ≥1 Mbps uplink for sensor data streaming and ≥500 kbps downlink for model updates.",
+      "RISK: Local SLAM drift over extended operations (hours) may cause misalignment with cloud model; mitigation: periodic GNSS-based loop closure and cloud-to-Vehicle correction vectors.",
+      "RISK: Zone edits in cloud may conflict with Vehicle's local dynamic hazard detections; mitigation: Safety Services arbitrates conflicts, prioritizing hazard avoidance.",
+      "RISK: Sensor fusion complexity (LiDAR + camera + GNSS + IMU) may introduce latency or failure modes; mitigation: graceful degradation (e.g., LiDAR-only mode if camera fails)."
+    ],
+    "recommended_revision": "Specify sync protocol and conflict resolution rules explicitly in DP refinement. Define SLAM drift tolerance and correction mechanism. Clarify which sensor modalities are mandatory vs. optional for each mapping layer (terrain, obstacles, hazards, zones)."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "Onboard real-time SLAM, local sensor fusion (LiDAR, camera, IMU), dynamic hazard detection, and local model maintenance. Includes compute hardware, sensor drivers, SLAM algorithm, and local model storage. Interfaces with cloud mapping via Network Link and exposes local model state via Telemetry."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle publishes local SLAM state (point clouds, obstacle detections, dynamic hazard positions, SLAM confidence metrics) to cloud and tele-op consumers at ≥2 Hz."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Vehicle receives cloud-authoritative model updates (static obstacle corrections, zone definitions, terrain refinements) and sends raw sensor data streams and SLAM state for cloud fusion."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives zone definition updates from Site Manager (via cloud) and integrates into local model for path planning and safety checks."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Vehicle publishes hazard detections (dynamic obstacles, personnel proximity, terrain anomalies) to Safety Services for real-time safety arbitration."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.85,
+        "diffusion_score": 0.15,
+        "notes": "Vehicle is the natural home for real-time SLAM and local sensor fusion (onboard compute, sensors, safety-critical latency requirements). Diffusion: cloud mapping logic and zone management reside elsewhere; Vehicle depends on Network Link for authoritative model updates."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.7,
+        "diffusion_score": 0.3,
+        "notes": "NGHE Solution could host the entire mapping service (Vehicle + cloud), but this violates separation of concerns and introduces tight coupling between Vehicle autonomy and cloud coordination. Not recommended as primary IM."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Teleoperation consumes the worksite model for operator situational awareness but does not generate or maintain it. Mapping logic belongs in Vehicle and cloud, not in tele-op module."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Safety Services consumes hazard data from the worksite model but does not own mapping. Mapping is a prerequisite for safety arbitration, not a Safety Services responsibility."
+      }
+    ],
+    "ownership_candidate": "Vehicle (primary IM for local SLAM and real-time hazard detection); cloud mapping service (secondary IM, not in provided list but implied by DP-C; for this exercise, Vehicle is the assigned IM as it owns the safety-critical real-time path).",
+    "containment_hypothesis": "The Vehicle module contains the safety-critical real-time SLAM and local model maintenance. Cloud mapping (authoritative model, zone management, multi-stakeholder access) is logically part of the NGHE Solution but operationally decoupled via Network Link. This hybrid assignment respects the provided IM candidates while acknowledging that DP-C requires a cloud component not explicitly listed.",
+    "containment_risks": [
+      "RISK: Vehicle IM does not fully contain DP-C; cloud mapping logic is diffused across NGHE Solution (implied). Mitigation: explicitly define a 'Cloud Mapping Service' as a sub-module of NGHE Solution in next decomposition level.",
+      "RISK: Tasking and Telemetry interfaces are external to Vehicle; zone edits and model updates flow through these interfaces, creating dependency on external coordination. Mitigation: define clear interface contracts and versioning.",
+      "RISK: SafetyAlert interface couples Vehicle hazard detection to Safety Services; if Safety Services is unavailable, Vehicle must still operate safely. Mitigation: Vehicle operates independently; SafetyAlert is advisory to Safety Services, not a control input."
+    ],
+    "recommended_revision": "Explicitly introduce a 'Cloud Mapping Service' IM (or clarify that it is a sub-module of NGHE Solution) to fully contain the cloud-side mapping logic. Alternatively, revise DP to assign all mapping to Vehicle (DP-A) or all mapping to cloud (DP-B) to fit within a single provided IM candidate. Current assignment (Vehicle) is partial; recommend DP revision or IM list expansion."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid mapping) directly addresses all sub-FRs: (1) local SLAM satisfies sensor fusion and real-time obstacle detection; (2) cloud mapping satisfies authoritative model and zone management; (3) Telemetry and Network Link interfaces satisfy model exposure; (4) SafetyAlert satisfies hazard alerting. DP is traceable to FR and covers all functional requirements. No decoupling violations detected."
+    },
+    "dp_im_gate": {
+      "pass": false,
+      "diffusion_risks": [
+        "DP-C requires both Vehicle (local SLAM) and cloud (authoritative model) components. Vehicle IM is assigned, but cloud mapping logic is not fully contained in any provided IM candidate. NGHE Solution is too coarse; Teleoperation and Safety Services are consumers, not owners.",
+        "Diffusion of mapping logic across Vehicle and NGHE Solution (implied cloud) creates architectural ambiguity. No single IM boundary owns the complete DP."
+      ],
+      "containment_notes": "Vehicle IM contains ~60% of DP-C (local SLAM, real-time hazard detection, local model). Cloud mapping (~40% of DP-C) is diffused. Recommend either: (A) revise DP to assign all mapping to Vehicle (DP-A, simpler but higher latency for planning), (B) revise DP to assign all mapping to cloud (DP-B, higher network dependency), or (C) expand IM list to include 'Cloud Mapping Service' as a distinct module."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Vehicle IM can be verified for local SLAM accuracy, latency, and hazard detection recall via onboard testing and field trials. Cloud mapping (diffused) can be verified separately once IM is clarified. Acceptance criteria are measurable and traceable to Vehicle responsibilities (real-time updates, local model fidelity).",
+      "allocation_clarity": "Allocation is partially clear: Vehicle owns real-time SLAM and local model. Cloud owns authoritative model and zone management (not explicitly allocated to an IM). Recommend clarifying cloud IM ownership in next level."
+    },
+    "recommended_revisions": [
+      "REVISION 1 (Preferred): Expand IM list to include 'Cloud Mapping Service' or 'Planning & Coordination' module to fully contain cloud-side mapping logic. This resolves diffusion and clarifies ownership.",
+      "REVISION 2 (Alternative): Revise DP to DP-A (Vehicle-centric mapping) or DP-B (cloud-centric mapping) to fit within a single provided IM candidate. Trade-off: DP-A increases Vehicle compute burden; DP-B increases network dependency.",
+      "REVISION 3: If DP-C is retained, explicitly document that Vehicle IM is responsible for real-time safety-critical path, and NGHE Solution (as a whole) is responsible for cloud coordination. Define clear interface contracts between Vehicle and cloud."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "DP-C is sound and addresses the FR comprehensively, but IM assignment is incomplete: Vehicle IM contains the real-time SLAM path, but cloud mapping logic is diffused across NGHE Solution without explicit ownership. The FR-DP gate passes, but the DP-IM gate fails due to diffusion. Rather than revise DP or IM at this level (which would lose the hybrid architecture benefits), proceed to decompose sub-FRs and assign cloud mapping to a clarified IM in the next level. This allows detailed design of both Vehicle SLAM (sub-FR 006.1-006.3) and cloud mapping (sub-FR 006.4-006.5) with explicit IM boundaries.",
+    "justification_detail": "The hybrid DP is architecturally sound and aligns with NGHE mission (Vehicle autonomy + cloud coordination). The IM assignment issue is a packaging/clarity problem, not a fundamental design flaw. Decomposing sub-FRs will naturally separate Vehicle responsibilities (local SLAM, hazard detection) from cloud responsibilities (authoritative model, zone management), enabling clearer IM assignment in the next level.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire and fuse multi-sensor data (LiDAR, camera, GNSS, IMU) to construct terrain and obstacle point clouds. [IM: Vehicle]",
+      "CR-NGHE-006.2: Classify and segment terrain, static obstacles, dynamic hazards, and work zones from sensor fusion output. [IM: Vehicle (local) + Cloud (authoritative)]",
+      "CR-NGHE-006.3: Maintain and update worksite model state with temporal consistency and conflict resolution. [IM: Vehicle (local) + Cloud (authoritative)]",
+      "CR-NGHE-006.4: Expose worksite model via standardized query/subscription interface to planning, execution, and safety consumers. [IM: Cloud Mapping Service (TBD)]",
+      "CR-NGHE-006.5: Validate model completeness and accuracy against acceptance criteria and alert Safety Services if coverage gaps or anomalies detected. [IM: Vehicle (local) + Cloud (authoritative)]"
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Vehicle has sufficient onboard compute (GPU/CPU) to run real-time SLAM at ≥10 Hz with <100 ms latency.",
+        "Network Link provides ≥1 Mbps uplink and ≥500 kbps downlink for sensor data and model updates.",
+        "Cloud infrastructure (not explicitly in IM list) is available to host authoritative mapping service.",
+        "Site Manager has access to cloud-based zone editing interface (Tasking).",
+        "Safety Services can consume hazard data from Vehicle via SafetyAlert interface.",
+        "Sensor fusion (LiDAR + camera + GNSS + IMU) is feasible and provides sufficient fidelity for terrain and obstacle detection."
+      ],
+      "open_risks": [
+        "RISK: Local SLAM drift over extended operations; mitigation strategy needed (GNSS loop closure, cloud corrections).",
+        "RISK: Network Link unavailability; Vehicle must operate safely on local model alone.",
+        "RISK: Conflict between Vehicle dynamic hazard detections and cloud zone definitions; arbitration rules needed.",
+        "RISK: Cloud mapping IM not explicitly assigned in provided list; may require IM list expansion or DP revision.",
+        "RISK: Sensor failure modes (e.g., LiDAR outage) may degrade mapping fidelity; graceful degradation strategy needed."
+      ],
+      "evidence_needed": [
+        "Vehicle compute specifications and SLAM algorithm performance benchmarks (latency, accuracy, power consumption).",
+        "Network Link bandwidth and latency measurements under field conditions.",
+        "Sensor fusion architecture and fidelity requirements (terrain accuracy, obstacle detection recall/precision).",
+        "Cloud mapping service design (authoritative model schema, zone management, conflict resolution rules).",
+        "Safety Services interface specification (hazard data format, alert thresholds, response times).",
+        "Field trial data: SLAM drift over 8+ hours, network outage scenarios, zone edit conflicts, sensor failure modes."
+      ]
+    }
+  }
+}

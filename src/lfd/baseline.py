@@ -5,8 +5,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .env import load_default_env
-from .llm import OpenAIResponsesClient
+from .llm import make_llm_client
 from .output import save_run_json
+from .prompts import DOMAIN_CONTEXT
 from .workflow import DecompositionInputs
 
 
@@ -17,12 +18,15 @@ def run_plain_single_agent(
     known_interfaces: List[str],
     model: Optional[str] = None,
 ) -> Dict[str, Any]:
-    system = "ROLE: Systems engineering assistant."
+    system = "ROLE: Systems engineering assistant.\n\n" + DOMAIN_CONTEXT
 
     user = (
-        "TASK: Perform one full functional decomposition level using a single-pass approach. "
-        "You must produce the same artifacts as a multi-step FR->DP->IM workflow (FR refinement, DP selection, IM assignment, gate review, and a stop/zigzag decision) "
-        "but do it in one response.\n\n"
+        "TASK: Perform one complete functional decomposition level for the given requirement. "
+        "Produce the following five artifacts: FR refinement, DP selection, IM assignment, gate review, and a stop/zigzag decision.\n\n"
+        "RULES:\n"
+        "- For IM assignment, the IM boundary name MUST be exactly one of the provided available modules (no inventing new module names).\n"
+        "- For IM assignment, every external interface name MUST be exactly one of the provided known interfaces (no inventing new interfaces).\n"
+        "- For IM assignment, evaluate containment against ALL candidate modules via module_containment_scores.\n\n"
         "CONTEXT:\n"
         f"- Mission/System: {inputs.mission_system}\n"
         f"- Stakeholders: {', '.join(inputs.stakeholders) if inputs.stakeholders else '<none>'}\n"
@@ -36,15 +40,15 @@ def run_plain_single_agent(
         "{\n"
         '  "refined_fr": {"refined_fr": "...", "rationale": "...", "verification_idea": "...", "sub_frs": ["..."], "is_atomic": true},\n'
         '  "selected_dp": {"candidate_dps": ["..."], "selected_dp": "...", "coupling_check": {"assessment": "Pass|Fail", "potential_sources": ["..."], "notes": "..."}, "assumptions_risks": ["..."], "recommended_revision": "..."},\n'
-        '  "assigned_im": {"im_boundary": {"name": "...", "scope": "..."}, "external_interfaces": [{"name": "...", "direction": "in|out|inout", "details": "..."}], "ownership_candidate": "...", "containment_hypothesis": "..."},\n'
-        '  "gate_review": {"fr_dp_gate": {"pass": true, "reason": "..."}, "dp_im_gate": {"pass": true, "diffusion_risks": ["..."]}, "fr_im_gate": {"pass": true, "verification_feasibility": "...", "allocation_clarity": "..."}, "recommended_revisions": ["..."]},\n'
-        '  "decision": {"decision": "STOP|ZIGZAG_DOWN|REVISE_CURRENT_LEVEL", "justification": "...", "next_level_sub_frs": ["..."], "revise": {"target": "FR|DP|IM|", "why": "..."}, "record": {"assumptions": ["..."], "open_risks": ["..."], "evidence_needed": ["..."]}}\n'
+        '  "assigned_im": {"im_boundary": {"name": "...", "scope": "..."}, "external_interfaces": [{"name": "...", "direction": "in|out|inout", "details": "..."}], "module_containment_scores": [{"module": "...", "containment_score": 0, "diffusion_score": 0, "notes": "..."}], "ownership_candidate": "...", "containment_hypothesis": "...", "containment_risks": ["..."], "recommended_revision": "..."},\n'
+        '  "gate_review": {"fr_dp_gate": {"pass": true, "reason": "..."}, "dp_im_gate": {"pass": true, "diffusion_risks": ["..."], "containment_notes": "..."}, "fr_im_gate": {"pass": true, "verification_feasibility": "...", "allocation_clarity": "..."}, "recommended_revisions": ["..."]},\n'
+        '  "decision": {"decision": "STOP|ZIGZAG_DOWN|REVISE_CURRENT_LEVEL", "justification": "...", "next_level_sub_frs": ["..."], "revise": {"target": "FR|DP|IM", "why": "..."}, "record": {"assumptions": ["..."], "open_risks": ["..."], "evidence_needed": ["..."]}}\n'
         "}\n"
     )
 
     load_default_env()
-    client = OpenAIResponsesClient()
-    return client.complete_json(system=system, user=user, schema_hint=None, model=model)
+    client = make_llm_client(model)
+    return client.complete_json(system=system, user=user, schema_hint=None, model=model, max_output_tokens=8192)
 
 
 def run_plain_single_agent_and_save(
@@ -55,6 +59,7 @@ def run_plain_single_agent_and_save(
     outdir: str | Path,
     run_id: Optional[str] = None,
     model: Optional[str] = None,
+    filename_prefix: str = "baseline",
 ) -> Dict[str, Any]:
     payload = run_plain_single_agent(
         inputs=inputs,
@@ -63,6 +68,6 @@ def run_plain_single_agent_and_save(
         model=model,
     )
 
-    file_path = save_run_json(payload=payload, outdir=outdir, filename_prefix="baseline", run_id=run_id)
+    file_path = save_run_json(payload=payload, outdir=outdir, filename_prefix=filename_prefix, run_id=run_id)
     payload["_output_file"] = str(file_path)
     return payload

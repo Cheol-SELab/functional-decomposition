@@ -1,0 +1,174 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and work-zone boundaries, with sufficient fidelity to support autonomous path planning and operator situational awareness.",
+    "rationale": "The original FR was vague on fidelity requirements, update frequency, and intended consumers. Refinement clarifies that the model must serve both planning (offline) and execution (real-time) functions, must distinguish static from dynamic features, and must be safety-critical (high criticality factor). This enables verification against acceptance criteria: 'worksite model/map is generated and available to planning/execution functions for an agreed set of site features.'",
+    "verification_idea": "Acceptance test: (1) Capture a known test site with ground-truth terrain and obstacle positions; (2) Generate NGHE worksite model; (3) Compare model features against ground truth within specified accuracy tolerances (e.g., ±0.5 m for obstacle position, ±0.1 m for terrain elevation); (4) Verify model is accessible to planning and execution subsystems via defined interfaces; (5) Confirm dynamic hazards are updated at ≥1 Hz.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire terrain elevation data (LiDAR, stereo, or equivalent) with specified vertical accuracy.",
+      "CR-NGHE-006.2: Detect and classify static obstacles (rocks, structures, vegetation) from sensor data.",
+      "CR-NGHE-006.3: Detect and track dynamic hazards (personnel, equipment) in real-time.",
+      "CR-NGHE-006.4: Represent work-zone boundaries (geofences, exclusion zones) in the model.",
+      "CR-NGHE-006.5: Publish worksite model to planning and execution functions via standardized interface.",
+      "CR-NGHE-006.6: Validate model consistency and flag anomalies to Safety Services."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Onboard multi-sensor fusion (LiDAR + stereo + IMU) with local SLAM-based mapping; model stored in vehicle memory; published via Telemetry interface.",
+      "DP-B: Hybrid approach—onboard sensors feed a cloud-based mapping service; cloud maintains authoritative model; vehicle and operators query via Network Link.",
+      "DP-C: Operator-assisted manual mapping with sensor-aided validation; operator marks obstacles and zones via teleoperation interface; model stored centrally.",
+      "DP-D: Distributed sensor network (fixed beacons + vehicle sensors) with edge computing; model aggregated at a local compute node; published to all consumers."
+    ],
+    "selected_dp": "DP-A: Onboard multi-sensor fusion (LiDAR + stereo + IMU) with local SLAM-based mapping; model stored in vehicle memory; published via Telemetry interface.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Sensor fusion algorithm couples terrain acquisition (CR-NGHE-006.1) with obstacle detection (CR-NGHE-006.2); both depend on calibration and synchronization.",
+        "SLAM-based mapping couples localization (vehicle pose) with map building; errors in one propagate to the other.",
+        "Real-time update rate (≥1 Hz) couples sensor acquisition, fusion, and publication; latency in any stage affects dynamic hazard tracking (CR-NGHE-006.3)."
+      ],
+      "notes": "Couplings are inherent to the problem domain (sensor fusion is fundamentally coupled). DP-A is selected because it minimizes external dependencies (no cloud latency, no manual intervention) and is appropriate for high-safety-criticality worksite mapping. Coupling is managed via well-defined sensor interfaces and synchronization protocols."
+    },
+    "assumptions_risks": [
+      "Assumption: Vehicle has sufficient onboard compute (GPU/FPGA) to run real-time SLAM and sensor fusion at ≥1 Hz.",
+      "Assumption: LiDAR and stereo sensors are available and calibrated on the vehicle.",
+      "Risk: SLAM drift over extended missions (hours); mitigation: periodic loop-closure or external reference (e.g., GNSS).",
+      "Risk: Dynamic hazard detection (personnel, equipment) requires trained ML models; model accuracy depends on training data diversity.",
+      "Risk: Telemetry bandwidth may be insufficient to stream full point clouds; mitigation: compress or downsample model before publication."
+    ],
+    "recommended_revision": "Clarify onboard compute budget and sensor suite in vehicle specification. Define model compression/serialization format for Telemetry interface. Specify SLAM drift tolerance and loop-closure strategy. Establish ML model training and validation process for dynamic hazard detection."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "The Vehicle module owns the onboard sensor suite (LiDAR, stereo, IMU), local SLAM-based mapping engine, and model storage. It is responsible for acquiring raw sensor data, fusing multi-sensor inputs, maintaining the worksite model in memory, and publishing the model via Telemetry interface to external consumers (planning, execution, teleoperation, safety services)."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle publishes worksite model (terrain grid, obstacle list, dynamic hazard positions, work-zone boundaries) to planning and execution functions. Format: serialized model snapshot at ≥1 Hz. Consumers: planning subsystem, execution subsystem, operator display."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives work-zone boundary definitions and mission parameters from planning subsystem. These define the region of interest for mapping and the set of site features to be modeled."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Vehicle publishes anomalies detected in the worksite model (e.g., unexpected obstacles, model inconsistencies, SLAM drift warnings) to Safety Services for validation and operator notification."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Vehicle may receive external reference data (e.g., GNSS corrections, pre-loaded site maps) via Network Link to improve SLAM accuracy and reduce drift. Optional but recommended for high-safety-criticality missions."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "Vehicle is the natural owner of onboard sensors, SLAM engine, and local model storage. All core mapping logic is contained within the vehicle. Diffusion risk is minimal: only model publication (Telemetry) and external reference input (Network Link) cross the boundary. This is appropriate and expected."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 60,
+        "diffusion_score": 40,
+        "notes": "NGHE Solution is the system-level container. If mapping logic were assigned here, it would require delegation to Vehicle anyway (sensors are on vehicle). Assigning to NGHE Solution would create unnecessary indirection and diffuse ownership. Not recommended."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Teleoperation is for remote operator control and situational awareness. While the operator consumes the worksite model, the operator does not own the mapping logic or sensors. Assigning mapping to Teleoperation would scatter sensor fusion, SLAM, and model storage across vehicle and remote systems. High diffusion risk. Not recommended."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 15,
+        "diffusion_score": 85,
+        "notes": "Safety Services validates and enforces safety policies based on the worksite model. It does not own the mapping logic or sensors. Assigning mapping to Safety Services would create a circular dependency (Safety Services depends on model; model generation depends on Safety Services). Not recommended."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module is the optimal owner of worksite mapping because: (1) all sensors (LiDAR, stereo, IMU) are physically onboard the vehicle; (2) SLAM and sensor fusion are computationally intensive and best executed locally on vehicle hardware; (3) the model is generated continuously during vehicle operation and naturally stored in vehicle memory; (4) external consumers (planning, execution, teleoperation, safety) access the model via well-defined interfaces (Telemetry, Tasking, SafetyAlert, Network Link), minimizing coupling.",
+    "containment_risks": [
+      "Risk: Vehicle module becomes large and complex if it also owns path planning, obstacle avoidance, and other autonomous functions. Mitigation: clearly separate mapping (model generation) from planning (model consumption); use Telemetry interface as the contract.",
+      "Risk: Onboard compute capacity may be insufficient for real-time SLAM + sensor fusion + other vehicle functions. Mitigation: conduct compute budget analysis; consider offloading non-critical processing (e.g., ML-based hazard classification) to edge compute or cloud if latency permits.",
+      "Risk: Model publication via Telemetry may saturate network bandwidth if model is large (e.g., dense point clouds). Mitigation: define model compression/downsampling strategy; publish only deltas (changes) rather than full model each cycle.",
+      "Risk: SLAM drift over extended missions may degrade model accuracy. Mitigation: integrate external reference (GNSS, pre-loaded maps) via Network Link; implement loop-closure detection."
+    ],
+    "recommended_revision": "Establish clear interface contracts for Telemetry (model format, update rate, compression), Tasking (work-zone definition), and SafetyAlert (anomaly types). Define onboard compute budget and sensor suite in Vehicle specification. Specify SLAM drift tolerance and mitigation strategy. Establish model validation and testing procedures."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "The refined FR (CR-NGHE-006) clearly specifies what the system must do: generate and maintain a real-time worksite model with terrain, obstacles, dynamic hazards, and work-zone boundaries. The selected DP (onboard multi-sensor fusion with SLAM-based mapping) directly addresses this requirement. The DP is feasible, leverages proven technology (SLAM, sensor fusion), and is appropriate for high-safety-criticality applications. Coupling is inherent to the problem domain and is managed via well-defined interfaces. No fundamental mismatch between FR and DP."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Model publication via Telemetry interface may create tight coupling between Vehicle and consumers (planning, execution, teleoperation). Mitigation: define Telemetry as a publish-subscribe interface with versioning to allow independent evolution.",
+        "External reference input (Network Link) introduces a dependency on external systems (GNSS, cloud maps). Mitigation: make Network Link optional; design SLAM to work standalone if Network Link is unavailable.",
+        "SafetyAlert interface couples Vehicle mapping logic with Safety Services validation. Mitigation: define SafetyAlert as a one-way notification; Safety Services does not control mapping logic."
+      ],
+      "containment_notes": "Vehicle is the clear owner of mapping logic and sensors. Containment score is 95/100, indicating excellent fit. Diffusion is minimal and appropriate: only model publication and external reference input cross the boundary. No scattered ownership or duplicated logic. Ownership is clear and defensible."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "The refined FR is verifiable: (1) Capture test site with ground-truth terrain and obstacles; (2) Generate NGHE worksite model; (3) Compare model against ground truth within specified tolerances; (4) Verify model is accessible to planning/execution via Telemetry interface; (5) Confirm dynamic hazard update rate ≥1 Hz. All verification steps are concrete and measurable. Vehicle module is the right place to verify mapping accuracy and update rate.",
+      "allocation_clarity": "The allocation of CR-NGHE-006 to Vehicle is clear and unambiguous. Sub-FRs (terrain acquisition, obstacle detection, dynamic hazard tracking, work-zone representation, model publication, anomaly validation) are all allocated to Vehicle with clear ownership. No ambiguity about who is responsible for what."
+    },
+    "recommended_revisions": [
+      "Establish detailed interface specifications for Telemetry (model format, schema, update rate, compression), Tasking (work-zone definition format), SafetyAlert (anomaly types and severity levels), and Network Link (external reference data format).",
+      "Define onboard compute budget (CPU, GPU, memory) and sensor suite (LiDAR specs, stereo resolution, IMU accuracy) in Vehicle specification.",
+      "Specify SLAM drift tolerance (e.g., ±1 m over 1 hour) and mitigation strategy (loop-closure, external reference).",
+      "Establish ML model training and validation process for dynamic hazard detection (personnel, equipment classification).",
+      "Define model compression/downsampling strategy to manage Telemetry bandwidth.",
+      "Establish acceptance test procedure and ground-truth data collection process."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "CR-NGHE-006 is not atomic; it comprises multiple sub-functions (terrain acquisition, obstacle detection, dynamic hazard tracking, work-zone representation, model publication, anomaly validation). Each sub-FR requires further decomposition to identify specific DPs and IMs. The refined FR and selected DP are sound and pass all gates. The assignment to Vehicle is clear and well-justified. However, to complete the functional decomposition and ensure all sub-FRs are properly addressed, we must decompose to the next level. Recommend proceeding with ZIGZAG_DOWN to decompose sub-FRs.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire terrain elevation data (LiDAR, stereo, or equivalent) with specified vertical accuracy (e.g., ±0.1 m).",
+      "CR-NGHE-006.2: Detect and classify static obstacles (rocks, structures, vegetation) from sensor data with specified confidence (e.g., ≥95%).",
+      "CR-NGHE-006.3: Detect and track dynamic hazards (personnel, equipment) in real-time with update rate ≥1 Hz.",
+      "CR-NGHE-006.4: Represent work-zone boundaries (geofences, exclusion zones) in the model and enforce containment.",
+      "CR-NGHE-006.5: Publish worksite model to planning and execution functions via Telemetry interface with specified format and update rate.",
+      "CR-NGHE-006.6: Validate model consistency and flag anomalies (unexpected obstacles, SLAM drift, sensor failures) to Safety Services via SafetyAlert interface."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Vehicle has sufficient onboard compute (GPU/FPGA) to run real-time SLAM and sensor fusion at ≥1 Hz.",
+        "LiDAR and stereo sensors are available and calibrated on the vehicle.",
+        "Telemetry interface has sufficient bandwidth to publish worksite model at ≥1 Hz (with compression if needed).",
+        "Network Link is available for external reference data (GNSS, pre-loaded maps) to mitigate SLAM drift.",
+        "Safety Services is responsible for validating model anomalies and enforcing safety policies; Vehicle is responsible for detecting and reporting anomalies.",
+        "Planning and execution subsystems are external consumers of the worksite model; they do not own mapping logic."
+      ],
+      "open_risks": [
+        "SLAM drift over extended missions (hours); mitigation strategy (loop-closure, external reference) must be defined and tested.",
+        "Dynamic hazard detection (personnel, equipment) requires trained ML models; model accuracy depends on training data diversity and must be validated.",
+        "Onboard compute capacity may be insufficient for real-time SLAM + sensor fusion + other vehicle functions; compute budget analysis is needed.",
+        "Telemetry bandwidth may be insufficient to stream full point clouds; model compression/downsampling strategy must be defined.",
+        "Sensor calibration and synchronization errors may degrade mapping accuracy; calibration procedure and tolerance must be specified.",
+        "Safety criticality (high) requires rigorous validation and testing; acceptance test procedure and ground-truth data collection process must be established."
+      ],
+      "evidence_needed": [
+        "Onboard compute specifications (CPU, GPU, memory) and performance benchmarks for SLAM and sensor fusion.",
+        "Sensor specifications (LiDAR range/accuracy, stereo resolution, IMU drift) and calibration procedure.",
+        "SLAM algorithm selection and drift characterization (drift rate vs. mission duration).",
+        "ML model training data, validation results, and confidence metrics for dynamic hazard detection.",
+        "Telemetry interface bandwidth analysis and model compression/downsampling strategy.",
+        "Network Link availability and external reference data sources (GNSS, pre-loaded maps).",
+        "Acceptance test procedure, ground-truth data collection, and verification results.",
+        "Safety analysis (FMEA, FTA) for mapping failures and their impact on planning/execution."
+      ]
+    }
+  }
+}

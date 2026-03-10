@@ -1,0 +1,169 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and work-zone boundaries, with sufficient fidelity to support autonomous path planning and operator situational awareness.",
+    "rationale": "The original FR was vague on fidelity requirements, update frequency, and use-case binding. Refinement clarifies that the model must serve both planning (offline) and execution (real-time) functions, must distinguish static from dynamic features, and must be safety-critical (high criticality tailoring). This enables downstream DP selection to address sensor fusion, data freshness, and hazard representation.",
+    "verification_idea": "Acceptance test: (1) Worksite model generated within 5 minutes of site entry; (2) Terrain elevation accuracy ±0.5 m over 95% of mapped area; (3) Static obstacles detected and represented with 90% recall; (4) Dynamic hazards updated at ≥2 Hz; (5) Model accessible to planning and execution subsystems via agreed interface; (6) Safety-critical features (no-go zones, personnel proximity) flagged with 100% detection rate.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire and fuse multi-sensor data (LIDAR, camera, IMU, GNSS) to construct terrain and obstacle map.",
+      "CR-NGHE-006.2: Classify and segment map features into static terrain, static obstacles, dynamic hazards, and work-zone boundaries.",
+      "CR-NGHE-006.3: Maintain and update worksite model in real-time with sensor refresh rate ≥2 Hz for dynamic features.",
+      "CR-NGHE-006.4: Expose worksite model via standardized interface (Tasking/Telemetry) to planning, execution, and safety subsystems.",
+      "CR-NGHE-006.5: Detect and alert on safety-critical anomalies (personnel intrusion, equipment collision risk) with latency <500 ms."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized onboard perception stack (sensor fusion engine on vehicle compute) generating local occupancy grid; periodic upload to cloud for persistent storage and planning access.",
+      "DP-B: Distributed perception: vehicle acquires raw sensor streams; tele-operator or remote processing center performs fusion and classification; results streamed back to vehicle and stored in cloud.",
+      "DP-C: Hybrid edge-cloud: vehicle runs lightweight feature extraction (LIDAR point cloud, camera ROI); cloud service performs full fusion, classification, and model generation; vehicle receives processed model updates.",
+      "DP-D: Federated sensor network: multiple vehicles and fixed sensors contribute to a shared worksite model maintained in a distributed ledger or consensus-based system."
+    ],
+    "selected_dp": "DP-C: Hybrid edge-cloud perception architecture. Vehicle performs lightweight onboard feature extraction (LIDAR point cloud preprocessing, camera region-of-interest detection) and streams raw/semi-processed sensor data via Network Link to a cloud-based perception service. Cloud service executes full sensor fusion, terrain classification, obstacle segmentation, and dynamic hazard detection, then streams the processed worksite model back to the vehicle and to planning/execution subsystems via Telemetry interface. This balances latency (edge preprocessing reduces bandwidth), safety criticality (cloud can run certified algorithms), and scalability (multiple vehicles feed one model).",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between vehicle onboard compute (feature extraction) and cloud perception service (fusion/classification) is decoupled via Network Link interface; both can evolve independently.",
+        "Coupling between worksite model output and planning/execution subsystems is decoupled via Telemetry interface; model schema is versioned.",
+        "Coupling between safety alerting (CR-NGHE-006.5) and Safety Services is explicit via SafetyAlert interface; no hidden dependencies."
+      ],
+      "notes": "DP-C avoids tight coupling of perception logic to vehicle hardware (unlike DP-A) and avoids latency-critical tele-operator loop (unlike DP-B). Cloud-based fusion allows certification and updates without vehicle firmware changes."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Network Link bandwidth is sufficient for streaming LIDAR point clouds and camera frames (estimated 10–50 Mbps depending on resolution and compression).",
+      "ASSUMPTION: Cloud perception service has <2 s latency for model generation to meet real-time update requirement (≥2 Hz for dynamic features).",
+      "RISK: Network outage or high latency could degrade model freshness; mitigation: vehicle maintains local fallback model (lower fidelity) and alerts operator.",
+      "RISK: Cloud service failure could halt worksite mapping; mitigation: redundant cloud instances and graceful degradation to onboard-only mode.",
+      "RISK: Safety-critical hazard detection (CR-NGHE-006.5) depends on cloud latency; mitigation: implement onboard safety monitor as independent layer (see IM assignment)."
+    ],
+    "recommended_revision": "Clarify network bandwidth and latency SLAs in system requirements. Define fallback behavior if cloud service is unavailable. Specify model update frequency and acceptable staleness for planning vs. real-time execution."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "Onboard perception subsystem: LIDAR and camera sensor drivers, point cloud preprocessing, feature extraction, and local occupancy grid maintenance. Includes network interface to cloud perception service and reception of processed worksite model updates."
+    },
+    "external_interfaces": [
+      {
+        "name": "Network Link",
+        "direction": "out",
+        "details": "Vehicle streams raw/semi-processed sensor data (LIDAR point clouds, camera frames, IMU/GNSS data) to cloud perception service."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Vehicle receives processed worksite model (terrain map, obstacle positions, dynamic hazard locations, work-zone boundaries) from cloud perception service."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Vehicle onboard safety monitor detects imminent collision or personnel intrusion and sends alert to Safety Services."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Planning/execution subsystems query or subscribe to worksite model updates via Tasking interface."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.85,
+        "diffusion_score": 0.15,
+        "notes": "Vehicle owns onboard sensor acquisition and preprocessing (high containment). Worksite model generation is split: feature extraction on vehicle (contained), fusion/classification in cloud (diffused). Acceptable because edge-cloud split is intentional and decoupled via Network Link."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.7,
+        "diffusion_score": 0.3,
+        "notes": "NGHE Solution is the system-level container. Worksite mapping is a system-level capability spanning vehicle (edge) and cloud (not explicitly listed as a module candidate). If NGHE Solution is interpreted as the entire system including cloud services, containment is high; if limited to onboard systems, containment is lower. Recommend clarifying module hierarchy."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Teleoperation module is primarily for remote operator control and situational awareness. Worksite mapping is a supporting capability for teleoperation but not its primary function. Low containment; diffusion risk is high if mapping logic is embedded in teleoperation subsystem."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Safety Services owns hazard alerting and safety policy enforcement. Worksite model is an input to safety logic (e.g., no-go zone detection) but not owned by Safety Services. Diffusion risk: if safety-critical hazard detection is implemented in Safety Services rather than in perception, coupling and latency issues arise."
+      }
+    ],
+    "ownership_candidate": "Vehicle (primary: onboard perception and sensor fusion preprocessing) + implicit cloud perception service (secondary: model generation and fusion). Recommend introducing 'Cloud Perception Service' as an explicit IM candidate in future decomposition levels.",
+    "containment_hypothesis": "Worksite mapping is best contained within Vehicle for onboard sensor acquisition and preprocessing, with explicit handoff to a cloud-based perception service (not yet a named module) for fusion and model generation. The Vehicle module receives the processed model via Telemetry and exposes it to planning/execution and safety subsystems. This avoids diffusion across Teleoperation and Safety Services.",
+    "containment_risks": [
+      "RISK: If cloud perception service is not explicitly modeled as an IM, ownership and interface accountability are unclear. Mitigation: add 'Cloud Perception Service' as a named module in the next decomposition level.",
+      "RISK: Safety-critical hazard detection (CR-NGHE-006.5) may be implemented in Safety Services rather than in perception, creating latency and coupling issues. Mitigation: clarify that onboard safety monitor (in Vehicle) is independent of cloud model generation.",
+      "RISK: Worksite model schema and versioning are not owned by any single module, leading to integration issues. Mitigation: assign model schema ownership to Vehicle or a dedicated data management module."
+    ],
+    "recommended_revision": "Expand IM candidates to include 'Cloud Perception Service' or 'Perception Engine' as an explicit module. Clarify whether Safety Services owns hazard detection logic or only alert routing. Define worksite model schema and versioning governance."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid edge-cloud perception) directly addresses all sub-FRs: (1) sensor fusion via cloud service, (2) feature classification in cloud, (3) real-time updates via streaming, (4) model exposure via Telemetry, (5) safety-critical hazard detection via onboard monitor + cloud processing. No functional gaps. Coupling is acceptable (decoupled via Network Link and Telemetry). Assumptions are documented and risks are mitigable."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "DIFFUSION RISK: Cloud perception service is not an explicit IM candidate; ownership and interface accountability are deferred. Mitigation: add Cloud Perception Service as a named module in next level.",
+        "DIFFUSION RISK: Worksite model schema ownership is unclear; could diffuse across Vehicle, Teleoperation, and Safety Services if not explicitly assigned. Mitigation: assign schema ownership to Vehicle or a dedicated data module.",
+        "DIFFUSION RISK: Onboard safety monitor (CR-NGHE-006.5) is assigned to Vehicle but may require tight coupling with Safety Services for alert routing. Mitigation: use SafetyAlert interface to decouple."
+      ],
+      "containment_notes": "Vehicle module contains onboard perception (sensors, preprocessing, local fallback model). Cloud perception service is external to Vehicle but not yet a named IM. Worksite model is exposed via Telemetry (outbound from cloud, inbound to Vehicle and planning/execution). Acceptable containment if cloud service is treated as a separate IM in next level."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible: (1) onboard sensor acquisition can be tested in lab and field; (2) cloud perception service can be tested with synthetic and real sensor data; (3) model freshness and accuracy can be measured via telemetry logs; (4) safety-critical hazard detection can be tested with controlled scenarios (personnel proximity, collision risk). Acceptance criteria are measurable.",
+      "allocation_clarity": "Allocation is clear for onboard perception (Vehicle module). Allocation for cloud perception service is implicit and should be made explicit in next level. Allocation for safety-critical hazard detection is split between Vehicle (onboard monitor) and Safety Services (alert routing); interface is clear (SafetyAlert)."
+    },
+    "recommended_revisions": [
+      "Add 'Cloud Perception Service' or 'Perception Engine' as an explicit IM candidate and assign CR-NGHE-006.2 (feature classification) and CR-NGHE-006.3 (model update) to it.",
+      "Clarify network bandwidth and latency SLAs for Network Link interface (LIDAR/camera streaming).",
+      "Define worksite model schema, versioning, and ownership (recommend Vehicle or a dedicated data module).",
+      "Specify fallback behavior if cloud perception service is unavailable (e.g., vehicle operates with onboard-only model at reduced fidelity).",
+      "Confirm that onboard safety monitor (CR-NGHE-006.5) is independent of cloud model generation and has <500 ms latency for hazard detection."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "CR-NGHE-006 is not atomic; it decomposes into five sub-FRs (sensor fusion, feature classification, real-time updates, model exposure, safety-critical hazard detection). DP-C is sound and well-coupled, but IM assignment reveals that cloud perception service is not an explicit module candidate, creating ownership and accountability gaps. Recommend decomposing sub-FRs to the next level, introducing Cloud Perception Service as a named IM, and clarifying safety-critical hazard detection ownership.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire and fuse multi-sensor data (LIDAR, camera, IMU, GNSS) to construct terrain and obstacle map. [Candidate IM: Cloud Perception Service]",
+      "CR-NGHE-006.2: Classify and segment map features into static terrain, static obstacles, dynamic hazards, and work-zone boundaries. [Candidate IM: Cloud Perception Service]",
+      "CR-NGHE-006.3: Maintain and update worksite model in real-time with sensor refresh rate ≥2 Hz for dynamic features. [Candidate IM: Cloud Perception Service]",
+      "CR-NGHE-006.4: Expose worksite model via standardized interface (Tasking/Telemetry) to planning, execution, and safety subsystems. [Candidate IM: Vehicle or Cloud Perception Service]",
+      "CR-NGHE-006.5: Detect and alert on safety-critical anomalies (personnel intrusion, equipment collision risk) with latency <500 ms. [Candidate IM: Vehicle (onboard monitor) + Safety Services (alert routing)]"
+    ],
+    "revise": {
+      "target": "IM",
+      "why": "Cloud perception service is a critical component of DP-C but is not an explicit IM candidate. Recommend adding 'Cloud Perception Service' or 'Perception Engine' as a named module to enable proper ownership assignment and interface accountability. Also clarify whether Safety Services owns hazard detection logic or only alert routing."
+    },
+    "record": {
+      "assumptions": [
+        "Network Link bandwidth is sufficient for streaming LIDAR point clouds and camera frames (10–50 Mbps).",
+        "Cloud perception service has <2 s latency for model generation to meet ≥2 Hz update requirement.",
+        "Onboard safety monitor is independent of cloud model generation and can operate in fallback mode if cloud is unavailable.",
+        "Worksite model schema is versioned and backward-compatible across vehicle and cloud components.",
+        "Planning and execution subsystems can consume worksite model updates via Telemetry interface."
+      ],
+      "open_risks": [
+        "Network outage or high latency could degrade model freshness; mitigation: onboard fallback model and operator alert.",
+        "Cloud service failure could halt worksite mapping; mitigation: redundant cloud instances and graceful degradation.",
+        "Safety-critical hazard detection depends on cloud latency; mitigation: onboard safety monitor as independent layer.",
+        "Worksite model schema ownership is unclear; mitigation: assign to Vehicle or a dedicated data module.",
+        "Cloud perception service is not an explicit IM; mitigation: add as named module in next level."
+      ],
+      "evidence_needed": [
+        "Network bandwidth and latency measurements for LIDAR/camera streaming.",
+        "Cloud perception service latency benchmarks (target <2 s for model generation).",
+        "Onboard safety monitor latency and detection accuracy (<500 ms, 100% detection rate for safety-critical hazards).",
+        "Worksite model schema specification and versioning policy.",
+        "Fallback behavior specification if cloud service is unavailable.",
+        "Integration test results for Vehicle + Cloud Perception Service + Safety Services."
+      ]
+    }
+  }
+}

@@ -1,0 +1,164 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall establish and maintain teleoperation communication channels with end-to-end latency (sensor-to-operator-command-to-actuator) not exceeding 150 ms at the 95th percentile under agreed network conditions, enabling safe and effective remote equipment operation.",
+    "rationale": "The original FR is vague regarding measurement points and statistical bounds. Refinement clarifies that latency is measured end-to-end (full round-trip through sensing, transmission, processing, and actuation), specifies the p95 percentile as the acceptance criterion, and anchors to 'agreed network conditions' to establish testable boundary conditions. This supports the high safety criticality by making the requirement verifiable and traceable.",
+    "verification_idea": "Instrument teleoperation path with timestamped events at sensor acquisition, network ingress/egress, operator display, operator input, command transmission, and actuator response. Collect latency samples across representative network conditions (bandwidth, jitter, packet loss) and compute p95 latency distribution. Compare against 150 ms threshold under acceptance test scenarios.",
+    "sub_frs": [
+      "FR-TELE-001: Acquire and transmit sensor telemetry to remote operator with minimal latency contribution.",
+      "FR-TELE-002: Receive and process operator commands with minimal latency contribution.",
+      "FR-TELE-003: Manage network transmission to maintain p95 latency ≤ 150 ms under agreed conditions.",
+      "FR-TELE-004: Monitor and alert on latency degradation that approaches or exceeds safety thresholds."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Implement dedicated low-latency network stack with priority queuing, adaptive compression, and edge processing to minimize transmission and processing delays.",
+      "DP-B: Deploy redundant communication channels (primary + failover) with automatic switchover to maintain latency bounds across network faults.",
+      "DP-C: Establish latency budget allocation across sensor acquisition, network transmission, operator interface, and command actuation; optimize each component to stay within allocated budget.",
+      "DP-D: Use hardware-accelerated telemetry encoding/decoding and real-time OS scheduling to minimize software-induced latency variance."
+    ],
+    "selected_dp": "DP-C (Latency budget allocation) combined with DP-A (low-latency network stack) and DP-D (hardware acceleration). Rationale: DP-C provides the architectural framework to decompose the 150 ms requirement into manageable sub-budgets (e.g., sensor 20 ms, network 80 ms, operator interface 30 ms, actuation 20 ms), enabling parallel optimization and clear ownership. DP-A and DP-D address the critical network and processing bottlenecks identified in high-safety teleoperation systems. DP-B (redundancy) is complementary but secondary; it addresses availability rather than nominal latency.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Latency budget allocation (DP-C) is independent of network stack design (DP-A) and hardware acceleration (DP-D); each can be developed and optimized in parallel.",
+        "Network stack and hardware acceleration are loosely coupled via interface contracts (e.g., maximum frame size, encoding format); coupling is manageable through interface specification.",
+        "Risk: If latency budget is not enforced at integration, individual optimizations may not compose to meet end-to-end requirement. Mitigation: Establish latency measurement and reporting at each budget boundary."
+      ],
+      "notes": "The selected DP set exhibits low coupling because each component addresses a distinct latency source. However, integration testing is critical to verify that optimizations compose correctly."
+    },
+    "assumptions_risks": [
+      "Assumption: 'Agreed network conditions' are well-defined and stable (e.g., LTE with <50 ms baseline latency, <5% packet loss). Risk: If network conditions are poorly specified or variable, latency budget allocation may be infeasible. Mitigation: Establish network SLA with stakeholders early.",
+      "Assumption: Operator interface (display + input) can be optimized to <30 ms contribution. Risk: If operator hardware is legacy or constrained, this budget may be unachievable. Mitigation: Specify operator interface performance requirements.",
+      "Assumption: Sensor and actuator hardware support <20 ms latency each. Risk: If hardware is slow, budget is unachievable. Mitigation: Validate hardware latency specs during design phase.",
+      "Risk: Real-time OS scheduling and hardware acceleration require specialized expertise and may increase development cost and complexity. Mitigation: Prototype latency-critical paths early."
+    ],
+    "recommended_revision": "Refine DP-C to explicitly define latency budget allocation table (sensor, network, operator interface, actuation) with justification for each allocation. Establish acceptance criteria for each budget component. Add DP-E (latency monitoring and telemetry) to enable real-time visibility into latency performance and early detection of degradation."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "The Teleoperation module owns the end-to-end latency requirement and coordinates latency optimization across sensor acquisition, network transmission, operator interface, and command actuation. It includes telemetry encoding/decoding, command processing, latency budget enforcement, and latency monitoring. It does not own the physical network infrastructure (owned by Network Link) or the vehicle actuators (owned by Vehicle), but interfaces with both."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Teleoperation module transmits sensor telemetry (video, position, status) to remote operator. Latency contribution must be <80 ms (network budget). Encoding format and frame rate are tuned to meet latency budget."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Teleoperation module receives operator commands (movement, tool control, mode changes) from remote operator. Command processing and transmission to Vehicle must complete within <50 ms (operator interface + actuation budget)."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Teleoperation module uses Network Link for bidirectional communication. Network Link is responsible for transmission latency; Teleoperation is responsible for encoding/decoding and scheduling to minimize latency variance."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Teleoperation module monitors latency and transmits SafetyAlert if p95 latency approaches or exceeds 150 ms, enabling Safety Services to intervene (e.g., reduce autonomy, alert operator, trigger failsafe)."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "Teleoperation is the natural owner of latency optimization logic, telemetry encoding/decoding, command processing, and latency monitoring. All latency-critical functions are contained within this module. Minimal diffusion: only interfaces to Network Link (transmission) and Vehicle (actuation), which are external dependencies."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Vehicle owns actuators and sensor hardware, but does not own latency optimization logic or telemetry encoding. If latency logic were distributed into Vehicle, it would fragment the latency budget and complicate monitoring. Vehicle should focus on actuator response time (part of latency budget) but not on end-to-end latency orchestration."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 15,
+        "diffusion_score": 85,
+        "notes": "Safety Services owns safety policies and intervention logic, but should not own latency optimization. Latency monitoring and alerting (SafetyAlert interface) should be owned by Teleoperation; Safety Services consumes the alert and decides on intervention."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 10,
+        "diffusion_score": 90,
+        "notes": "NGHE Solution is the top-level system; latency logic should be delegated to Teleoperation module, not retained at the solution level. Retaining latency logic at the solution level would create diffusion and complicate integration."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the optimal owner of the latency requirement because it naturally encapsulates telemetry encoding/decoding, command processing, latency budget enforcement, and monitoring. It interfaces cleanly with Network Link (transmission) and Vehicle (actuation) via well-defined interfaces (Telemetry, Tasking, Network Link, SafetyAlert). Latency logic is cohesive within Teleoperation and does not require diffusion across multiple modules.",
+    "containment_risks": [
+      "Risk: If Teleoperation module does not have visibility into Vehicle actuator response time, latency budget allocation may be inaccurate. Mitigation: Establish interface contract with Vehicle specifying maximum actuator latency (e.g., <20 ms) and include in latency budget.",
+      "Risk: If Network Link does not provide latency metrics or SLA, Teleoperation cannot monitor network contribution to end-to-end latency. Mitigation: Establish Network Link interface to report transmission latency and packet loss; Teleoperation uses this data for latency monitoring and SafetyAlert.",
+      "Risk: If operator interface (display + input) is not optimized, latency budget may be exceeded. Mitigation: Specify operator interface latency requirements and validate during design phase. Teleoperation should not own operator hardware, but should establish interface contract for latency.",
+      "Risk: Latency monitoring and SafetyAlert logic may be complex and require real-time processing. Mitigation: Prototype latency monitoring early; consider dedicated hardware or real-time OS for this function."
+    ],
+    "recommended_revision": "Establish explicit interface contracts with Vehicle and Network Link specifying latency contributions and metrics. Define SafetyAlert message format and triggering conditions (e.g., p95 latency > 140 ms for 10 seconds). Add latency telemetry interface to enable monitoring and diagnostics. Consider separating latency monitoring and SafetyAlert logic into a dedicated sub-module within Teleoperation if complexity warrants."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "The selected DP (latency budget allocation + low-latency network stack + hardware acceleration) directly addresses the refined FR (end-to-end latency ≤ 150 ms p95). The DP is decomposable into sub-DPs for each latency source (sensor, network, operator interface, actuation), enabling verification at each level. The DP is not over-constrained and allows flexibility in implementation (e.g., choice of encoding algorithm, network protocol, hardware platform)."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Risk: Latency budget enforcement logic may be distributed across Teleoperation, Vehicle, and Network Link modules if not carefully managed. Mitigation: Establish clear ownership of latency budget allocation and monitoring within Teleoperation; Vehicle and Network Link report metrics to Teleoperation.",
+        "Risk: Latency monitoring and SafetyAlert logic may require real-time processing that is difficult to implement in software. Mitigation: Prototype latency monitoring early; consider hardware acceleration or dedicated real-time OS."
+      ],
+      "containment_notes": "Teleoperation module provides good containment for latency logic. External interfaces (Telemetry, Tasking, Network Link, SafetyAlert) are well-defined and minimize coupling. Latency budget allocation is owned by Teleoperation; Vehicle and Network Link are responsible for meeting their allocated budgets but do not own the overall latency orchestration."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "The refined FR is verifiable via instrumentation of the teleoperation path and measurement of end-to-end latency under agreed network conditions. Teleoperation module can be tested in isolation (with mock Vehicle and Network Link) and integrated with real Vehicle and Network Link for end-to-end testing. Latency monitoring and SafetyAlert logic can be validated via simulation and field testing.",
+      "allocation_clarity": "The allocation of the latency requirement to Teleoperation module is clear. Sub-requirements (FR-TELE-001 through FR-TELE-004) are allocated to specific functions within Teleoperation (telemetry acquisition, command processing, network transmission, latency monitoring). Each sub-requirement is traceable to a DP and can be verified independently."
+    },
+    "recommended_revisions": [
+      "Establish explicit interface contracts with Vehicle and Network Link specifying latency contributions, metrics, and SLAs. Include in system design documentation.",
+      "Define latency budget allocation table with justification for each allocation (sensor, network, operator interface, actuation). Include in design specification.",
+      "Specify SafetyAlert message format, triggering conditions, and response procedures. Coordinate with Safety Services to ensure alignment with safety policies.",
+      "Prototype latency-critical paths (telemetry encoding/decoding, command processing, latency monitoring) early in development to validate feasibility and identify risks.",
+      "Establish latency measurement and reporting infrastructure (instrumentation, logging, analysis tools) to enable real-time visibility into latency performance."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The refined FR is decomposable into four sub-FRs (FR-TELE-001 through FR-TELE-004) that address distinct latency sources (sensor acquisition, command processing, network transmission, latency monitoring). Each sub-FR requires further decomposition to identify specific DPs and IMs. The selected DP (latency budget allocation + low-latency network stack + hardware acceleration) is sound but requires detailed design and validation at the next level. Proceeding to the next decomposition level will clarify implementation details, identify risks, and enable parallel development of latency-critical components.",
+    "next_level_sub_frs": [
+      "FR-TELE-001: Acquire and transmit sensor telemetry to remote operator with minimal latency contribution (target: <20 ms).",
+      "FR-TELE-002: Receive and process operator commands with minimal latency contribution (target: <30 ms).",
+      "FR-TELE-003: Manage network transmission to maintain p95 latency ≤ 80 ms under agreed conditions.",
+      "FR-TELE-004: Monitor and alert on latency degradation that approaches or exceeds safety thresholds (target: detect p95 > 140 ms within 10 seconds)."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Agreed network conditions are well-defined and stable (e.g., LTE with <50 ms baseline latency, <5% packet loss).",
+        "Operator interface (display + input) can be optimized to <30 ms contribution.",
+        "Sensor and actuator hardware support <20 ms latency each.",
+        "Real-time OS scheduling and hardware acceleration are available and feasible for the target platform.",
+        "Latency monitoring and SafetyAlert logic can be implemented with acceptable overhead (<5 ms)."
+      ],
+      "open_risks": [
+        "Network conditions may be poorly specified or variable, making latency budget allocation infeasible.",
+        "Operator hardware may be legacy or constrained, preventing optimization to <30 ms.",
+        "Sensor or actuator hardware may not support required latency, requiring redesign.",
+        "Real-time OS scheduling and hardware acceleration may increase development cost and complexity.",
+        "Latency monitoring and SafetyAlert logic may be complex and require specialized expertise.",
+        "Integration testing may reveal latency composition issues not apparent in component testing."
+      ],
+      "evidence_needed": [
+        "Network SLA and agreed network conditions (bandwidth, jitter, packet loss, availability).",
+        "Operator interface latency specifications (display refresh rate, input processing time).",
+        "Sensor and actuator hardware latency specifications.",
+        "Prototype latency measurements for telemetry encoding/decoding, command processing, and latency monitoring.",
+        "Real-time OS and hardware acceleration feasibility study.",
+        "Integration test plan and latency measurement methodology."
+      ]
+    }
+  }
+}

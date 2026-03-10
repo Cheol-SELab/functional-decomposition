@@ -1,0 +1,163 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation communication packet loss at or below the customer-defined threshold (acceptance criterion: ≤1% under agreed network conditions) to ensure safe and effective remote equipment operation.",
+    "rationale": "CR-NGHE-009 addresses a critical quality-of-service requirement for teleoperation. Packet loss directly impacts command latency, feedback fidelity, and operator situational awareness—all safety-critical factors in remote heavy equipment control. Refinement clarifies that the requirement is conditional on 'agreed network conditions' and ties acceptance to a measurable, customer-negotiated target rather than a fixed value.",
+    "verification_idea": "Conduct packet loss measurement under simulated and live network conditions (WiFi, cellular, hybrid) matching customer deployment scenarios. Measure end-to-end packet loss across the teleoperation link (operator input → vehicle → operator feedback) using standardized network monitoring tools. Document baseline and worst-case performance against acceptance criterion.",
+    "sub_frs": [
+      "FR-NGHE-009.1: The teleoperation system shall implement error detection and recovery mechanisms to minimize packet loss impact on command execution.",
+      "FR-NGHE-009.2: The teleoperation system shall provide real-time packet loss visibility to the operator and safety manager.",
+      "FR-NGHE-009.3: The teleoperation system shall gracefully degrade or halt operation if packet loss exceeds the customer-defined threshold."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Implement redundant communication channels (dual-path routing) with automatic failover to maintain packet loss below threshold.",
+      "DP-B: Deploy adaptive bitrate encoding and forward error correction (FEC) to compensate for packet loss without requiring redundant channels.",
+      "DP-C: Implement hybrid approach combining selective redundancy for safety-critical commands with FEC for telemetry, tuned to customer network profile.",
+      "DP-D: Establish dedicated, prioritized network slice or QoS policy with the customer's network provider to guarantee packet loss performance."
+    ],
+    "selected_dp": "DP-C: Implement hybrid approach combining selective redundancy for safety-critical commands (e.g., emergency stop, motion control) with forward error correction for telemetry streams, with tuning parameters calibrated to customer's agreed network conditions.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "DP-C couples teleoperation protocol design (command/telemetry framing) with network layer (FEC codec selection, redundancy scheduling).",
+        "DP-C couples safety logic (which commands are 'critical' and warrant redundancy) with communication architecture.",
+        "DP-C does not strongly couple to vehicle hardware or sensor design; it is primarily a communication and software concern."
+      ],
+      "notes": "Coupling is acceptable and localized to the teleoperation and safety services domains. The hybrid approach avoids over-engineering (DP-A: full redundancy is costly) and under-engineering (DP-B: FEC alone may not meet safety criticality). DP-C allows tuning to customer network conditions, supporting the 'agreed network conditions' acceptance criterion."
+    },
+    "assumptions_risks": [
+      "Assumption: Customer will provide detailed network profile (latency, jitter, packet loss baseline, available bandwidth) to calibrate FEC and redundancy thresholds.",
+      "Assumption: Safety-critical command set is well-defined and stable; changes to this set require re-tuning redundancy policy.",
+      "Risk: If customer network conditions change post-deployment (e.g., congestion, interference), tuning may become suboptimal; mitigation: implement adaptive tuning or periodic re-calibration.",
+      "Risk: FEC overhead may increase latency; mitigation: select low-latency FEC codec and validate end-to-end latency against operator response time requirements.",
+      "Risk: Selective redundancy logic adds complexity; mitigation: implement clear, auditable rules for command classification and redundancy application."
+    ],
+    "recommended_revision": "Refine DP-C to explicitly specify: (1) FEC codec selection criteria (e.g., Reed-Solomon, Turbo codes) based on packet loss rate and latency budget; (2) command classification rules (e.g., motion control, emergency stop, sensor queries) that trigger redundancy; (3) tuning parameters (redundancy ratio, FEC strength) as functions of measured network conditions; (4) fallback behavior if packet loss exceeds threshold despite mitigation."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "The Teleoperation module owns the end-to-end communication pipeline for remote equipment operation, including protocol design, command/telemetry encoding, FEC implementation, selective redundancy logic, and operator-facing feedback mechanisms. It interfaces with the Vehicle module (for command execution and sensor data) and Safety Services module (for safety-critical command validation and packet loss monitoring)."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Operator input (motion commands, tool control, mode selection) flows from the tele-operator console into the Teleoperation module via the Tasking interface. This interface carries safety-critical commands that trigger selective redundancy."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle state (position, orientation, sensor readings, operational status) flows from the Vehicle module through the Teleoperation module to the operator console. This interface carries non-critical telemetry that uses FEC but not redundancy."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "The Teleoperation module receives safety constraints and packet loss thresholds from Safety Services (inbound) and reports real-time packet loss metrics and command execution status (outbound) to enable safety monitoring and graceful degradation."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "The Teleoperation module interfaces with the physical/wireless network link to transmit encoded commands and receive telemetry. This is the point where FEC and redundancy are applied to mitigate packet loss."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "Teleoperation is the natural owner of DP-C. The module directly implements FEC, redundancy logic, command/telemetry encoding, and packet loss monitoring. All core logic is contained. Minor diffusion: Safety Services must validate command criticality; Vehicle must execute commands. These are interface contracts, not diffusion."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 40,
+        "diffusion_score": 60,
+        "notes": "Safety Services could own packet loss monitoring and threshold enforcement, but would require deep coupling to teleoperation protocol details (FEC codec, redundancy scheduling). High diffusion risk: Safety logic would be scattered across Safety Services (threshold logic) and Teleoperation (FEC/redundancy implementation). Not recommended as primary owner."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 15,
+        "diffusion_score": 85,
+        "notes": "Vehicle module is responsible for command execution and sensor data generation, not communication quality. Assigning DP-C to Vehicle would create severe diffusion: communication logic would be embedded in vehicle firmware, complicating updates and testing. Not suitable."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 30,
+        "diffusion_score": 70,
+        "notes": "NGHE Solution is the system-level container but is too coarse-grained for DP-C implementation. Assigning to NGHE Solution would defer ownership and create ambiguity about which sub-module (Teleoperation, Safety Services, Vehicle) actually implements FEC and redundancy. Not recommended."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the optimal owner of DP-C because: (1) it already owns the communication protocol and encoding layer; (2) FEC and selective redundancy are communication-layer concerns; (3) containment score of 95 indicates minimal diffusion; (4) interfaces to Safety Services (SafetyAlert) and Vehicle (Tasking, Telemetry) are clean and well-defined; (5) ownership enables independent testing and tuning of packet loss mitigation without coupling to vehicle hardware or safety logic.",
+    "containment_risks": [
+      "Risk: If command criticality rules change (e.g., new safety-critical commands added), Teleoperation module must be updated. Mitigation: define command criticality as a configuration parameter passed via SafetyAlert interface, allowing Safety Services to drive policy without code changes.",
+      "Risk: If network conditions change significantly post-deployment, FEC and redundancy tuning parameters may become suboptimal. Mitigation: implement adaptive tuning logic within Teleoperation module that monitors packet loss and adjusts parameters in real-time.",
+      "Risk: Teleoperation module may become a bottleneck if FEC/redundancy processing is computationally expensive. Mitigation: profile performance early; consider hardware acceleration (e.g., FPGA for FEC) if needed."
+    ],
+    "recommended_revision": "Clarify the interface contract between Teleoperation and Safety Services: (1) Safety Services provides a 'command criticality map' (e.g., JSON or lookup table) that Teleoperation uses to determine which commands trigger redundancy; (2) Teleoperation reports packet loss metrics and command execution status via SafetyAlert interface at a defined frequency (e.g., 100 ms); (3) Safety Services defines the packet loss threshold and graceful degradation policy (e.g., 'halt operation if packet loss > 2% for > 5 seconds'), which Teleoperation enforces. This design keeps communication logic in Teleoperation and safety policy in Safety Services, minimizing coupling."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid FEC + selective redundancy) directly addresses the refined FR requirement to maintain packet loss ≤ customer-defined threshold. The DP is specific, implementable, and measurable. FEC reduces packet loss on telemetry; selective redundancy ensures safety-critical commands are protected. The DP is not over-constrained (allows tuning to customer network) and not under-constrained (specifies both FEC and redundancy mechanisms). Coupling is acceptable and localized."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Minor diffusion: Safety Services must provide command criticality rules to Teleoperation. Mitigation: define this as a configuration interface (SafetyAlert) rather than embedding logic in Teleoperation code.",
+        "Minor diffusion: Vehicle module must execute redundant commands correctly (e.g., ignore duplicate commands). Mitigation: Vehicle module already handles command deduplication; no new logic required.",
+        "Acceptable diffusion: Network Link interface is external; Teleoperation does not own the physical network but must interface with it correctly. This is a standard architectural boundary."
+      ],
+      "containment_notes": "Teleoperation module achieves 95% containment of DP-C. The 5% diffusion is limited to interface contracts (SafetyAlert for policy, Tasking/Telemetry for command/data flow, Network Link for transmission). No logic is scattered across multiple modules. Ownership is clear and defensible."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification of FR-NGHE-009 is feasible within the Teleoperation module boundary. Packet loss can be measured end-to-end by instrumenting the Tasking and Telemetry interfaces and monitoring Network Link transmission. Test scenarios can be created by simulating network conditions (packet drop, jitter, congestion) and validating that FEC and redundancy keep measured packet loss ≤ threshold. Acceptance testing can be conducted in lab (controlled network) and field (customer's actual network conditions).",
+      "allocation_clarity": "The allocation of FR-NGHE-009 to Teleoperation module is clear. Sub-FRs (FR-NGHE-009.1, 009.2, 009.3) are also clearly allocated: 009.1 (error detection/recovery) → Teleoperation (FEC/redundancy); 009.2 (packet loss visibility) → Teleoperation (metrics reporting via SafetyAlert); 009.3 (graceful degradation) → Safety Services (policy) + Teleoperation (enforcement). No ambiguity about ownership or responsibility."
+    },
+    "recommended_revisions": [
+      "Refine the SafetyAlert interface specification to include: (1) command criticality map (which commands trigger redundancy); (2) packet loss threshold (acceptance criterion); (3) graceful degradation policy (what to do if threshold is exceeded). This ensures Safety Services and Teleoperation are synchronized on policy.",
+      "Define performance requirements for DP-C: (1) latency overhead of FEC/redundancy (e.g., < 50 ms); (2) bandwidth overhead (e.g., < 20% increase); (3) computational cost (e.g., < 30% CPU utilization on tele-operator console). These will inform codec selection and tuning.",
+      "Establish a test plan for FR-NGHE-009 that includes: (1) lab testing with simulated network conditions (packet loss rates from 0% to 10%, latency 50-500 ms, jitter 0-100 ms); (2) field testing with customer's actual network (WiFi, cellular, hybrid); (3) stress testing with worst-case scenarios (e.g., simultaneous packet loss + high latency). Document baseline and tuned performance."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The refined FR-NGHE-009 is well-defined and non-atomic; it has three sub-FRs (error detection/recovery, packet loss visibility, graceful degradation) that require further decomposition. DP-C is sound and addresses the parent FR. Teleoperation module is the correct owner with high containment (95%) and clear interfaces. However, the sub-FRs are not yet decomposed into DPs and IMs. To proceed with detailed design and implementation, each sub-FR must be refined, mapped to a DP, and assigned to an IM. This is a natural point to decompose further.",
+    "justification_detail": "The gate review passes all three checks (FR-DP, DP-IM, FR-IM), indicating that the current level is sound. However, the sub-FRs are sufficiently complex and independent to warrant their own decomposition cycles. For example, FR-NGHE-009.1 (error detection/recovery) will require selecting specific FEC codecs and redundancy scheduling algorithms; FR-NGHE-009.2 (packet loss visibility) will require designing telemetry reporting mechanisms; FR-NGHE-009.3 (graceful degradation) will require defining state machines and safety interlocks. Each of these is a design decision that should be made explicitly and documented.",
+    "next_level_sub_frs": [
+      "FR-NGHE-009.1: The teleoperation system shall implement error detection and recovery mechanisms to minimize packet loss impact on command execution. [Decompose into: FEC codec selection, redundancy scheduling, command deduplication logic]",
+      "FR-NGHE-009.2: The teleoperation system shall provide real-time packet loss visibility to the operator and safety manager. [Decompose into: packet loss measurement, metrics reporting, alerting thresholds]",
+      "FR-NGHE-009.3: The teleoperation system shall gracefully degrade or halt operation if packet loss exceeds the customer-defined threshold. [Decompose into: threshold monitoring, state machine design, safety interlocks]"
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Customer will provide detailed network profile (latency, jitter, baseline packet loss, available bandwidth) to calibrate FEC and redundancy.",
+        "Safety-critical command set is well-defined and stable; changes require re-tuning.",
+        "Teleoperation module has sufficient computational resources to implement FEC and redundancy without exceeding latency or CPU budgets.",
+        "Vehicle module already implements command deduplication and can handle redundant commands correctly.",
+        "Safety Services module will provide command criticality rules and packet loss thresholds via SafetyAlert interface.",
+        "Network Link interface is available and can be instrumented for packet loss measurement."
+      ],
+      "open_risks": [
+        "Risk: Customer network conditions may change post-deployment (congestion, interference), requiring re-tuning. Mitigation: implement adaptive tuning or periodic re-calibration.",
+        "Risk: FEC overhead may increase latency beyond operator response time requirements. Mitigation: select low-latency FEC codec and validate end-to-end latency early.",
+        "Risk: Selective redundancy logic adds complexity and potential for bugs. Mitigation: implement clear, auditable rules and comprehensive testing.",
+        "Risk: Packet loss threshold may be difficult to achieve in poor network conditions. Mitigation: establish realistic acceptance criteria with customer; consider hybrid approach (redundancy + network optimization).",
+        "Risk: Teleoperation module may become a bottleneck if FEC/redundancy processing is computationally expensive. Mitigation: profile performance early; consider hardware acceleration if needed."
+      ],
+      "evidence_needed": [
+        "Network profile from customer (latency, jitter, baseline packet loss, available bandwidth, network topology).",
+        "Definition of safety-critical commands (motion control, emergency stop, tool control, mode selection).",
+        "Operator response time requirements (e.g., command latency < 200 ms for safe operation).",
+        "Computational and bandwidth budgets for Teleoperation module.",
+        "Specification of SafetyAlert interface (command criticality map, packet loss threshold, graceful degradation policy).",
+        "Test plan and acceptance criteria for FR-NGHE-009 (lab and field testing scenarios).",
+        "Performance baselines for FEC codecs and redundancy scheduling algorithms (latency, bandwidth, CPU overhead)."
+      ]
+    }
+  }
+}

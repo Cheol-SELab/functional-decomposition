@@ -1,0 +1,161 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and designated work zones with sufficient fidelity to support autonomous path planning and operator situational awareness.",
+    "rationale": "The original FR was vague on scope (what constitutes 'area analysis') and lacked specificity on fidelity requirements, update frequency, and consumer functions. Refinement clarifies that the worksite model must be dynamic, support both planning and execution, and meet safety-critical use cases (hazard detection). High safety criticality demands explicit inclusion of dynamic hazard representation.",
+    "verification_idea": "Acceptance: (1) Model generated within 5 minutes of site entry; (2) Terrain elevation accuracy ±0.5 m over 95% of mapped area; (3) Static obstacles detected with 90% recall; (4) Dynamic hazards (personnel) detected within 2 m with <5 s latency; (5) Model accessible to planning and execution subsystems via standardized interface; (6) Safety-critical features (hazard zones) marked with confidence levels.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire terrain and obstacle data from onboard sensors (LiDAR, camera, radar) and fuse into unified elevation map.",
+      "CR-NGHE-006.2: Detect, classify, and track dynamic hazards (personnel, moving equipment) in real-time with confidence metrics.",
+      "CR-NGHE-006.3: Represent work zones, exclusion zones, and safety boundaries as geometric primitives in the worksite model.",
+      "CR-NGHE-006.4: Expose worksite model via standardized interface to planning, execution, and safety subsystems with update frequency ≥1 Hz.",
+      "CR-NGHE-006.5: Validate model consistency and flag degraded sensor fusion states to safety services."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized perception pipeline (sensor fusion engine) running on vehicle compute platform, producing a 3D occupancy grid + dynamic object tracker, published to shared data bus.",
+      "DP-B: Distributed sensor processing (each sensor stream processed independently on edge devices) with late fusion at a central aggregator, producing separate terrain map and hazard list.",
+      "DP-C: Hybrid approach: onboard real-time perception (terrain + dynamic hazards) fused into local model; periodic offload of raw sensor data to remote cloud service for high-fidelity post-processing and map refinement."
+    ],
+    "selected_dp": "DP-A: Centralized perception pipeline with unified 3D occupancy grid and dynamic object tracker, published via standardized telemetry interface to planning, execution, and safety subsystems.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling to vehicle compute platform (CPU/GPU availability, thermal constraints).",
+        "Coupling to sensor suite (LiDAR, camera, radar availability and calibration).",
+        "Coupling to real-time OS and middleware (latency guarantees for 1 Hz+ update)."
+      ],
+      "notes": "DP-A is selected because it minimizes information loss (single source of truth for worksite model), reduces latency (no multi-hop aggregation), and simplifies safety validation (one fusion algorithm to certify). Coupling to vehicle compute is acceptable given NGHE is a vehicle-centric system. Coupling to sensor suite is inherent to the problem. Real-time OS coupling is manageable via standard automotive/industrial middleware (ROS, AUTOSAR)."
+    },
+    "assumptions_risks": [
+      "Assumption: Vehicle compute platform has sufficient CPU/GPU capacity (estimated 2–4 TFLOPS for real-time fusion at 10 Hz).",
+      "Assumption: Sensor suite (LiDAR, camera, radar) is available and calibrated before deployment.",
+      "Risk: Compute saturation under high-clutter scenarios (dense vegetation, rain, snow) may degrade update frequency below 1 Hz.",
+      "Risk: Sensor calibration drift over time may introduce systematic errors in terrain elevation and obstacle localization.",
+      "Risk: Fusion algorithm complexity may exceed certification scope for safety-critical applications (ISO 26262, functional safety)."
+    ],
+    "recommended_revision": "Specify compute resource budget (CPU, GPU, memory) and thermal envelope for perception pipeline. Define sensor calibration and validation procedures. Decompose fusion algorithm into safety-critical (hazard detection) and non-critical (terrain refinement) components to enable modular certification."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "The Vehicle module encapsulates the onboard perception pipeline (sensor fusion engine, 3D occupancy grid builder, dynamic object tracker) and exposes the worksite model via the Telemetry interface. The Vehicle module owns the real-time computation, sensor integration, and model publication."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle publishes worksite model (3D occupancy grid, dynamic hazard list, confidence metrics, timestamp) at ≥1 Hz to Telemetry interface. Consumers: planning, execution, safety subsystems."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives sensor configuration commands (e.g., LiDAR range, camera exposure, fusion algorithm parameters) via Tasking interface from planning/execution subsystems."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Vehicle publishes sensor fusion degradation alerts (e.g., 'LiDAR occlusion detected', 'fusion latency exceeded threshold') to SafetyAlert interface for Safety Services to consume."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.95,
+        "diffusion_score": 0.05,
+        "notes": "Vehicle is the natural owner of onboard perception. Sensor fusion, occupancy grid, and object tracking are tightly coupled to vehicle compute and sensor suite. Minimal diffusion: only Telemetry publication crosses module boundary (expected). High containment justified."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.15,
+        "diffusion_score": 0.85,
+        "notes": "Teleoperation is primarily a remote command/feedback channel. Hosting perception pipeline here would require shipping raw sensor data over network (high bandwidth, latency), then re-publishing model back to Vehicle. Severe diffusion and latency penalty. Not recommended."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Safety Services consumes worksite model for hazard validation and safety policy enforcement, but does not own perception. Hosting perception here would decouple it from vehicle sensors and compute, introducing latency and network dependency. Safety Services should validate/augment model, not generate it. Not recommended."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.1,
+        "diffusion_score": 0.9,
+        "notes": "NGHE Solution is the top-level system container. Assigning perception to this level would bypass Vehicle module structure and diffuse sensor integration across multiple subsystems. Violates modularity. Not recommended."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module is the optimal owner of the worksite mapping/modeling DP because: (1) it owns the sensor suite and onboard compute; (2) perception is tightly coupled to vehicle state and dynamics; (3) real-time latency requirements favor local processing; (4) model publication via Telemetry interface provides clean separation of concerns.",
+    "containment_risks": [
+      "Risk: Vehicle module compute saturation under high-frequency perception tasks may starve other vehicle functions (motion control, diagnostics). Mitigation: define CPU/GPU resource budgets and priority scheduling.",
+      "Risk: Sensor calibration and maintenance procedures must be Vehicle-owned, increasing operational complexity. Mitigation: provide automated calibration workflows and diagnostics.",
+      "Risk: Perception algorithm updates (e.g., new fusion method) require Vehicle module re-certification. Mitigation: design modular fusion architecture to isolate algorithm changes."
+    ],
+    "recommended_revision": "Explicitly define Vehicle module compute resource allocation (CPU cores, GPU, memory) and thermal constraints. Specify sensor calibration procedures and ownership. Define Telemetry schema for worksite model (3D grid format, dynamic object representation, confidence encoding). Establish interface contracts for Tasking (sensor config commands) and SafetyAlert (degradation alerts)."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-A (centralized perception pipeline with unified occupancy grid) directly addresses the refined FR requirement to generate and maintain a real-time worksite model. The DP specifies the solution approach (sensor fusion, 3D grid, dynamic tracking) and is verifiable against acceptance criteria (fidelity, latency, interface availability). No logical gaps identified."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Telemetry interface publication is expected diffusion (model must be shared). Risk is low.",
+        "Tasking interface consumption (sensor config) is expected coupling. Risk is low.",
+        "SafetyAlert publication introduces dependency on Safety Services module. Risk is acceptable if Safety Services is available and responsive."
+      ],
+      "containment_notes": "Vehicle module containment score of 0.95 is strong. Diffusion is minimal and justified (Telemetry publication is required by FR). No hidden dependencies or scattered responsibilities detected. IM assignment is sound."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible via: (1) simulation of sensor fusion pipeline with synthetic sensor data; (2) hardware-in-the-loop testing with vehicle compute platform and sensor suite; (3) field trials on representative worksites. Acceptance criteria (terrain accuracy, hazard detection latency, model availability) are measurable.",
+      "allocation_clarity": "Allocation is clear: Vehicle module owns perception pipeline and model publication. Planning, execution, and safety subsystems consume model via Telemetry interface. Ownership boundaries are well-defined."
+    },
+    "recommended_revisions": [
+      "Refine Telemetry interface schema to specify 3D occupancy grid format (voxel size, coordinate frame, update frequency), dynamic object representation (bounding box, class, confidence), and timestamp precision.",
+      "Define Tasking interface contract for sensor configuration commands (e.g., LiDAR range, camera exposure, fusion algorithm parameters).",
+      "Specify SafetyAlert message format for sensor fusion degradation alerts (e.g., 'LiDAR occlusion', 'fusion latency exceeded', severity level).",
+      "Establish compute resource budget for perception pipeline (CPU cores, GPU, memory, thermal envelope) and document scheduling strategy.",
+      "Define sensor calibration procedures and validation criteria (e.g., LiDAR-camera alignment tolerance, radar cross-section validation)."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The refined FR is decomposable into five sub-FRs (sensor data acquisition, dynamic hazard detection, work zone representation, model publication, consistency validation). Each sub-FR requires further design detail (DP selection, algorithm specification, interface definition). The current level has established the top-level DP (centralized perception pipeline) and IM assignment (Vehicle module), but the sub-FRs must be decomposed to define concrete algorithms, data structures, and interface contracts. Proceeding to the next decomposition level is necessary to achieve sufficient design detail for implementation.",
+    "justification_detail": "CR-NGHE-006 is a complex, multi-faceted requirement spanning sensor fusion, real-time processing, and multi-consumer data publication. The refined FR and selected DP provide the architectural direction, but the sub-FRs (especially CR-NGHE-006.2 on dynamic hazard detection and CR-NGHE-006.4 on interface exposure) require further decomposition to specify algorithms, data formats, and latency budgets. Stopping here would leave critical design decisions unresolved.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire terrain and obstacle data from onboard sensors (LiDAR, camera, radar) and fuse into unified elevation map.",
+      "CR-NGHE-006.2: Detect, classify, and track dynamic hazards (personnel, moving equipment) in real-time with confidence metrics.",
+      "CR-NGHE-006.3: Represent work zones, exclusion zones, and safety boundaries as geometric primitives in the worksite model.",
+      "CR-NGHE-006.4: Expose worksite model via standardized interface to planning, execution, and safety subsystems with update frequency ≥1 Hz.",
+      "CR-NGHE-006.5: Validate model consistency and flag degraded sensor fusion states to safety services."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Vehicle compute platform has sufficient CPU/GPU capacity (2–4 TFLOPS) for real-time perception at 10 Hz.",
+        "Sensor suite (LiDAR, camera, radar) is available, calibrated, and integrated into Vehicle module before deployment.",
+        "Real-time OS and middleware (ROS, AUTOSAR) provide latency guarantees for 1 Hz+ model publication.",
+        "Planning, execution, and safety subsystems are available to consume Telemetry interface at deployment time.",
+        "Worksite features (terrain, obstacles, hazards) are within sensor detection range and environmental conditions (lighting, weather) are nominal."
+      ],
+      "open_risks": [
+        "Compute saturation under high-clutter scenarios may degrade update frequency below 1 Hz.",
+        "Sensor calibration drift over time may introduce systematic errors in terrain elevation and obstacle localization.",
+        "Fusion algorithm complexity may exceed certification scope for safety-critical applications (ISO 26262).",
+        "Dynamic hazard detection (personnel, moving equipment) may have high false-positive/false-negative rates in cluttered environments.",
+        "Network latency for Telemetry publication may exceed acceptable bounds if Vehicle-to-Planning link is congested."
+      ],
+      "evidence_needed": [
+        "Compute resource budget and thermal analysis for perception pipeline on target Vehicle platform.",
+        "Sensor calibration procedures and validation criteria (LiDAR-camera alignment, radar cross-section).",
+        "Fusion algorithm specification and safety analysis (FMEA, fault tree) for hazard detection.",
+        "Dynamic hazard detection performance metrics (precision, recall, latency) from field trials on representative worksites.",
+        "Telemetry interface schema and bandwidth analysis to confirm network feasibility.",
+        "Safety Services module specification to confirm SafetyAlert interface contract and hazard validation procedures."
+      ]
+    }
+  }
+}

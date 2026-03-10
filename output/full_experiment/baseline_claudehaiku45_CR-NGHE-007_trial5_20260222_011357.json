@@ -1,0 +1,166 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current equipment state, environmental conditions, and operational events with a p95 latency not exceeding the customer-defined target (baseline 1.0 s) across all supported update scenarios.",
+    "rationale": "CR-NGHE-007 addresses a critical operational requirement: timely situational awareness for safe and effective equipment operation. The refined statement explicitly bounds the latency constraint to p95 percentile (addressing tail latency, not just mean), identifies the content scope (equipment state, environment, events), and acknowledges customer-specific targets. High safety criticality demands that latency failures do not degrade safety assurance.",
+    "verification_idea": "Measure end-to-end latency from sensor/event generation through worksite model update completion across representative scenarios (e.g., position update, obstacle detection, operator command acknowledgment). Collect p95 percentile over statistically significant sample sizes under nominal and degraded network conditions.",
+    "sub_frs": [
+      "FR-007.1: Acquire real-time telemetry from vehicle and environmental sensors with sufficient fidelity and frequency to support worksite model updates.",
+      "FR-007.2: Transmit telemetry and operational events to the worksite model service with bounded network latency.",
+      "FR-007.3: Process incoming telemetry and events to update worksite model state with deterministic latency.",
+      "FR-007.4: Distribute updated worksite model to authorized consumers (operators, tele-operators, safety services) with bounded delivery latency.",
+      "FR-007.5: Detect and handle latency violations or model staleness to maintain safety invariants."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized worksite model service with direct telemetry ingestion, in-memory state management, and pub/sub distribution to all consumers.",
+      "DP-B: Distributed edge-local model caches synchronized via eventual-consistency protocol with periodic full reconciliation.",
+      "DP-C: Hierarchical model architecture with vehicle-local state, regional aggregation layer, and central worksite model; latency-critical updates bypass aggregation.",
+      "DP-D: Real-time streaming pipeline (Kafka/Pulsar) with stateless transformation and consumer-driven model updates; each consumer maintains its own view."
+    ],
+    "selected_dp": "DP-C: Hierarchical model architecture with vehicle-local state, regional aggregation layer, and central worksite model; latency-critical updates bypass aggregation.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Vehicle-local state must remain consistent with central model; requires well-defined synchronization protocol.",
+        "Bypass path for latency-critical updates introduces branching logic; must be clearly specified to avoid state divergence.",
+        "Regional aggregation layer adds a hop; must be optional or asynchronous for p95 latency compliance."
+      ],
+      "notes": "DP-C decouples vehicle-local responsiveness (low latency for operator feedback) from global consistency (eventual consistency acceptable for non-critical updates). This addresses the high safety criticality by ensuring critical updates (e.g., collision avoidance) bypass aggregation, while operational updates (e.g., productivity metrics) tolerate slight delays. Coupling is manageable if synchronization protocol is explicit and tested."
+    },
+    "assumptions_risks": [
+      "Assumption: Vehicle-local state can be maintained with sufficient fidelity to support operator decisions without full central model.",
+      "Assumption: Latency-critical update paths can be identified and hardcoded at design time.",
+      "Risk: If vehicle-local state diverges from central model, operator may make decisions based on stale information, creating safety hazard.",
+      "Risk: Bypass logic may be bypassed incorrectly or inconsistently, leading to unpredictable latency behavior.",
+      "Risk: Regional aggregation layer may become a bottleneck if not properly scaled or if synchronization overhead is underestimated."
+    ],
+    "recommended_revision": "Refine DP-C to explicitly define: (1) which update types are latency-critical and bypass aggregation; (2) synchronization protocol for vehicle-local to central model (e.g., vector clocks, CRDTs); (3) staleness detection and recovery mechanism; (4) fallback behavior if bypass path fails. Consider adding a DP-E variant: hybrid approach with in-memory central model for critical updates and eventual-consistency cache for non-critical data."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "End-to-end worksite model update pipeline, including telemetry ingestion, model state management, and distribution to all consumers. Encompasses vehicle-local state, aggregation logic, central model service, and pub/sub distribution."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Inbound telemetry stream from Vehicle module (position, sensor readings, operational state). Frequency and latency requirements must be negotiated with Vehicle module."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Outbound tasking commands to Vehicle module (e.g., speed adjustments, mode changes) derived from worksite model updates or operator input. Latency-critical path."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Outbound safety alerts to Safety Services module when worksite model detects hazardous conditions (e.g., collision risk, operator override). Must meet safety-critical latency."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Bidirectional network communication for telemetry transmission to central model and model distribution to remote consumers (tele-operators, site manager). Latency and reliability critical."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "NGHE Solution is the top-level system boundary. Worksite model update is a core system function. All sub-components (vehicle, teleoperation, safety services) feed into and consume from the worksite model. Containment is natural and high. Diffusion risk is minimal: the function is cohesive and does not leak into other modules."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 40,
+        "diffusion_score": 60,
+        "notes": "Vehicle module owns vehicle-local state and telemetry generation. However, central worksite model update logic, aggregation, and distribution to remote consumers are outside Vehicle scope. Assigning the entire FR to Vehicle would create high diffusion (model logic scattered across vehicle and remote services) and violate separation of concerns."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 30,
+        "diffusion_score": 70,
+        "notes": "Teleoperation module consumes worksite model updates but does not own the model or update pipeline. Assigning FR to Teleoperation would create severe diffusion: model logic would be split between vehicle, central service, and teleoperation client."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 35,
+        "diffusion_score": 65,
+        "notes": "Safety Services module consumes worksite model updates to detect hazards but does not own the model update pipeline. Assigning FR to Safety Services would create diffusion: safety logic would depend on model updates, but model ownership would be unclear."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "The worksite model update function is a system-level concern that spans vehicle-local state, network communication, central model service, and distribution to multiple consumers. NGHE Solution is the appropriate boundary because it owns the end-to-end pipeline and can enforce latency constraints across all sub-components. Vehicle, Teleoperation, and Safety Services are consumers or contributors, not owners.",
+    "containment_risks": [
+      "Risk: NGHE Solution boundary may be too broad, making it difficult to assign ownership to a single team. Recommend clarifying whether NGHE Solution is a logical system boundary or a physical module with a dedicated owner.",
+      "Risk: If vehicle-local state and central model are owned by different teams, synchronization protocol may not be enforced consistently. Recommend explicit interface contract and integration testing.",
+      "Risk: Network Link interface is external to NGHE Solution; latency on Network Link is outside NGHE control. Recommend defining acceptable network latency budget and fallback behavior if network latency exceeds budget."
+    ],
+    "recommended_revision": "Clarify NGHE Solution ownership model: is it a system integrator role or a dedicated module? If system integrator, define clear ownership of sub-components (e.g., Vehicle owns vehicle-local state, central model service owned by dedicated team). If dedicated module, ensure it has authority to enforce latency constraints across all sub-components. Consider introducing an explicit 'Worksite Model Service' sub-module within NGHE Solution to own central model and synchronization logic."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hierarchical model architecture) directly addresses FR-007 by decomposing the latency problem into vehicle-local responsiveness (low latency) and global consistency (eventual consistency). The bypass path for latency-critical updates ensures p95 latency compliance for safety-critical scenarios. Assumptions and risks are identified and manageable with explicit protocol design."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Diffusion risk: If vehicle-local state is owned by Vehicle module and central model is owned by a separate service, synchronization protocol must be explicit and enforced. Recommend defining a formal interface contract (e.g., OpenAPI spec) for vehicle-to-central model sync.",
+        "Diffusion risk: Bypass logic for latency-critical updates may be implemented inconsistently across vehicle and central model. Recommend centralizing bypass logic in a single module (e.g., Worksite Model Service) and exposing it via a well-defined API.",
+        "Diffusion risk: Network Link interface is shared with other system functions (e.g., operator commands, safety alerts). Latency on Network Link may be affected by competing traffic. Recommend QoS policies and traffic prioritization."
+      ],
+      "containment_notes": "NGHE Solution is the appropriate IM boundary because it owns the end-to-end pipeline. However, internal sub-module boundaries (vehicle-local state, central model service, distribution) must be clearly defined to avoid diffusion. Recommend introducing explicit sub-modules: Vehicle (owns vehicle-local state), Worksite Model Service (owns central model and sync protocol), and Distribution Service (owns pub/sub to consumers)."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible via end-to-end latency measurement across representative scenarios. Recommend instrumenting telemetry ingestion, model update, and distribution paths with timestamps. Collect p95 latency under nominal and degraded network conditions. Verify that latency violations trigger safety fallback behavior.",
+      "allocation_clarity": "Allocation is clear: NGHE Solution owns the worksite model update function. However, sub-allocations to Vehicle, Teleoperation, and Safety Services must be defined in the next decomposition level. Recommend explicit allocation of sub-FRs (FR-007.1 through FR-007.5) to sub-modules."
+    },
+    "recommended_revisions": [
+      "Refine DP-C to explicitly define latency-critical update types and bypass logic.",
+      "Define synchronization protocol for vehicle-local to central model (e.g., vector clocks, CRDTs).",
+      "Clarify NGHE Solution ownership model and introduce explicit sub-modules for vehicle-local state, central model service, and distribution.",
+      "Define QoS policies and traffic prioritization for Network Link to ensure latency compliance.",
+      "Add verification plan for p95 latency measurement and safety fallback behavior."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-007 is not atomic; it decomposes into five sub-FRs (FR-007.1 through FR-007.5) that address distinct aspects of the worksite model update pipeline (telemetry acquisition, transmission, processing, distribution, and safety handling). Each sub-FR requires further refinement and DP selection. DP-C is sound and addresses the latency constraint, but its implementation depends on resolving sub-FR details (e.g., which updates are latency-critical, how synchronization is achieved). NGHE Solution is the correct IM boundary, but internal sub-module boundaries must be clarified in the next level. Recommend proceeding to decompose sub-FRs and assign them to sub-modules (Vehicle, Teleoperation, Safety Services, and a new Worksite Model Service).",
+    "next_level_sub_frs": [
+      "FR-007.1: Acquire real-time telemetry from vehicle and environmental sensors with sufficient fidelity and frequency to support worksite model updates.",
+      "FR-007.2: Transmit telemetry and operational events to the worksite model service with bounded network latency.",
+      "FR-007.3: Process incoming telemetry and events to update worksite model state with deterministic latency.",
+      "FR-007.4: Distribute updated worksite model to authorized consumers (operators, tele-operators, safety services) with bounded delivery latency.",
+      "FR-007.5: Detect and handle latency violations or model staleness to maintain safety invariants."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Vehicle-local state can be maintained with sufficient fidelity to support operator decisions without full central model.",
+        "Latency-critical update paths can be identified and hardcoded at design time.",
+        "Network Link provides sufficient bandwidth and reliability to support worksite model updates within p95 latency target.",
+        "Customer-defined latency target is achievable with hierarchical model architecture and bypass logic.",
+        "Safety Services module can detect and respond to latency violations or model staleness."
+      ],
+      "open_risks": [
+        "Vehicle-local state may diverge from central model, creating safety hazard if operator makes decisions based on stale information.",
+        "Bypass logic may be implemented inconsistently, leading to unpredictable latency behavior.",
+        "Regional aggregation layer may become a bottleneck if not properly scaled.",
+        "Network Link latency may exceed budget due to competing traffic or network congestion.",
+        "Synchronization protocol for vehicle-local to central model may introduce unexpected latency or consistency issues."
+      ],
+      "evidence_needed": [
+        "Detailed specification of latency-critical update types and bypass logic.",
+        "Synchronization protocol design (e.g., vector clocks, CRDTs) with latency analysis.",
+        "Network QoS policies and traffic prioritization strategy.",
+        "Verification plan for p95 latency measurement across representative scenarios.",
+        "Safety fallback behavior specification for latency violations or model staleness.",
+        "Sub-module ownership and interface contracts (Vehicle, Worksite Model Service, Distribution Service)."
+      ]
+    }
+  }
+}

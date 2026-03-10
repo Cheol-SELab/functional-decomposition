@@ -1,0 +1,161 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and work-zone boundaries, with sufficient fidelity to support autonomous path planning and operator situational awareness.",
+    "rationale": "The original FR was vague regarding fidelity requirements, update frequency, and scope of representable features. Refinement clarifies that the model must support both planning (path generation) and execution (real-time awareness) functions, and must distinguish static vs. dynamic content. High safety criticality demands explicit hazard representation.",
+    "verification_idea": "Acceptance test: (1) Worksite model generated within 5 minutes of mission start; (2) Terrain elevation accuracy ±0.5 m over 95% of mapped area; (3) Static obstacles detected and represented with ≥90% recall; (4) Dynamic hazards updated at ≥2 Hz; (5) Model accessible to planning and teleoperation functions via standardized interface.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire terrain and obstacle data from onboard sensors (LiDAR, camera, IMU).",
+      "CR-NGHE-006.2: Fuse multi-sensor data into a unified 3D spatial representation.",
+      "CR-NGHE-006.3: Classify and label terrain, static obstacles, and dynamic hazards.",
+      "CR-NGHE-006.4: Maintain and update worksite model in real-time during mission execution.",
+      "CR-NGHE-006.5: Expose worksite model to planning, teleoperation, and safety services via standardized query/subscription interface."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized mapping service (SLAM-based) running on vehicle compute, publishing model updates via Telemetry interface to planning and teleoperation clients.",
+      "DP-B: Distributed sensor fusion: onboard vehicle processes LiDAR/camera locally; transmits raw sensor streams to remote mapping server; server maintains authoritative model and broadcasts updates.",
+      "DP-C: Hybrid edge-cloud: vehicle runs lightweight occupancy grid; cloud service performs full SLAM and semantic labeling; vehicle subscribes to refined model updates.",
+      "DP-D: Decentralized peer model: each vehicle maintains its own local map; models synchronized via peer-to-peer network; no central authority."
+    ],
+    "selected_dp": "DP-A: Centralized mapping service (SLAM-based) running on vehicle compute, publishing model updates via Telemetry interface to planning and teleoperation clients.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling to vehicle compute capacity (must reserve CPU/GPU for SLAM).",
+        "Coupling to Telemetry interface bandwidth (model updates must fit within available telemetry rate).",
+        "Coupling to sensor suite (SLAM quality depends on LiDAR/camera calibration and placement)."
+      ],
+      "notes": "DP-A is decoupled from remote planning and teleoperation logic; model is published asynchronously. Coupling is primarily to vehicle hardware and network interface, which are acceptable dependencies. DP-B and DP-C introduce latency and cloud dependency; DP-D lacks authority for safety-critical hazard consensus. DP-A balances autonomy, latency, and safety."
+    },
+    "assumptions_risks": [
+      "Assumption: Vehicle compute has sufficient CPU/GPU for real-time SLAM (e.g., NVIDIA Jetson or equivalent).",
+      "Assumption: LiDAR and camera are calibrated and mounted with known extrinsics.",
+      "Risk: SLAM may fail in featureless terrain or heavy dust/rain; fallback to dead-reckoning + manual operator input required.",
+      "Risk: Telemetry bandwidth may be insufficient for high-resolution model updates; compression or selective transmission needed.",
+      "Risk: Model initialization (first-time mapping) may take 30–60 seconds; mission planning must account for this latency."
+    ],
+    "recommended_revision": "Specify SLAM algorithm (e.g., ORB-SLAM2, LiDAR-based ICP) and compute platform in DP detail. Define model update rate (e.g., 10 Hz) and compression strategy (e.g., octree, voxel grid). Clarify fallback behavior if SLAM tracking is lost."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "The Vehicle module owns the onboard SLAM-based mapping service, including sensor acquisition (LiDAR, camera), data fusion, spatial model maintenance, and publication of model updates. The Vehicle module is responsible for real-time model generation and consistency."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle publishes worksite model updates (terrain grid, obstacle list, hazard positions) to Telemetry interface at ≥2 Hz. Consumers: planning functions, teleoperation UI, safety services."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives mission tasking (e.g., 'map area X') from planning/operator; tasking may include region-of-interest or sensor configuration hints."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Vehicle publishes detected hazards (personnel, obstacles in work zone) via SafetyAlert interface to Safety Services for real-time risk assessment."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.95,
+        "diffusion_score": 0.05,
+        "notes": "Vehicle is the natural owner: it has direct access to sensors, compute, and real-time constraints. SLAM is a core vehicle autonomy function. Minimal diffusion: only model publication crosses module boundary."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Teleoperation is a consumer of the model, not a producer. Placing SLAM in Teleoperation would require remote compute and introduce latency; poor fit for real-time safety-critical mapping."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.25,
+        "diffusion_score": 0.75,
+        "notes": "Safety Services consumes hazard data but does not generate the worksite model. Placing SLAM in Safety Services would decouple it from vehicle sensors and real-time execution; violates separation of concerns."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.1,
+        "diffusion_score": 0.9,
+        "notes": "NGHE Solution is the system-level container; mapping is a vehicle-level function. Assigning to NGHE Solution would be too abstract and would not clarify ownership or interface responsibilities."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module is the optimal owner because it has direct access to sensors, onboard compute, and real-time execution context. SLAM is a core autonomy function that must run with low latency and high availability. Publishing model updates via Telemetry interface decouples consumers (planning, teleoperation, safety) from the implementation details of SLAM.",
+    "containment_risks": [
+      "Risk: Vehicle compute may be resource-constrained; SLAM may compete with other autonomy tasks (path planning, obstacle avoidance). Mitigation: define compute budget and prioritization policy.",
+      "Risk: Model updates published via Telemetry may exceed network bandwidth in high-fidelity scenarios. Mitigation: implement adaptive compression and selective transmission (e.g., only changed regions).",
+      "Risk: SLAM failure (e.g., in featureless terrain) may leave Vehicle without a valid model. Mitigation: implement fallback to dead-reckoning and operator-assisted mapping."
+    ],
+    "recommended_revision": "Clarify Vehicle module's compute budget allocation for SLAM. Define Telemetry message format and compression scheme. Specify SLAM algorithm and sensor requirements. Document fallback behavior and operator override mechanisms."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-A (centralized SLAM on vehicle) directly addresses the refined FR: it generates a real-time worksite model from onboard sensors and publishes it to planning/execution functions. The DP is specific, implementable, and traceable to the FR. No logical gaps or contradictions."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Model publication via Telemetry crosses module boundary; bandwidth and latency must be managed.",
+        "SLAM algorithm and compute platform must be specified to avoid ambiguity in Vehicle module scope."
+      ],
+      "containment_notes": "Vehicle module is the clear owner of SLAM and sensor fusion. External interfaces (Telemetry, Tasking, SafetyAlert) are well-defined and minimal. No diffusion of core mapping logic across modules."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible: model fidelity can be measured against ground truth (survey data, manual inspection); update rate and latency can be instrumented; interface compliance can be tested via integration tests.",
+      "allocation_clarity": "Allocation is clear: Vehicle owns SLAM and model generation; Telemetry interface carries model updates; Safety Services and Teleoperation consume the model. Ownership and interface responsibilities are unambiguous."
+    },
+    "recommended_revisions": [
+      "Specify SLAM algorithm (e.g., ORB-SLAM2, LiDAR-based ICP) and compute platform (e.g., NVIDIA Jetson AGX) in DP detail.",
+      "Define Telemetry message schema for worksite model (e.g., octree, voxel grid, point cloud format).",
+      "Specify model update rate (e.g., 10 Hz) and compression strategy (e.g., delta encoding, selective transmission).",
+      "Document fallback behavior if SLAM tracking is lost (e.g., dead-reckoning, operator-assisted mapping).",
+      "Define SafetyAlert message format for hazard publication (e.g., hazard type, position, confidence)."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The refined FR is decomposable into five sub-FRs (sensor acquisition, data fusion, classification, model maintenance, interface exposure). Each sub-FR is a distinct functional concern that requires further design detail. DP-A is sound and well-allocated to Vehicle, but the sub-FRs must be decomposed to the next level to specify sensor types, fusion algorithms, classification methods, and interface protocols. High safety criticality demands detailed specification of hazard detection and representation.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire terrain and obstacle data from onboard sensors (LiDAR, camera, IMU).",
+      "CR-NGHE-006.2: Fuse multi-sensor data into a unified 3D spatial representation.",
+      "CR-NGHE-006.3: Classify and label terrain, static obstacles, and dynamic hazards.",
+      "CR-NGHE-006.4: Maintain and update worksite model in real-time during mission execution.",
+      "CR-NGHE-006.5: Expose worksite model to planning, teleoperation, and safety services via standardized query/subscription interface."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Vehicle compute has sufficient CPU/GPU for real-time SLAM (e.g., NVIDIA Jetson or equivalent).",
+        "LiDAR and camera are calibrated and mounted with known extrinsics.",
+        "Telemetry interface has sufficient bandwidth for model updates (≥2 Hz, compressed).",
+        "SLAM algorithm can initialize and track in typical worksite environments (terrain, vegetation, structures).",
+        "Planning and teleoperation functions can consume model updates asynchronously via Telemetry interface."
+      ],
+      "open_risks": [
+        "SLAM may fail in featureless terrain or heavy dust/rain; fallback strategy required.",
+        "Telemetry bandwidth may be insufficient for high-resolution model updates; compression or selective transmission needed.",
+        "Model initialization (first-time mapping) may take 30–60 seconds; mission planning must account for this latency.",
+        "Compute resource contention between SLAM and other vehicle autonomy tasks; prioritization policy needed.",
+        "Safety-critical hazard detection (e.g., personnel) may require real-time validation; confidence thresholds and operator override mechanisms needed."
+      ],
+      "evidence_needed": [
+        "SLAM algorithm selection and performance benchmarks (accuracy, latency, compute cost).",
+        "Sensor specifications (LiDAR range/resolution, camera FOV/resolution, IMU accuracy).",
+        "Telemetry interface bandwidth and latency measurements.",
+        "Worksite environment characterization (terrain types, obstacle density, visibility conditions).",
+        "Hazard detection and classification performance (precision, recall, false positive rate).",
+        "Integration test results: model generation, update rate, interface compliance.",
+        "Safety analysis: FMEA for SLAM failure modes, hazard detection gaps, operator override procedures."
+      ]
+    }
+  }
+}

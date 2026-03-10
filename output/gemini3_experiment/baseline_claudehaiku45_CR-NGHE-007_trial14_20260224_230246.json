@@ -1,0 +1,167 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current equipment state, environmental conditions, and operational events with a p95 latency not exceeding the customer-defined target (baseline 1.0 s) across all supported update scenarios.",
+    "rationale": "CR-NGHE-007 requires clarification of scope (what constitutes 'worksite model'), measurement basis (p95 latency metric), and boundary conditions (supported scenarios). High safety criticality demands explicit traceability to safety-critical update types (e.g., collision alerts, position corrections). Refined FR anchors to measurable acceptance criteria and operational context.",
+    "verification_idea": "Instrument worksite model update pipeline with end-to-end latency telemetry; measure p95 latency across representative scenarios (equipment position updates, sensor fusion events, safety alerts, tele-operator commands); validate against customer-defined target in production-representative network conditions.",
+    "sub_frs": [
+      "FR-007.1: Acquire real-time equipment state and environmental sensor data with sufficient fidelity and frequency to support worksite model coherence.",
+      "FR-007.2: Transmit acquired state and event data to worksite model service with bounded network latency.",
+      "FR-007.3: Process and integrate received state/event data into worksite model representation with bounded computation latency.",
+      "FR-007.4: Distribute updated worksite model to authorized consumers (Site Manager, Tele-operator, Safety Services) with bounded delivery latency.",
+      "FR-007.5: Prioritize safety-critical updates (collision risk, equipment failure, operator alerts) to meet stricter latency bounds than non-critical updates."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized worksite model service with synchronous request-response updates from all equipment; single source of truth; strong consistency.",
+      "DP-B: Distributed event-driven architecture with equipment publishing state changes to message broker; worksite model service subscribes and updates asynchronously; eventual consistency with priority queuing for safety events.",
+      "DP-C: Hybrid approach: safety-critical updates via synchronous low-latency path (dedicated network, priority scheduling); non-critical updates via asynchronous event stream with relaxed latency bounds.",
+      "DP-D: Edge-local worksite model replicas on each vehicle with periodic sync to central model; reduces central bottleneck; trades consistency for latency."
+    ],
+    "selected_dp": "DP-C: Hybrid synchronous/asynchronous architecture with safety-critical fast path and non-critical eventual-consistency path. Safety-critical updates (collision alerts, emergency stops, position corrections) routed through dedicated low-latency synchronous channel with priority scheduling and bounded jitter. Non-critical updates (routine telemetry, status logs) flow through asynchronous event broker with relaxed latency SLA. Worksite model service maintains dual ingestion pipelines with conflict resolution favoring safety-critical data.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between safety-critical and non-critical paths: priority scheduling must not starve safety path; requires strict queue isolation and admission control.",
+        "Coupling between Vehicle telemetry acquisition and Teleoperation command injection: both feed worksite model; must coordinate to avoid race conditions in model state.",
+        "Coupling between Safety Services alert generation and worksite model update: safety alerts depend on model freshness; circular dependency requires careful sequencing."
+      ],
+      "notes": "DP-C decouples safety-critical latency from non-critical load via separate paths, reducing coupling compared to DP-A (monolithic) or DP-B (single queue). Residual coupling is manageable via explicit priority scheduling and interface contracts. Recommended: define strict SLA separation (e.g., safety path p95 ≤ 100 ms, non-critical p95 ≤ 1.0 s) and implement admission control to prevent non-critical load from affecting safety path."
+    },
+    "assumptions_risks": [
+      "Assumption: Network infrastructure supports dual-path routing (dedicated safety channel + shared non-critical channel) with sufficient bandwidth and QoS guarantees.",
+      "Assumption: Equipment can classify updates as safety-critical vs. non-critical at source; requires clear taxonomy and operator training.",
+      "Risk: Misclassification of updates (marking non-critical as critical or vice versa) could degrade system performance or safety; mitigation: automated classification rules + audit logging.",
+      "Risk: Synchronous safety path may introduce latency if central model service is overloaded; mitigation: horizontal scaling, load shedding, or failover to edge model.",
+      "Risk: Eventual consistency in non-critical path may cause stale data in worksite model; mitigation: bounded staleness SLA (e.g., max 5 s) and explicit freshness indicators."
+    ],
+    "recommended_revision": "Refine DP-C to specify: (1) explicit SLA targets for safety vs. non-critical paths; (2) update classification taxonomy and enforcement mechanism; (3) conflict resolution strategy when safety and non-critical updates collide; (4) fallback behavior if safety path latency exceeds threshold (e.g., alert operator, reduce autonomy)."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Safety Services",
+      "scope": "Safety Services module owns the worksite model update latency requirement as the primary consumer and validator of model freshness. Safety Services ingests real-time state from Vehicle (via Telemetry interface) and Teleoperation (via Tasking interface), maintains a safety-aware worksite model representation, and enforces latency-dependent safety policies. Safety Services is responsible for: (1) receiving and prioritizing safety-critical updates via SafetyAlert interface; (2) validating model freshness against safety thresholds; (3) triggering alerts or autonomy reductions if latency SLA is violated; (4) coordinating with Vehicle and Teleoperation to manage update flow."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Equipment state, sensor data, position, orientation, operational status from Vehicle. Safety Services consumes Telemetry to populate worksite model. Latency-critical: p95 ≤ 100 ms for safety-relevant telemetry (position, collision sensors, emergency status)."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Operator commands and tele-operation directives from Teleoperation. Safety Services consumes Tasking to update model with intended actions and validate against current state. Latency-critical: p95 ≤ 200 ms for safety-relevant commands (emergency stop, mode changes)."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Safety-critical alerts and model-freshness warnings generated by Safety Services. Distributed to Site Manager, Tele-operator, and Maintenance. Latency-critical: p95 ≤ 100 ms from trigger to alert emission."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Underlying network transport for Telemetry, Tasking, and SafetyAlert. Safety Services depends on Network Link QoS (bandwidth, jitter, packet loss) to meet latency targets. Requires dedicated or prioritized channel for safety-critical traffic."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.4,
+        "diffusion_score": 0.8,
+        "notes": "NGHE Solution is the system-level container but does not own the worksite model update logic; responsibility is diffused across Vehicle, Teleoperation, and Safety Services. Assigning to NGHE Solution would obscure ownership and accountability. Not recommended."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.3,
+        "diffusion_score": 0.9,
+        "notes": "Vehicle owns equipment state acquisition and telemetry emission but not the worksite model service, update prioritization, or safety validation. Assigning latency requirement to Vehicle alone would miss the end-to-end latency chain (acquisition → transmission → processing → distribution). Not recommended."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.35,
+        "diffusion_score": 0.85,
+        "notes": "Teleoperation owns operator commands and tele-operation state but not the central worksite model or safety-critical update processing. Assigning to Teleoperation would fragment the latency requirement across multiple modules. Not recommended."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.85,
+        "diffusion_score": 0.2,
+        "notes": "Safety Services is the natural owner of worksite model freshness and latency validation. It consumes Telemetry and Tasking, maintains the safety-aware model, enforces latency SLAs, and generates SafetyAlert outputs. Ownership is clear and localized. Recommended."
+      }
+    ],
+    "ownership_candidate": "Safety Services",
+    "containment_hypothesis": "Safety Services module contains the worksite model update latency requirement because: (1) it is the primary consumer of model freshness; (2) it owns the safety-critical update path and prioritization logic; (3) it validates model coherence against safety thresholds; (4) it generates alerts when latency SLAs are violated; (5) it coordinates with Vehicle and Teleoperation to manage update flow. External interfaces (Telemetry, Tasking, SafetyAlert, Network Link) are well-defined and traceable.",
+    "containment_risks": [
+      "Risk: Safety Services may not have direct control over Vehicle telemetry acquisition latency or Network Link QoS; latency may be constrained by upstream modules. Mitigation: define clear SLA contracts for Telemetry and Network Link; Safety Services monitors and alerts if upstream SLAs are violated.",
+      "Risk: Worksite model update latency is end-to-end (acquisition → transmission → processing → distribution); Safety Services owns only the processing and distribution portions. Mitigation: decompose FR-007 into sub-FRs for each stage; assign ownership accordingly (Vehicle for acquisition, Network Link for transmission, Safety Services for processing/distribution).",
+      "Risk: Safety Services may become a bottleneck if it processes all updates synchronously; latency may exceed target under high load. Mitigation: implement asynchronous event-driven architecture with priority queuing; scale Safety Services horizontally if needed."
+    ],
+    "recommended_revision": "Refine IM assignment to clarify: (1) Safety Services owns the worksite model update latency requirement for safety-critical updates and the overall p95 SLA; (2) Vehicle owns telemetry acquisition latency (sub-FR-007.1); (3) Network Link owns transmission latency (sub-FR-007.2); (4) Safety Services owns processing and distribution latency (sub-FR-007.3 and 007.4); (5) Safety Services owns prioritization logic (sub-FR-007.5). Create explicit interface contracts (SLAs) between modules to ensure end-to-end latency is achievable."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "Refined FR-007 clearly specifies the worksite model update latency requirement with measurable acceptance criteria (p95 ≤ customer-defined target, baseline 1.0 s) and operational context (supported scenarios, safety criticality). Selected DP-C (hybrid synchronous/asynchronous architecture) directly addresses the FR by: (1) providing a low-latency synchronous path for safety-critical updates; (2) allowing relaxed latency for non-critical updates; (3) enabling prioritization and conflict resolution. DP-C is feasible, testable, and aligns with high safety criticality. No decoupling violations detected."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "DP-C requires coordination between Vehicle (telemetry source), Teleoperation (command source), Safety Services (model processor), and Network Link (transport). Diffusion risk is moderate but manageable via explicit interface contracts and SLA definitions.",
+        "Safety Services must implement dual-path ingestion (synchronous safety path + asynchronous non-critical path) with priority scheduling and conflict resolution. Implementation complexity is moderate; requires careful design to avoid race conditions."
+      ],
+      "containment_notes": "Safety Services is the appropriate IM boundary for owning the worksite model update latency requirement. It contains the core logic for update prioritization, model processing, and latency validation. External dependencies (Telemetry, Tasking, Network Link) are well-defined and traceable. Ownership is clear and accountability is localized."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Worksite model update latency is directly measurable via end-to-end instrumentation of the update pipeline. Verification approach: (1) deploy latency telemetry in Safety Services; (2) measure p95 latency across representative scenarios; (3) validate against customer-defined target in production-representative network conditions. Feasibility is high.",
+      "allocation_clarity": "FR-007 is allocated to Safety Services with clear ownership and measurable acceptance criteria. Sub-FRs (007.1–007.5) are allocated to Vehicle, Network Link, and Safety Services with explicit SLA targets. Allocation is clear and traceable."
+    },
+    "recommended_revisions": [
+      "Refine sub-FR-007.5 (prioritization) to specify the classification taxonomy for safety-critical vs. non-critical updates and the enforcement mechanism (e.g., automated rules, operator override).",
+      "Define explicit SLA targets for each sub-FR and interface (e.g., Telemetry p95 ≤ 100 ms, Tasking p95 ≤ 200 ms, SafetyAlert p95 ≤ 100 ms).",
+      "Specify fallback behavior if Safety Services latency exceeds threshold (e.g., alert operator, reduce autonomy, failover to edge model).",
+      "Define conflict resolution strategy when safety-critical and non-critical updates collide in the worksite model (e.g., safety-critical data takes precedence)."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-007 is not atomic and requires decomposition into sub-FRs to allocate ownership and latency targets across Vehicle, Network Link, and Safety Services. DP-C is sound and well-justified but depends on clear sub-FR definitions and SLA contracts. Safety Services is the appropriate IM boundary for the overall latency requirement, but sub-FRs must be refined and allocated to other modules (Vehicle for acquisition, Network Link for transmission) to ensure end-to-end latency is achievable. Proceeding to next decomposition level is necessary to clarify ownership, define SLAs, and validate feasibility.",
+    "next_level_sub_frs": [
+      "FR-007.1: Acquire real-time equipment state and environmental sensor data with p95 latency ≤ 100 ms (owned by Vehicle).",
+      "FR-007.2: Transmit acquired state and event data to worksite model service with p95 latency ≤ 200 ms (owned by Network Link).",
+      "FR-007.3: Process and integrate received state/event data into worksite model with p95 latency ≤ 300 ms (owned by Safety Services).",
+      "FR-007.4: Distribute updated worksite model to authorized consumers with p95 latency ≤ 200 ms (owned by Safety Services).",
+      "FR-007.5: Prioritize safety-critical updates to meet stricter latency bounds (p95 ≤ 100 ms) than non-critical updates (p95 ≤ 1.0 s) (owned by Safety Services)."
+    ],
+    "revise": {
+      "target": "FR",
+      "why": "FR-007 requires explicit decomposition into sub-FRs with clear ownership and SLA targets. Current FR is too coarse-grained to allocate to a single module and does not specify the latency budget across the acquisition → transmission → processing → distribution chain. Refined sub-FRs will enable precise allocation and feasibility validation."
+    },
+    "record": {
+      "assumptions": [
+        "Network infrastructure supports dual-path routing (dedicated safety channel + shared non-critical channel) with sufficient bandwidth and QoS guarantees.",
+        "Equipment can classify updates as safety-critical vs. non-critical at source; requires clear taxonomy and operator training.",
+        "Customer-defined latency target is achievable with proposed DP-C architecture; baseline assumption is p95 ≤ 1.0 s for non-critical updates and p95 ≤ 100 ms for safety-critical updates.",
+        "Safety Services can scale horizontally to handle peak update load without exceeding latency SLA.",
+        "Worksite model representation is sufficiently efficient to support sub-300 ms processing latency for typical update payloads."
+      ],
+      "open_risks": [
+        "Misclassification of updates (marking non-critical as critical or vice versa) could degrade system performance or safety; requires automated classification rules and audit logging.",
+        "Synchronous safety path may introduce latency if central model service is overloaded; requires horizontal scaling or failover to edge model.",
+        "Eventual consistency in non-critical path may cause stale data in worksite model; requires bounded staleness SLA and explicit freshness indicators.",
+        "End-to-end latency may exceed target if any stage (acquisition, transmission, processing, distribution) exceeds its SLA; requires careful monitoring and alerting.",
+        "High safety criticality demands rigorous validation and testing; latency requirement must be verified in production-representative conditions with realistic load and network conditions."
+      ],
+      "evidence_needed": [
+        "Latency telemetry data from Vehicle (acquisition), Network Link (transmission), and Safety Services (processing/distribution) to validate sub-FR SLAs.",
+        "Classification taxonomy and enforcement mechanism for safety-critical vs. non-critical updates.",
+        "Conflict resolution strategy and test cases for scenarios where safety-critical and non-critical updates collide.",
+        "Fallback behavior specification and validation for cases where latency SLA is violated.",
+        "Production-representative load and network condition testing to validate p95 latency targets.",
+        "Safety analysis (FMEA, FTA) to identify failure modes and mitigation strategies for latency-related safety risks."
+      ]
+    }
+  }
+}

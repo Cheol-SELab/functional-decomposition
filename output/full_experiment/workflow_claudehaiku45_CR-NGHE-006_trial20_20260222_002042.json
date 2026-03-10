@@ -1,0 +1,160 @@
+{
+  "refined_fr": {
+    "refined_fr": "Capture and represent worksite spatial features in a machine-readable model.",
+    "rationale": "The candidate FR bundles three distinct obligations: (1) terrain analysis, (2) obstacle identification, and (3) work-zone representation. Each is a separate functional concern with different data sources, processing logic, and stakeholder consumption patterns. The refined FR is solution-neutral (avoids 'mapping/modeling' terminology which implies implementation approach) and focuses on the core problem: making worksite geometry and features available in a structured, queryable form. Splitting into atomic sub-FRs allows independent DP selection and IM packaging.",
+    "verification_idea": "Confirm that a worksite model exists in a defined schema (e.g., point cloud, mesh, or feature database) and can be queried by downstream planning and execution functions to retrieve spatial attributes (position, geometry, classification) for an agreed set of site features.",
+    "sub_frs": [
+      "FR-NGHE-006.1: Acquire terrain elevation and surface geometry data from the worksite.",
+      "FR-NGHE-006.2: Identify and classify static obstacles (structures, vegetation, utilities) within the worksite boundary.",
+      "FR-NGHE-006.3: Define and represent work-zone boundaries and restricted areas in the spatial model.",
+      "FR-NGHE-006.4: Persist and provide access to the worksite spatial model for planning and execution functions."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Acquire spatial feature data through multi-modal sensing (vision, range, inertial) and fuse into a unified coordinate frame; store as a structured spatial graph with feature attributes (geometry, classification, safety constraints); expose via query interface for downstream planning/execution consumers.",
+      "DP2: Decompose worksite into discrete zones; assign zone-level feature inventories (obstacles, hazards, access points) via manual annotation or semi-automated detection; maintain zone-feature mappings in a relational schema; provide zone-based query API.",
+      "DP3: Capture worksite features as a voxel grid with occupancy and semantic labels; support spatial queries (collision detection, path feasibility) directly on grid; export grid state to planning/execution modules on demand.",
+      "DP4: Establish a feature observation pipeline: raw sensor streams → feature extraction (edge or centralized) → feature validation against safety/operational policies → persistent feature store; expose validated features via event stream and query interface.",
+      "DP5: Represent worksite as a hybrid model: dense geometric mesh for visual/collision reasoning + sparse semantic graph for task-relevant features (tool stations, hazard zones, access routes); maintain bidirectional consistency; provide dual-mode query (geometric and semantic)."
+    ],
+    "selected_dp": "DP4: Establish a feature observation pipeline: raw sensor streams → feature extraction (edge or centralized) → feature validation against safety/operational policies → persistent feature store; expose validated features via event stream and query interface.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Tight coupling between feature extraction logic and sensor modality: mitigated by abstracting sensor input as normalized streams (decoupling sensor choice from extraction algorithm).",
+        "Dependency on safety/operational policy definitions: acceptable coupling because policies are external inputs (not owned by this FR); changes to policies trigger re-validation, not re-architecture.",
+        "Persistent feature store schema: risk of coupling downstream consumers to store structure; mitigated by exposing features via stable query/event interfaces, not direct schema access.",
+        "Edge vs. centralized extraction decision: deferred to IM layer; DP remains agnostic to deployment topology."
+      ],
+      "notes": "DP4 achieves functional independence by separating concerns: sensing (input), extraction (logic), validation (policy enforcement), and storage (state). Downstream planning/execution modules depend only on the feature interface contract, not internal pipeline structure. Policy validation is a natural boundary that aligns with the constraint 'Worksite safety plan and operational policies.'"
+    },
+    "assumptions_risks": [
+      "Assumption: Feature extraction algorithms can reliably classify and localize worksite features (obstacles, hazards, access points) from available sensor modalities. Risk: Extraction errors propagate to planning/execution; mitigation: validation gate and human-in-the-loop review for safety-critical features.",
+      "Assumption: Safety/operational policies are well-defined and can be encoded as validation rules. Risk: Ambiguous or evolving policies delay feature acceptance; mitigation: establish policy versioning and explicit acceptance criteria per feature class.",
+      "Assumption: Persistent feature store can be queried with acceptable latency by planning/execution modules. Risk: Store becomes bottleneck under high query load; mitigation: cache validated features locally in planning/execution modules; use event stream for incremental updates.",
+      "Assumption: Raw sensor streams are available and synchronized. Risk: Sensor failures or clock skew degrade feature quality; mitigation: implement stream health monitoring and graceful degradation (use cached features if stream is stale).",
+      "Assumption: Feature representation (geometry, attributes, classification) is sufficient for all downstream planning/execution use cases. Risk: Unforeseen feature requirements emerge; mitigation: design feature schema with extensibility (e.g., key-value attributes) and version the interface."
+    ],
+    "recommended_revision": "Refine DP4 to explicitly separate the validation gate into two sub-concerns: (1) geometric/semantic validation (does the feature meet extraction quality thresholds?), and (2) policy validation (does the feature comply with safety/operational constraints?). This clarifies the role of policies as external constraints and enables independent evolution of extraction quality standards vs. policy rules. Additionally, specify that the feature interface (query + event stream) is the primary contract for downstream consumers, decoupling them from store implementation. Consider adding a feature lifecycle state machine (detected → validated → accepted → archived) to support incremental confidence and rollback if policies change."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Safety Services",
+      "scope": "Centralized feature observation pipeline: ingests raw telemetry streams, performs feature extraction and validation against safety/operational policies, maintains persistent feature store, and exposes validated features via event stream and query interface."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Raw sensor streams from Vehicle and Teleoperation subsystems; ingested by Safety Services for feature extraction."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Validated feature events and safety-relevant observations published by Safety Services to downstream consumers (Vehicle, Teleoperation, NGHE Solution)."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Query interface for validated features; Safety Services exposes feature store queries to authorized clients; may receive policy updates or configuration over network."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Safety Services",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit: Safety Services is the natural home for feature validation against safety/operational policies, persistent storage of safety-critical features, and publication of safety alerts. Feature extraction logic (edge vs. centralized) can be owned here with clear input/output contracts. Minimal diffusion: only telemetry ingestion (in) and alert/query exposure (out) cross boundaries."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor fit: Vehicle is a consumer of features, not an appropriate owner of the centralized pipeline. Feature validation logic and persistent store would be misplaced in a vehicle-specific module. High diffusion: feature extraction, validation, and storage logic would need to diffuse to Safety Services anyway; Vehicle should only consume validated features."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Poor fit: Teleoperation is a control/interface subsystem, not a data pipeline owner. Feature observation and validation are orthogonal to teleoperation concerns. High diffusion: core pipeline logic would leak into Safety Services; Teleoperation should only receive validated features for operator awareness."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.25,
+        "diffusion_score": 0.75,
+        "notes": "Poor fit: NGHE Solution is a top-level system container, not an implementation module. Placing the feature pipeline here would blur ownership and make it unclear which subsystem is responsible for safety-critical feature validation. High diffusion: logic would still need to be realized in Safety Services; NGHE Solution should orchestrate, not contain, the pipeline."
+      }
+    ],
+    "ownership_candidate": "Safety Services",
+    "containment_hypothesis": "Safety Services is the appropriate owner of the feature observation pipeline because: (1) feature validation against safety/operational policies is inherently a safety concern; (2) persistent storage of validated features supports safety auditing and incident analysis; (3) publication of validated features via SafetyAlert and query interfaces aligns with Safety Services' role as the authoritative source of safety-critical information; (4) edge vs. centralized extraction is a design choice that Safety Services can manage transparently via its input contract (Telemetry).",
+    "containment_risks": [
+      "If edge feature extraction is required, Safety Services must define a clear contract for pre-extracted features from Vehicle or Teleoperation; this could introduce coupling if edge extraction logic is not cleanly separated.",
+      "Persistent feature store may grow large; if query performance becomes critical, Safety Services may need to delegate storage to a dedicated data layer (not in the provided module list); this would require a DP revision.",
+      "Policy updates (safety/operational rules) must be versioned and traceable; if policy management is owned elsewhere, Safety Services becomes dependent on external policy distribution; recommend explicit policy ingestion interface.",
+      "If multiple subsystems attempt to query the feature store concurrently, Safety Services must implement robust query isolation and caching; high query load could become a bottleneck."
+    ],
+    "recommended_revision": "DP4 is well-aligned with Safety Services as stated. No revision needed. However, to reduce containment risk, recommend clarifying the DP to explicitly separate concerns: (1) Feature extraction logic (edge vs. centralized) should be specified as a separate DP owned by Vehicle or Teleoperation, with output contracted to Safety Services via Telemetry; (2) Safety Services DP should focus on validation, storage, and exposure of pre-extracted features. This would improve modularity and reduce coupling between extraction and validation concerns."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP4 correctly maps to FR by establishing a complete pipeline (raw sensor streams → feature extraction → validation → persistent store → event/query exposure) that directly addresses the requirement to capture and represent worksite spatial features in a machine-readable model. The pipeline design is logically sound and covers all necessary transformation stages from raw telemetry to validated, queryable features."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Edge vs. centralized feature extraction logic is not explicitly owned; if extraction is distributed across Vehicle and Teleoperation, Safety Services must enforce strict input contracts to prevent validation logic from diffusing into edge modules.",
+        "Persistent feature store may become a performance bottleneck under concurrent query load; if query performance degrades, storage logic may need to diffuse to a dedicated data layer not currently in the module hierarchy.",
+        "Policy ingestion and versioning are implicit in 'validation against safety/operational policies'; if policy management is owned elsewhere, Safety Services becomes dependent on external policy distribution, risking tight coupling and version skew.",
+        "Feature extraction logic ownership is ambiguous: if extraction is centralized in Safety Services, it conflates two concerns (extraction and validation); if distributed to Vehicle/Teleoperation, Safety Services must validate pre-extracted features with clear contracts."
+      ],
+      "containment_notes": "Safety Services is the correct owner with a containment score of 0.92 and diffusion score of 0.08. The module naturally owns validation against safety/operational policies, persistent storage of safety-critical features, and publication of validated features via SafetyAlert and query interfaces. External interfaces (Telemetry in, SafetyAlert out, Network Link query) are well-defined and minimal. The primary risk is not containment but clarity of responsibility boundaries between feature extraction (which may be edge or centralized) and feature validation (which Safety Services owns)."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. Acceptance criteria require that 'a worksite model/map is generated and available to planning/execution functions for an agreed set of site features.' Safety Services' persistent feature store and query interface directly satisfy this requirement. Verification can be performed by: (1) confirming that validated features are persisted and queryable; (2) validating that features conform to the agreed set of site features; (3) testing that planning/execution functions can retrieve features via the query interface. Worksite safety plan and operational policies can be traced as inputs to the validation stage.",
+      "allocation_clarity": "Clear. Safety Services is unambiguously allocated ownership of the feature observation pipeline. However, allocation clarity would be improved by explicitly separating feature extraction (DP) from feature validation (DP) and assigning extraction ownership to Vehicle or Teleoperation with a clear input contract to Safety Services. This would eliminate ambiguity about where extraction logic resides and reduce coupling between extraction and validation concerns."
+    },
+    "recommended_revisions": [
+      "Decompose DP4 into two sub-DPs: (1) DP4a: Feature extraction (edge or centralized) owned by Vehicle or Teleoperation, with output contracted as pre-extracted feature objects; (2) DP4b: Feature validation, storage, and exposure owned by Safety Services, with input contract for pre-extracted features. This improves modularity and clarifies ownership boundaries.",
+      "Explicitly define the feature extraction input contract: specify the schema, frequency, and quality expectations for pre-extracted features ingested by Safety Services via the Telemetry interface. This reduces coupling and enables independent evolution of extraction and validation logic.",
+      "Add a Policy Ingestion interface to Safety Services: define how safety/operational policies are versioned, distributed, and applied during feature validation. Recommend explicit policy versioning and traceability to support safety auditing and incident analysis.",
+      "Specify query interface performance requirements and caching strategy: if concurrent query load becomes a bottleneck, Safety Services may need to delegate storage to a dedicated data layer. Recommend defining query SLAs and caching policies upfront to avoid late-stage architectural changes.",
+      "Clarify the scope of 'agreed set of site features' in the acceptance criteria: define which features are mandatory, which are optional, and how feature coverage is validated against the worksite safety plan. This enables verification that the feature store contains all required features for planning/execution functions."
+    ]
+  },
+  "decision": {
+    "decision": "REVISE_CURRENT_LEVEL",
+    "justification": "Gate results pass all three checks (FR→DP, DP→IM, FR→IM), but the recommended_revisions and diffusion_risks expose a critical modularity and ownership clarity issue at the current level. The primary concern is not whether DP4 is logically sound—it is—but whether the current DP4 conflates two distinct concerns: feature extraction and feature validation. This conflation creates diffusion risk (extraction logic may leak into Safety Services or be ambiguously distributed across Vehicle/Teleoperation) and reduces allocation clarity. Given high safety criticality, this ambiguity must be resolved before decomposing further. Revising DP4 into two explicit sub-DPs (extraction and validation) will clarify ownership boundaries, reduce coupling, and enable safer downstream decomposition. This is a horizontal refinement at the current level, not a stop or downward decomposition.",
+    "next_level_sub_frs": [],
+    "revise": {
+      "target": "DP",
+      "why": "DP4 must be decomposed into two explicit sub-DPs to separate concerns and clarify ownership: (1) DP4a: Extract spatial features from raw telemetry streams (owned by Vehicle or Teleoperation with clear output contract); (2) DP4b: Validate extracted features against safety/operational policies, persist validated features, and expose via query/event interfaces (owned by Safety Services). This revision eliminates the ambiguity about where extraction logic resides, reduces coupling between extraction and validation, and enables Safety Services to focus on validation and storage without owning extraction logic. The revision also clarifies the input contract to Safety Services (pre-extracted feature objects with defined schema and quality expectations) and the policy ingestion interface (versioned policies applied during validation). After revision, the decomposed DPs will be re-gated before proceeding to next-level sub-FRs."
+    },
+    "record": {
+      "assumptions": [
+        "Feature extraction (raw telemetry → feature objects) is a distinct concern from feature validation (feature objects → validated, policy-compliant features).",
+        "Feature extraction can be owned by Vehicle or Teleoperation modules with a clear output contract to Safety Services.",
+        "Safety Services owns feature validation, persistent storage, and query/event exposure.",
+        "Policy ingestion and versioning are explicit inputs to the validation stage, not implicit in Safety Services logic.",
+        "The 'agreed set of site features' is defined in the worksite safety plan and is traceable to acceptance criteria."
+      ],
+      "open_risks": [
+        "If feature extraction is distributed across Vehicle and Teleoperation, Safety Services must enforce strict input contracts to prevent validation logic from diffusing into edge modules. Recommend explicit schema validation and quality gates at the Safety Services ingestion boundary.",
+        "Persistent feature store may become a performance bottleneck under concurrent query load. Recommend defining query SLAs and caching policies upfront; if performance degrades, storage logic may need to diffuse to a dedicated data layer not currently in the module hierarchy.",
+        "Policy versioning and distribution are not explicitly owned. If policy management is owned elsewhere (e.g., a Policy Service), Safety Services becomes dependent on external policy distribution, risking tight coupling and version skew. Recommend explicit policy ingestion interface with versioning and traceability.",
+        "Feature extraction ownership ambiguity: if extraction is centralized in Safety Services, it conflates two concerns; if distributed, Safety Services must validate pre-extracted features with clear contracts. Revision resolves this by assigning extraction to Vehicle/Teleoperation and validation to Safety Services.",
+        "Scope of 'agreed set of site features' is not explicitly defined. Recommend clarifying which features are mandatory, which are optional, and how feature coverage is validated against the worksite safety plan."
+      ],
+      "evidence_needed": [
+        "Explicit feature extraction output contract: schema, frequency, quality expectations, and error handling for pre-extracted features ingested by Safety Services.",
+        "Policy ingestion interface specification: how policies are versioned, distributed, and applied during feature validation; traceability to worksite safety plan.",
+        "Query interface performance requirements and caching strategy: SLAs for concurrent query load, caching policies, and fallback strategies if performance degrades.",
+        "Definition of 'agreed set of site features': mandatory vs. optional features, feature coverage validation against worksite safety plan, and acceptance criteria for feature store completeness.",
+        "Verification plan for feature extraction ownership: confirmation that extraction logic is owned by Vehicle or Teleoperation and not duplicated or diffused into Safety Services."
+      ]
+    }
+  }
+}

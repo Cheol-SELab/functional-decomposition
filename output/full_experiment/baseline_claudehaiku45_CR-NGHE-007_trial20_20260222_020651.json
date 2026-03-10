@@ -1,0 +1,162 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current equipment state, environmental conditions, and operational events with a p95 latency not exceeding the customer-defined target (baseline 1.0 s) across all supported update scenarios.",
+    "rationale": "CR-NGHE-007 requires clarification of scope (what constitutes 'worksite model'), measurement basis (p95 latency across which scenarios), and customer-specific acceptance criteria. The refined FR explicitly bounds the latency requirement to a statistical percentile and acknowledges customer tailoring, critical for high-safety-criticality systems where deterministic guarantees matter.",
+    "verification_idea": "Instrument worksite model update pipeline with end-to-end latency telemetry; measure p95 latency across representative scenarios (equipment state change, sensor event, tele-operator command, safety alert); compare against customer acceptance criteria; validate under nominal and degraded network conditions.",
+    "sub_frs": [
+      "FR-NGHE-007.1: Capture and transmit equipment state changes (position, orientation, operational mode) with minimal local processing latency.",
+      "FR-NGHE-007.2: Receive and integrate transmitted state updates into the worksite model with bounded processing and storage latency.",
+      "FR-NGHE-007.3: Distribute updated worksite model to authorized consumers (Site Manager, Tele-operator, Safety Services) within latency budget.",
+      "FR-NGHE-007.4: Prioritize safety-critical updates (SafetyAlert events) to meet stricter latency targets than routine state updates."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized worksite model server with synchronous update-on-change protocol; all state changes pushed to central repository; clients poll or subscribe for updates.",
+      "DP-B: Distributed eventual-consistency model with local caches at Vehicle and Teleoperation; asynchronous replication with conflict resolution; prioritized safety-critical update channel.",
+      "DP-C: Hybrid hub-and-spoke with Safety Services as authoritative safety state hub; Vehicle and Teleoperation maintain local operational state; Safety Services broadcasts safety-critical updates synchronously; operational updates asynchronous.",
+      "DP-D: Event-streaming architecture (Kafka-like) with topic-based partitioning (safety, operational, telemetry); subscribers consume at their own pace; latency SLA enforced per topic."
+    ],
+    "selected_dp": "DP-C: Hybrid hub-and-spoke with Safety Services as authoritative safety state hub; Vehicle and Teleoperation maintain local operational state; Safety Services broadcasts safety-critical updates synchronously; operational updates asynchronous.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Safety Services must couple tightly to Vehicle and Teleoperation for synchronous safety alert distribution (acceptable; safety criticality justifies tight coupling).",
+        "Vehicle and Teleoperation maintain loose coupling via asynchronous operational state replication (acceptable; operational latency tolerance allows eventual consistency).",
+        "Network Link is a shared dependency; latency SLA depends on network availability and bandwidth (risk mitigated by prioritization and fallback)."
+      ],
+      "notes": "DP-C decouples safety-critical and operational update paths, allowing independent optimization of each. Safety path uses synchronous broadcast (lower latency, higher reliability); operational path uses asynchronous replication (higher throughput, acceptable latency). This design respects the high safety criticality constraint."
+    },
+    "assumptions_risks": [
+      "Assumption: Safety Services can be deployed as a reliable, low-latency hub accessible to Vehicle and Teleoperation.",
+      "Assumption: Network Link provides sufficient bandwidth and reliability for synchronous safety broadcasts.",
+      "Risk: If Safety Services becomes unavailable, safety-critical updates may be delayed; mitigation required (e.g., local safety fallback logic in Vehicle).",
+      "Risk: Asynchronous operational updates may create temporary inconsistency between Vehicle and Teleoperation views; acceptable if conflict resolution is deterministic.",
+      "Risk: Latency p95 target may be unachievable if network latency alone exceeds customer budget; requires early network characterization."
+    ],
+    "recommended_revision": "Refine DP-C to explicitly specify: (1) synchronous safety broadcast timeout and fallback behavior, (2) asynchronous operational update batching strategy and maximum staleness tolerance, (3) conflict resolution rules for concurrent updates, (4) network latency budget allocation (e.g., 200 ms for safety, 800 ms for operational)."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Safety Services",
+      "scope": "Authoritative safety state hub; receives safety-critical events from Vehicle and Teleoperation; broadcasts safety alerts and state updates synchronously to all subscribers; maintains safety model consistency; enforces safety policies and operational constraints."
+    },
+    "external_interfaces": [
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "Receives safety-critical events (e.g., collision risk, operator override, emergency stop) from Vehicle and Teleoperation; broadcasts safety alerts and updated safety state to all authorized consumers."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Receives equipment state telemetry (position, orientation, operational mode) from Vehicle to inform safety model updates and alert generation."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Communicates with Vehicle and Teleoperation over network; latency and reliability of Network Link directly impact safety update latency."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "NGHE Solution is the top-level system; worksite model update is a system-level concern. However, assigning IM to NGHE Solution would diffuse responsibility across Vehicle, Teleoperation, and Safety Services without clear ownership. Not recommended as primary IM."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Vehicle generates state telemetry and receives safety alerts, but does not own the worksite model or coordinate updates across Teleoperation and Site Manager. Assigning IM to Vehicle would require Vehicle to manage cross-system latency, violating separation of concerns. Not recommended."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Teleoperation consumes worksite model updates and generates tele-operator commands, but does not own the model or coordinate updates with Vehicle and Safety Services. Similar diffusion risk as Vehicle. Not recommended."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.85,
+        "diffusion_score": 0.15,
+        "notes": "Safety Services is the natural hub for safety-critical updates and can coordinate operational state replication. High containment: owns safety state model, broadcasts safety alerts, enforces safety policies. Low diffusion: clear ownership boundary, minimal external dependencies beyond Network Link. Recommended as primary IM."
+      }
+    ],
+    "ownership_candidate": "Safety Services",
+    "containment_hypothesis": "Safety Services can own the worksite model update latency requirement by: (1) receiving safety-critical events and telemetry from Vehicle and Teleoperation, (2) updating the safety state model synchronously, (3) broadcasting safety alerts with p95 latency ≤ 200 ms, (4) coordinating asynchronous operational state replication with p95 latency ≤ 800 ms. Vehicle and Teleoperation own local state capture and consumption, respectively; Safety Services owns the coordination and latency SLA.",
+    "containment_risks": [
+      "Risk: Safety Services may become a bottleneck if it must process all worksite model updates; mitigation: partition updates by safety-criticality and operational domain.",
+      "Risk: Network Link latency may dominate end-to-end latency; Safety Services cannot control network; mitigation: characterize network latency early, allocate budget, consider edge caching.",
+      "Risk: If Safety Services is unavailable, worksite model updates may stall; mitigation: implement local fallback logic in Vehicle and Teleoperation, define graceful degradation.",
+      "Risk: Synchronous safety broadcast may create head-of-line blocking for operational updates; mitigation: use separate network channels or QoS prioritization."
+    ],
+    "recommended_revision": "Explicitly define Safety Services' responsibilities: (1) owns safety state model and safety update latency SLA, (2) coordinates with Vehicle (via Telemetry and SafetyAlert) and Teleoperation (via SafetyAlert and Tasking) for state synchronization, (3) delegates operational state replication to Vehicle and Teleoperation (asynchronous), (4) provides worksite model snapshots to Site Manager via Telemetry interface. Define fallback behavior if Safety Services is unavailable (e.g., Vehicle operates in safe mode, Teleoperation receives last-known state)."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid hub-and-spoke with Safety Services as authoritative hub) directly addresses FR-NGHE-007 by decoupling safety-critical and operational update paths, enabling independent latency optimization. Safety updates use synchronous broadcast (lower latency); operational updates use asynchronous replication (acceptable latency). Design respects high safety criticality constraint. No independence violations detected; safety and operational paths are decoupled."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Safety Services is assigned as primary IM, but Vehicle and Teleoperation are implicit co-owners of state capture and consumption. Recommend explicit sub-allocation of FR-NGHE-007.1 to Vehicle and FR-NGHE-007.3 to Teleoperation to clarify ownership boundaries.",
+        "Network Link is a shared dependency; latency SLA depends on network availability. Recommend explicit network latency budget allocation (e.g., 200 ms for safety, 800 ms for operational) to avoid ambiguity."
+      ],
+      "containment_notes": "Safety Services has high containment (0.85) for the worksite model update latency requirement. It owns the coordination logic, safety state model, and synchronous broadcast mechanism. Vehicle and Teleoperation own local state capture and consumption, respectively. Clear ownership boundary with minimal diffusion."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible via instrumented latency telemetry across the update pipeline. Measure end-to-end latency from state change (Vehicle) to update reception (Teleoperation, Site Manager) under nominal and degraded network conditions. Compare p95 latency against customer acceptance criteria. Recommend automated latency monitoring in production.",
+      "allocation_clarity": "Allocation is clear: Safety Services owns the worksite model update latency SLA (p95 ≤ customer target). Vehicle owns state capture latency (FR-NGHE-007.1); Teleoperation owns state consumption latency (FR-NGHE-007.3); Safety Services owns state integration and distribution latency (FR-NGHE-007.2, FR-NGHE-007.4). Recommend explicit sub-FR allocation in next decomposition level."
+    },
+    "recommended_revisions": [
+      "Refine DP-C to specify synchronous safety broadcast timeout (e.g., 100 ms) and fallback behavior (e.g., local safety logic in Vehicle).",
+      "Allocate network latency budget explicitly (e.g., 200 ms for safety, 800 ms for operational) to avoid ambiguity.",
+      "Define conflict resolution rules for concurrent updates to operational state (e.g., last-write-wins, vector clocks).",
+      "Specify maximum staleness tolerance for operational state (e.g., 2 s) to bound eventual consistency.",
+      "Recommend early network characterization (latency, bandwidth, reliability) to validate feasibility of latency SLA."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-NGHE-007 is not atomic; it decomposes into four sub-FRs (state capture, state integration, state distribution, safety prioritization). DP-C is sound and addresses the high-level requirement, but requires further refinement at the next level to specify synchronous/asynchronous boundaries, network latency budgets, and fallback behavior. Safety Services is the correct IM boundary with high containment (0.85) and low diffusion (0.15). Recommend decomposing sub-FRs (FR-NGHE-007.1 through FR-NGHE-007.4) to the next level to allocate latency budgets, specify interfaces, and assign ownership to Vehicle, Teleoperation, and Safety Services.",
+    "next_level_sub_frs": [
+      "FR-NGHE-007.1: Capture and transmit equipment state changes (position, orientation, operational mode) with minimal local processing latency (target: p95 ≤ 100 ms).",
+      "FR-NGHE-007.2: Receive and integrate transmitted state updates into the worksite model with bounded processing and storage latency (target: p95 ≤ 200 ms for safety, ≤ 800 ms for operational).",
+      "FR-NGHE-007.3: Distribute updated worksite model to authorized consumers (Site Manager, Tele-operator, Safety Services) within latency budget (target: p95 ≤ 200 ms for safety, ≤ 800 ms for operational).",
+      "FR-NGHE-007.4: Prioritize safety-critical updates (SafetyAlert events) to meet stricter latency targets than routine state updates (target: p95 ≤ 200 ms for safety-critical, ≤ 800 ms for operational)."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "DP-C requires explicit specification of: (1) synchronous safety broadcast timeout and fallback behavior, (2) asynchronous operational update batching strategy and maximum staleness tolerance, (3) conflict resolution rules for concurrent updates, (4) network latency budget allocation. Recommend refining DP-C with these details before proceeding to detailed design."
+    },
+    "record": {
+      "assumptions": [
+        "Safety Services can be deployed as a reliable, low-latency hub accessible to Vehicle and Teleoperation.",
+        "Network Link provides sufficient bandwidth and reliability for synchronous safety broadcasts (latency ≤ 200 ms p95).",
+        "Customer-defined latency target is achievable with hybrid hub-and-spoke architecture (baseline 1.0 s p95).",
+        "Vehicle and Teleoperation can tolerate eventual consistency for operational state (maximum staleness ≤ 2 s).",
+        "Safety-critical updates can be prioritized over operational updates without head-of-line blocking (e.g., separate network channels or QoS)."
+      ],
+      "open_risks": [
+        "Network latency may dominate end-to-end latency; early network characterization required to validate feasibility.",
+        "Safety Services may become a bottleneck if it must process all worksite model updates; partitioning strategy required.",
+        "If Safety Services is unavailable, worksite model updates may stall; fallback logic required in Vehicle and Teleoperation.",
+        "Synchronous safety broadcast may create head-of-line blocking for operational updates; QoS or separate channels required.",
+        "Customer-defined latency target may be stricter than 1.0 s; feasibility depends on customer acceptance criteria."
+      ],
+      "evidence_needed": [
+        "Network latency characterization (p95, p99) under nominal and degraded conditions.",
+        "Safety Services deployment architecture and availability SLA.",
+        "Vehicle and Teleoperation local processing latency (state capture, state consumption).",
+        "Customer acceptance criteria for worksite model update latency (baseline 1.0 s p95 or customer-defined target).",
+        "Conflict resolution strategy for concurrent operational state updates (e.g., last-write-wins, vector clocks).",
+        "Fallback behavior specification if Safety Services is unavailable (e.g., local safety logic in Vehicle, graceful degradation)."
+      ]
+    }
+  }
+}

@@ -1,0 +1,161 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current equipment state, environmental conditions, and operational events within p95 ≤ 1.0 s latency for all supported update scenarios, ensuring operational decisions are based on timely information.",
+    "rationale": "CR-NGHE-007 addresses a critical operational requirement: timely worksite model synchronization. Refinement clarifies that 'update' encompasses state propagation across distributed components (vehicle telemetry, environmental sensors, operator inputs) and that latency is measured end-to-end from event occurrence to model reflection. High safety criticality demands explicit inclusion of supported scenarios and measurement boundaries.",
+    "verification_idea": "Instrument the system with timestamped event markers at source (e.g., sensor reading), intermediate hops (network, processing), and model store (database/cache). Measure p95 latency across representative scenarios: teleoperated movement, autonomous task execution, safety event detection. Validate against customer-defined target (default 1.0 s).",
+    "sub_frs": [
+      "FR-007-A: Acquire real-time telemetry from vehicle and environmental sensors with minimal capture latency.",
+      "FR-007-B: Transmit telemetry and state updates over network with bounded transport latency.",
+      "FR-007-C: Process and fuse incoming updates into a coherent worksite model representation.",
+      "FR-007-D: Persist and serve worksite model state to operational consumers (operator UI, autonomous planner, safety monitor) with minimal query latency.",
+      "FR-007-E: Detect and handle update conflicts, stale data, and network partitions to maintain model consistency."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-007-1: Centralized worksite model server with real-time telemetry ingestion pipeline, event-driven update propagation, and optimized query indexing to minimize end-to-end latency.",
+      "DP-007-2: Distributed edge-cached worksite model with local state replication on vehicle and tele-operator clients, eventual consistency reconciliation, and latency-optimized local queries.",
+      "DP-007-3: Hybrid architecture: authoritative central model with edge caches, prioritized telemetry channels (high-frequency critical updates via low-latency link, lower-frequency updates via standard network), and conflict resolution via timestamp + vector clocks."
+    ],
+    "selected_dp": "DP-007-3: Hybrid architecture with authoritative central model, edge caches on vehicle and tele-operator endpoints, multi-tier telemetry channels (critical updates via dedicated low-latency Network Link, standard updates via shared Telemetry interface), and vector-clock-based conflict resolution.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between telemetry acquisition rate (FR-007-A) and network transport capacity (FR-007-B): mitigated by multi-tier channel strategy.",
+        "Coupling between model consistency (FR-007-E) and query latency (FR-007-D): mitigated by eventual consistency model with bounded staleness guarantees.",
+        "Coupling between edge cache coherence and central model updates: mitigated by explicit conflict resolution protocol."
+      ],
+      "notes": "DP-007-3 decouples latency-critical paths (high-frequency vehicle state via dedicated link) from lower-priority updates (environmental, non-critical telemetry via shared network). Conflict resolution is explicit and deterministic, reducing coupling between distributed components."
+    },
+    "assumptions_risks": [
+      "Assumption: Network Link interface supports dedicated low-latency channel for critical telemetry; risk if shared infrastructure cannot guarantee latency bounds.",
+      "Assumption: Vehicle and tele-operator endpoints have sufficient local storage and compute for edge caching; risk if constrained by hardware.",
+      "Assumption: Worksite model schema is stable and versioned; risk of schema evolution breaking edge caches.",
+      "Risk: Vector clock overhead may impact throughput under high-frequency update scenarios; mitigation via batching and compression.",
+      "Risk: Edge cache invalidation storms if central model experiences rapid state changes; mitigation via rate-limiting and adaptive reconciliation intervals."
+    ],
+    "recommended_revision": "Clarify the definition of 'critical' vs. 'standard' telemetry and establish explicit SLAs for each channel. Define maximum acceptable staleness for edge caches (e.g., 100 ms for vehicle state, 500 ms for environmental). Specify conflict resolution tie-breaking rules (e.g., central model wins on timestamp collision)."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "End-to-end worksite model update system, including telemetry ingestion, central model store, edge cache coordination, and query serving. Encompasses orchestration of Vehicle, Teleoperation, and Safety Services modules for latency-critical operations."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Ingests vehicle state (position, orientation, load, sensor readings) and environmental updates (obstacles, weather, site conditions) from Vehicle and external sensors. High-frequency critical updates (vehicle pose) and lower-frequency standard updates (environmental) multiplexed on this interface."
+      },
+      {
+        "name": "Tasking",
+        "direction": "inout",
+        "details": "Receives operational tasks and queries from operator/planner; returns worksite model state and task execution feedback. Latency-sensitive for operator situational awareness."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Emits safety-critical model updates (e.g., detected collision risk, equipment out-of-bounds) to Safety Services for real-time intervention."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Dedicated low-latency channel for critical telemetry and model updates between central model and vehicle/tele-operator endpoints. Supports edge cache synchronization and conflict resolution."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "NGHE Solution is the system-level integrator and natural owner of end-to-end latency orchestration. Worksite model update is a core system capability. Minimal diffusion: model logic is centralized; only telemetry acquisition and edge caching are distributed to Vehicle and Teleoperation modules."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 40,
+        "diffusion_score": 60,
+        "notes": "Vehicle owns telemetry acquisition and local edge cache, but does not own central model store or query serving. Assigning full DP to Vehicle would fragment model logic and create tight coupling between vehicle firmware and model schema."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 35,
+        "diffusion_score": 65,
+        "notes": "Teleoperation owns tele-operator-side edge cache and query interface, but not central model or vehicle telemetry ingestion. Assigning full DP to Teleoperation would duplicate model logic and create inconsistency."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Safety Services consumes model updates via SafetyAlert but does not own model store or update pipeline. Assigning DP to Safety Services would conflate safety monitoring with model management."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "NGHE Solution owns the authoritative worksite model store, central update ingestion pipeline, and query serving logic. Vehicle and Teleoperation modules own edge caches and local query optimization. Safety Services consumes model updates via SafetyAlert interface. This distribution minimizes diffusion of model logic while enabling latency optimization through edge caching.",
+    "containment_risks": [
+      "Risk: If NGHE Solution becomes a bottleneck (central model server saturated), latency SLA may be violated. Mitigation: design for horizontal scaling and load balancing of central model.",
+      "Risk: Edge cache coherence failures if Network Link is unreliable. Mitigation: implement explicit heartbeat and reconciliation protocol; define fallback to eventual consistency.",
+      "Risk: Telemetry interface may become a bottleneck if Vehicle generates high-frequency updates. Mitigation: implement adaptive sampling and compression; prioritize critical updates via Network Link."
+    ],
+    "recommended_revision": "Explicitly define the boundary between NGHE Solution (central model, orchestration) and Vehicle/Teleoperation (edge caches, local queries). Specify the Network Link protocol for cache synchronization and conflict resolution. Document fallback behavior if Network Link fails (e.g., edge caches operate independently with eventual reconciliation)."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-007-3 (hybrid architecture with multi-tier channels and edge caching) directly addresses FR-007 (worksite model update latency ≤ 1.0 s p95). The DP decouples latency-critical paths (vehicle state via dedicated Network Link) from lower-priority updates, enabling p95 latency targets. Conflict resolution via vector clocks ensures consistency. No functional gaps identified."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Moderate diffusion risk: Model update logic is split between NGHE Solution (central), Vehicle (edge cache), and Teleoperation (edge cache). Mitigation: define clear ownership of model schema, versioning, and conflict resolution rules in NGHE Solution; Vehicle and Teleoperation implement only cache synchronization logic.",
+        "Moderate diffusion risk: Telemetry interface carries both critical and standard updates. Mitigation: implement explicit prioritization and multiplexing logic in NGHE Solution to separate channels."
+      ],
+      "containment_notes": "NGHE Solution is the appropriate owner of the central model and orchestration logic. Edge caching in Vehicle and Teleoperation is a performance optimization, not a functional requirement, and should be treated as an implementation detail. Containment score of 95 for NGHE Solution is justified."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. Latency can be measured end-to-end via instrumentation at telemetry source, intermediate hops, and model store. p95 metric is well-defined and testable. Supported scenarios can be enumerated and validated in controlled environment.",
+      "allocation_clarity": "Clear. NGHE Solution owns central model and orchestration; Vehicle and Teleoperation own edge caches; Safety Services consumes alerts. Interfaces (Telemetry, Tasking, SafetyAlert, Network Link) are well-defined and traceable to DP."
+    },
+    "recommended_revisions": [
+      "Refine the definition of 'supported update scenarios' and establish a test matrix covering nominal, degraded (network latency, packet loss), and failure modes (Network Link unavailable).",
+      "Specify maximum acceptable staleness for edge caches and define reconciliation intervals.",
+      "Document the conflict resolution protocol in detail, including tie-breaking rules and vector clock implementation.",
+      "Establish acceptance criteria for p95 latency measurement (e.g., sample size, confidence interval, measurement methodology)."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-007 is not atomic and has been refined into five sub-FRs (FR-007-A through FR-007-E). Each sub-FR addresses a distinct functional concern (telemetry acquisition, network transport, model processing, query serving, consistency). DP-007-3 is sound and well-justified, but its realization requires decomposition of sub-FRs into lower-level DPs and IMs. NGHE Solution is the appropriate owner, but edge caching and conflict resolution logic must be further detailed. Proceed to next decomposition level for each sub-FR.",
+    "next_level_sub_frs": [
+      "FR-007-A: Acquire real-time telemetry from vehicle and environmental sensors with minimal capture latency.",
+      "FR-007-B: Transmit telemetry and state updates over network with bounded transport latency.",
+      "FR-007-C: Process and fuse incoming updates into a coherent worksite model representation.",
+      "FR-007-D: Persist and serve worksite model state to operational consumers with minimal query latency.",
+      "FR-007-E: Detect and handle update conflicts, stale data, and network partitions to maintain model consistency."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Network Link interface supports dedicated low-latency channel for critical telemetry (latency < 100 ms).",
+        "Vehicle and tele-operator endpoints have sufficient local storage and compute for edge caching (estimated 10-100 MB for worksite model snapshot).",
+        "Worksite model schema is stable and versioned; schema evolution is managed via explicit versioning protocol.",
+        "p95 latency target of 1.0 s is achievable with hybrid architecture; if not, may require further optimization (e.g., model sharding, geographic distribution).",
+        "Conflict resolution via vector clocks is acceptable; alternative approaches (e.g., CRDT, operational transformation) not required for this use case."
+      ],
+      "open_risks": [
+        "Network Link reliability: if dedicated channel is unavailable, fallback to shared Telemetry interface may violate latency SLA. Mitigation: define fallback behavior and acceptable degradation.",
+        "Edge cache coherence: if Vehicle or Teleoperation endpoints are offline for extended periods, reconciliation may be expensive. Mitigation: implement bounded reconciliation window and conflict resolution strategy.",
+        "Model schema evolution: if schema changes frequently, edge caches may become stale. Mitigation: implement schema versioning and migration protocol.",
+        "Scalability: if worksite model grows large (e.g., > 1 GB), query latency may increase. Mitigation: implement indexing, partitioning, and caching strategies."
+      ],
+      "evidence_needed": [
+        "Latency measurements from prototype or simulation: end-to-end latency for representative scenarios (teleoperated movement, autonomous task, safety event).",
+        "Network characterization: latency, bandwidth, packet loss for Telemetry and Network Link interfaces under nominal and degraded conditions.",
+        "Model schema and size estimates: typical worksite model size, update frequency, query patterns.",
+        "Edge cache performance: memory footprint, synchronization overhead, reconciliation time for typical scenarios.",
+        "Conflict resolution validation: correctness proof or empirical validation of vector clock implementation under concurrent updates."
+      ]
+    }
+  }
+}

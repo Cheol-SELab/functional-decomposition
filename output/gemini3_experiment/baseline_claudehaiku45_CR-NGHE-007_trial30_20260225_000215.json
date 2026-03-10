@@ -1,0 +1,167 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current equipment state, environmental conditions, and operational events within p95 ≤ 1.0 s latency for all supported update scenarios, ensuring operational decisions are based on timely information.",
+    "rationale": "CR-NGHE-007 addresses a critical operational requirement: decision-making quality depends on model freshness. The p95 latency constraint is quantitative and measurable. High safety criticality demands that stale worksite models do not lead to unsafe decisions. Refinement clarifies that 'update' encompasses state propagation, not just data collection, and that latency is measured end-to-end from event occurrence to model reflection.",
+    "verification_idea": "Instrument the system to measure latency from event timestamp (equipment state change, sensor reading, operator command) to worksite model update completion. Collect p95 latency across representative scenarios (equipment movement, sensor updates, tele-operator commands, safety alerts). Compare against 1.0 s threshold under nominal and degraded network conditions.",
+    "sub_frs": [
+      "FR-007.1: Collect real-time telemetry from vehicle and environmental sensors with minimal acquisition latency.",
+      "FR-007.2: Transmit telemetry and state updates over network link with bounded latency and reliability.",
+      "FR-007.3: Process and integrate received updates into worksite model with minimal computational latency.",
+      "FR-007.4: Distribute updated worksite model to all stakeholders (operator, tele-operator, safety services) within latency budget.",
+      "FR-007.5: Detect and handle late or out-of-order updates to maintain model consistency."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-007.A: Centralized worksite model server with real-time telemetry ingestion pipeline, in-memory state cache, and publish-subscribe distribution to all consumers.",
+      "DP-007.B: Distributed edge-based model replicas with eventual consistency and periodic reconciliation, minimizing central bottleneck.",
+      "DP-007.C: Hybrid approach: local vehicle-embedded model cache synchronized with central authoritative model via delta-based updates and priority queuing."
+    ],
+    "selected_dp": "DP-007.C: Hybrid approach with vehicle-embedded model cache, delta-based update protocol, and priority-queued synchronization to central worksite model. Vehicle maintains local state for immediate operator feedback; central model aggregates all vehicle states and distributes to tele-operator and safety services. Delta encoding reduces network payload; priority queuing ensures safety-critical updates bypass non-critical telemetry.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between Vehicle (local cache) and Teleoperation (central model) via Network Link—mitigated by well-defined delta protocol and interface contract.",
+        "Coupling between Safety Services and Vehicle state updates—mitigated by SafetyAlert interface with guaranteed delivery semantics.",
+        "Coupling between model consistency and network reliability—acknowledged; requires timeout and reconciliation logic."
+      ],
+      "notes": "DP-007.C decouples local responsiveness (vehicle) from global consistency (central model), reducing latency variance. Coupling is managed through explicit protocol boundaries (delta updates, priority queuing) rather than tight synchronization. Acceptable for high-safety-criticality system if reconciliation logic is robust."
+    },
+    "assumptions_risks": [
+      "Assumption: Network link supports priority queuing and bounded latency for safety-critical updates (e.g., SafetyAlert messages).",
+      "Assumption: Vehicle computational resources are sufficient to maintain local model cache and delta encoding logic.",
+      "Risk: If network link fails or degrades, local cache may diverge from central model; reconciliation on recovery could be slow.",
+      "Risk: Delta encoding complexity increases implementation burden; bugs in delta logic could cause silent model inconsistencies.",
+      "Risk: Priority queuing requires careful tuning; incorrect priority assignment could starve non-critical updates or cause fairness issues."
+    ],
+    "recommended_revision": "Clarify network link SLA (latency, jitter, packet loss) and define reconciliation strategy (full sync interval, conflict resolution rules). Specify delta protocol schema and validation rules. Define priority levels for update categories (safety-critical, operational, diagnostic)."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Teleoperation module owns the central worksite model server, delta-based update ingestion pipeline, and publish-subscribe distribution logic. It receives telemetry and state updates from Vehicle via Network Link (Telemetry interface), processes and integrates them into the worksite model, and distributes updated model state to tele-operator clients and Safety Services via Telemetry and SafetyAlert interfaces."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "inout",
+        "details": "Bidirectional: Teleoperation receives vehicle telemetry and state updates (in); distributes updated worksite model to tele-operator and other consumers (out). Carries delta-encoded updates with timestamps and priority tags."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Teleoperation sends safety-critical model updates and alerts to Safety Services with guaranteed delivery and low latency. Includes equipment state changes that affect safety constraints."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Underlying transport for Telemetry and SafetyAlert. Teleoperation depends on Network Link SLA (latency, reliability, priority queuing) to meet p95 ≤ 1.0 s constraint."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Teleoperation receives operator commands and tele-operator tasking inputs; these trigger model updates (e.g., equipment state transitions) that must be reflected in worksite model within latency budget."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.4,
+        "diffusion_score": 0.8,
+        "notes": "NGHE Solution is the top-level system boundary; worksite model update is a system-level concern. However, assigning IM to NGHE Solution would diffuse responsibility across all sub-modules (Vehicle, Teleoperation, Safety Services) without clear ownership. Not recommended as primary IM."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.3,
+        "diffusion_score": 0.9,
+        "notes": "Vehicle owns local state and telemetry collection, but does not own the central worksite model or distribution logic. Assigning IM to Vehicle would require Vehicle to manage tele-operator and safety services model updates, violating separation of concerns. High diffusion risk."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.9,
+        "diffusion_score": 0.2,
+        "notes": "Teleoperation is the natural owner of central worksite model, ingestion pipeline, and distribution to tele-operator and safety services. Interfaces (Telemetry, SafetyAlert, Tasking, Network Link) align with Teleoperation's role as the coordination hub. Low diffusion; high containment."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.5,
+        "diffusion_score": 0.7,
+        "notes": "Safety Services consumes worksite model updates but does not own the model or ingestion pipeline. Assigning IM to Safety Services would couple safety logic to model management, reducing modularity. Moderate containment; high diffusion risk."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "Teleoperation module is the logical owner of worksite model update latency because it (1) owns the central model server and ingestion pipeline, (2) receives telemetry from Vehicle via Network Link, (3) distributes updates to tele-operator clients and Safety Services, and (4) manages the delta-based update protocol and priority queuing. This assignment concentrates latency-critical logic in one module, reducing diffusion and enabling focused optimization.",
+    "containment_risks": [
+      "Risk: If Vehicle-to-Teleoperation network link is slow or unreliable, Teleoperation cannot meet p95 ≤ 1.0 s latency regardless of internal optimization. Mitigation: Define Network Link SLA and implement fallback strategies (local cache, graceful degradation).",
+      "Risk: If Safety Services requires synchronous model updates (blocking calls), Teleoperation's latency could be impacted by Safety Services processing time. Mitigation: Use asynchronous SafetyAlert interface with guaranteed delivery but non-blocking semantics.",
+      "Risk: If Vehicle generates telemetry faster than Teleoperation can ingest and distribute, queue buildup could cause latency spikes. Mitigation: Implement backpressure and priority queuing; drop non-critical telemetry if necessary.",
+      "Risk: Teleoperation module becomes a single point of failure for worksite model availability. Mitigation: Design for redundancy and failover (e.g., hot standby, distributed consensus)."
+    ],
+    "recommended_revision": "Explicitly define the delta update protocol schema, priority levels, and reconciliation strategy. Specify Network Link SLA and fallback behavior. Design Teleoperation module with clear separation between ingestion, processing, and distribution sub-components to enable independent optimization and testing."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-007.C (hybrid model with delta-based updates and priority queuing) directly addresses FR-007 (worksite model update latency ≤ 1.0 s). The DP reduces latency variance by decoupling local responsiveness (vehicle cache) from global consistency (central model), and uses delta encoding and priority queuing to minimize network and processing overhead. Coupling is managed through explicit protocol boundaries. Assumptions and risks are identified and mitigable."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Teleoperation module must own both ingestion (from Vehicle) and distribution (to tele-operator, Safety Services) logic. If ownership is split, latency accountability becomes unclear.",
+        "Network Link is external to Teleoperation; latency depends on Network Link SLA. Teleoperation must not be held accountable for network delays beyond its control. Clarify SLA boundaries."
+      ],
+      "containment_notes": "Teleoperation is the clear owner of central worksite model and distribution logic. Vehicle owns local cache and telemetry collection; Safety Services owns safety constraint evaluation. Interfaces (Telemetry, SafetyAlert, Tasking, Network Link) are well-defined and align with module boundaries. Containment score 0.9 is justified."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Latency can be measured end-to-end by instrumenting Teleoperation's ingestion and distribution pipelines. Collect p95 latency across representative scenarios (equipment movement, sensor updates, tele-operator commands). Verify against 1.0 s threshold under nominal and degraded network conditions. Feasible with standard observability tools (logging, tracing, metrics).",
+      "allocation_clarity": "FR-007 is allocated to Teleoperation module. Sub-FRs (FR-007.1 through FR-007.5) are allocated to Vehicle (telemetry collection), Network Link (transmission), Teleoperation (processing and distribution), and Safety Services (late update handling). Clear allocation; no ambiguity."
+    },
+    "recommended_revisions": [
+      "Define Network Link SLA (latency, jitter, packet loss, priority queuing support) as a constraint on Teleoperation's latency budget.",
+      "Specify delta update protocol schema, validation rules, and reconciliation strategy.",
+      "Define priority levels for update categories (safety-critical, operational, diagnostic) and queuing discipline.",
+      "Clarify latency measurement methodology: from event timestamp to model update completion, including network transmission time.",
+      "Design Teleoperation module with clear sub-components (ingestion, processing, distribution) to enable independent optimization and testing."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-007 is not atomic; it decomposes into five sub-FRs (FR-007.1 through FR-007.5) that address distinct concerns: telemetry collection, network transmission, model processing, distribution, and consistency handling. Each sub-FR requires further refinement and DP selection. DP-007.C is sound and well-justified, but its realization depends on successful decomposition and implementation of sub-FRs. Proceed to next level of functional decomposition.",
+    "next_level_sub_frs": [
+      "FR-007.1: Collect real-time telemetry from vehicle and environmental sensors with minimal acquisition latency (≤ 50 ms target).",
+      "FR-007.2: Transmit telemetry and state updates over network link with bounded latency (≤ 300 ms p95 target) and reliability (≥ 99.9% delivery).",
+      "FR-007.3: Process and integrate received updates into worksite model with minimal computational latency (≤ 100 ms target).",
+      "FR-007.4: Distribute updated worksite model to all stakeholders (operator, tele-operator, safety services) within latency budget (≤ 200 ms target).",
+      "FR-007.5: Detect and handle late or out-of-order updates to maintain model consistency without blocking critical updates."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Network link supports priority queuing and bounded latency for safety-critical updates.",
+        "Vehicle computational resources are sufficient to maintain local model cache and delta encoding logic.",
+        "Worksite model update latency is measured end-to-end from event occurrence to model reflection.",
+        "p95 ≤ 1.0 s latency is achievable with hybrid model architecture and delta-based updates.",
+        "Safety Services can consume asynchronous SafetyAlert updates without requiring synchronous model access."
+      ],
+      "open_risks": [
+        "Network link failure or degradation could cause local cache divergence; reconciliation strategy must be robust.",
+        "Delta encoding complexity increases implementation burden; bugs could cause silent model inconsistencies.",
+        "Priority queuing requires careful tuning; incorrect priority assignment could starve non-critical updates.",
+        "Teleoperation module becomes a single point of failure for worksite model availability; redundancy design needed.",
+        "Sub-FR latency budgets (50 ms telemetry, 300 ms network, 100 ms processing, 200 ms distribution) must be validated against real-world performance."
+      ],
+      "evidence_needed": [
+        "Network link SLA specification (latency, jitter, packet loss, priority queuing support).",
+        "Delta update protocol schema and validation rules.",
+        "Priority level definitions and queuing discipline.",
+        "Latency measurement methodology and instrumentation plan.",
+        "Vehicle computational resource analysis (CPU, memory, network bandwidth for local cache and delta encoding).",
+        "Reconciliation strategy for late or out-of-order updates.",
+        "Redundancy and failover design for Teleoperation module.",
+        "Performance testing results for sub-FRs under nominal and degraded conditions."
+      ]
+    }
+  }
+}

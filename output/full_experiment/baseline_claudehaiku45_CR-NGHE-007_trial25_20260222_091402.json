@@ -1,0 +1,161 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current equipment state, environmental conditions, and operational events with a p95 latency not exceeding the customer-defined target (baseline 1.0 s) across all supported update scenarios.",
+    "rationale": "CR-NGHE-007 requires clarification of scope (what constitutes 'worksite model'), measurement basis (p95 latency across which scenarios), and customer-specific acceptance criteria. The refined FR explicitly bounds the latency requirement to a statistical percentile and acknowledges customer tailoring, critical for high-safety-criticality systems where deterministic guarantees matter.",
+    "verification_idea": "Instrument worksite model update pipeline with end-to-end latency telemetry; measure p95 latency across representative scenarios (equipment state change, sensor event, tele-operator command, safety alert); compare against customer acceptance criteria; validate under nominal and degraded network conditions.",
+    "sub_frs": [
+      "FR-NGHE-007.1: Capture and transmit equipment state changes (position, orientation, operational mode) with minimal local processing latency.",
+      "FR-NGHE-007.2: Receive and integrate transmitted state updates into the worksite model with bounded processing and storage latency.",
+      "FR-NGHE-007.3: Distribute updated worksite model to authorized consumers (Site Manager, Tele-operator, Safety Services) within latency budget.",
+      "FR-NGHE-007.4: Prioritize safety-critical updates (SafetyAlert events) to meet stricter latency targets than routine telemetry."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized worksite model server with synchronous request-response updates; all clients poll or subscribe via REST/gRPC.",
+      "DP-B: Distributed event-driven architecture with publish-subscribe messaging (MQTT/Kafka); worksite model replicated across edge nodes; safety events prioritized via separate high-priority queue.",
+      "DP-C: Hybrid hub-and-spoke with local edge caches; Vehicle and Teleoperation modules maintain local model replicas; Safety Services subscribes to prioritized SafetyAlert stream; periodic reconciliation via Network Link.",
+      "DP-D: Monolithic single-threaded worksite model update loop; all updates serialized; no concurrency; simplest but highest latency risk."
+    ],
+    "selected_dp": "DP-B: Distributed event-driven architecture with publish-subscribe messaging; worksite model updates flow through prioritized event streams (routine telemetry on standard queue, SafetyAlert on high-priority queue); edge nodes cache model state; latency bounded by message broker throughput and subscriber processing time.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between Vehicle telemetry capture rate and message broker ingestion capacity (mitigated by buffering and backpressure).",
+        "Coupling between Safety Services alert generation and Teleoperation/Site Manager subscription latency (mitigated by separate high-priority queue).",
+        "Coupling between Network Link bandwidth and model update frequency (mitigated by compression and selective update transmission)."
+      ],
+      "notes": "DP-B decouples producers (Vehicle, Teleoperation, Safety Services) from consumers via asynchronous messaging, reducing tight coupling. Safety criticality is addressed by dual-queue strategy (high-priority for SafetyAlert, standard for Telemetry). Latency is bounded by broker performance and subscriber processing, both measurable and tunable."
+    },
+    "assumptions_risks": [
+      "Assumption: Message broker (MQTT/Kafka) can sustain vehicle telemetry rate (assumed ~10–100 Hz per vehicle) with <100 ms end-to-end latency.",
+      "Assumption: Network Link provides sufficient bandwidth for telemetry + SafetyAlert streams; no sustained congestion.",
+      "Risk: If broker becomes bottleneck, p95 latency will exceed target; mitigation requires broker scaling or rate limiting.",
+      "Risk: Subscriber processing time (model integration, validation) may dominate latency; requires profiling and optimization.",
+      "Risk: High-priority queue starvation if SafetyAlert volume exceeds broker capacity; mitigation requires queue isolation and admission control."
+    ],
+    "recommended_revision": "Refine DP-B to explicitly specify: (1) message broker technology and configuration (e.g., Kafka with 3-node cluster, 100 ms retention); (2) queue isolation strategy (separate topics for Telemetry vs. SafetyAlert); (3) subscriber processing SLA (e.g., <200 ms for model integration); (4) latency monitoring and alerting thresholds."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Teleoperation module owns the worksite model update ingestion, integration, and distribution logic. It receives Telemetry and SafetyAlert streams via Network Link, maintains a local or replicated worksite model state, and publishes updates to authorized consumers (Site Manager, Tele-operator, Safety Services). The module encapsulates the event-driven publish-subscribe broker and model synchronization logic."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Incoming equipment state updates (position, orientation, operational mode, sensor readings) from Vehicle module; expected rate ~10–100 Hz per vehicle; format: structured telemetry messages (JSON/Protobuf)."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "in",
+        "details": "Incoming safety-critical events from Safety Services module; lower frequency but higher priority; triggers immediate worksite model update and distribution to Tele-operator and Site Manager."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Bidirectional network transport for Telemetry ingress and worksite model distribution egress; carries both routine updates and prioritized SafetyAlert messages; subject to latency and bandwidth constraints."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Outgoing worksite model updates distributed to Site Manager and Tele-operator for operational awareness; includes model state snapshots and delta updates; latency-critical for tele-operation safety."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "NGHE Solution is the top-level system boundary; worksite model update is a system-level concern but not owned by NGHE Solution directly. Assigning to NGHE Solution would diffuse responsibility across all sub-modules and obscure ownership. Not recommended."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Vehicle module is responsible for telemetry capture and transmission, not for worksite model integration and distribution. Assigning worksite model update to Vehicle would couple it to consumer logic (Site Manager, Tele-operator) and violate separation of concerns. Not recommended."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.9,
+        "diffusion_score": 0.1,
+        "notes": "Teleoperation module is the natural hub for worksite model updates: it receives Telemetry from Vehicle, SafetyAlert from Safety Services, and distributes updates to Tele-operator and Site Manager via Tasking. It owns the event-driven broker, model synchronization, and latency-critical distribution logic. High containment, low diffusion. Recommended."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Safety Services generates SafetyAlert events but does not own the broader worksite model update pipeline. Assigning to Safety Services would couple it to routine telemetry processing and consumer distribution, outside its safety-focused scope. Not recommended."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "Teleoperation module is the optimal owner of worksite model update logic because: (1) it is the primary consumer of worksite state for tele-operation; (2) it receives both Telemetry and SafetyAlert inputs; (3) it distributes updates to Site Manager and Tele-operator via Tasking; (4) it can enforce latency SLAs and prioritization without diffusing responsibility. Vehicle and Safety Services remain focused on their primary concerns (telemetry capture, safety logic) while Teleoperation orchestrates integration and distribution.",
+    "containment_risks": [
+      "Risk: Teleoperation module may become a bottleneck if worksite model update processing is not optimized; mitigation requires profiling, caching, and asynchronous processing.",
+      "Risk: Tight coupling between Teleoperation and Network Link if latency is not properly abstracted; mitigation requires Network Link to provide latency guarantees or fallback mechanisms.",
+      "Risk: If Safety Services requires direct, low-latency access to worksite model updates (e.g., for collision detection), Teleoperation may not be the right owner; mitigation requires clarifying Safety Services' model access patterns."
+    ],
+    "recommended_revision": "Confirm that Teleoperation module has sufficient processing capacity and network bandwidth to handle worksite model update load without violating p95 latency target. Define explicit SLAs for Telemetry ingestion, SafetyAlert prioritization, and Tasking distribution. Consider introducing a dedicated 'Worksite Model Service' sub-module within Teleoperation if model update logic becomes complex; ensure it remains owned by Teleoperation for accountability."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-B (distributed event-driven architecture with prioritized queues) directly addresses FR-NGHE-007 by enabling bounded, measurable latency through asynchronous message passing and queue prioritization. The DP decouples producers and consumers, reducing coupling and enabling independent scaling. Safety criticality is addressed via separate high-priority queue for SafetyAlert. Latency is tunable via broker configuration and subscriber optimization. No fundamental mismatch between FR and DP."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Teleoperation module ownership concentrates worksite model update responsibility in a single module; if Teleoperation becomes overloaded, latency targets may be missed. Mitigation: monitor Teleoperation CPU/memory; scale broker and subscribers independently."
+      ],
+      "containment_notes": "Teleoperation module has high containment (0.9) for worksite model update logic. It owns the event-driven broker, model synchronization, and distribution to consumers. External interfaces (Telemetry, SafetyAlert, Network Link, Tasking) are well-defined and align with known interfaces. No diffusion of responsibility across multiple modules. Ownership is clear and accountable."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Worksite model update latency is measurable end-to-end: instrument Teleoperation module to log timestamps at Telemetry ingress, model integration, and Tasking egress. Collect p95 latency across representative scenarios (equipment state change, SafetyAlert, network degradation). Compare against customer acceptance criteria. Feasible with standard observability tools (e.g., distributed tracing, metrics collection).",
+      "allocation_clarity": "FR-NGHE-007 is allocated to Teleoperation module with clear ownership. Sub-FRs (FR-NGHE-007.1 through 007.4) are allocated to Vehicle (capture), Teleoperation (integration and distribution), and Safety Services (prioritization). Allocation is clear and traceable."
+    },
+    "recommended_revisions": [
+      "Refine DP-B to specify broker technology, queue isolation, and subscriber processing SLA.",
+      "Define explicit latency monitoring and alerting thresholds for Teleoperation module.",
+      "Confirm that Teleoperation module has sufficient capacity to handle worksite model update load; consider load testing and scaling strategy.",
+      "Clarify Safety Services' access patterns to worksite model; if direct, low-latency access is required, consider a separate 'Worksite Model Service' sub-module."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-NGHE-007 is not atomic; it decomposes into four sub-FRs (capture, integration, distribution, prioritization) that require further refinement and allocation. DP-B is sound and addresses the FR, but its realization depends on detailed design of the event-driven broker, queue isolation, and subscriber processing logic. Teleoperation module is the correct owner, but its internal architecture (broker, model cache, synchronization logic) must be decomposed further to ensure latency targets are met. Proceeding to the next decomposition level is necessary to validate assumptions and risks.",
+    "next_level_sub_frs": [
+      "FR-NGHE-007.1: Capture and transmit equipment state changes (position, orientation, operational mode) with minimal local processing latency.",
+      "FR-NGHE-007.2: Receive and integrate transmitted state updates into the worksite model with bounded processing and storage latency.",
+      "FR-NGHE-007.3: Distribute updated worksite model to authorized consumers (Site Manager, Tele-operator, Safety Services) within latency budget.",
+      "FR-NGHE-007.4: Prioritize safety-critical updates (SafetyAlert events) to meet stricter latency targets than routine telemetry."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Message broker (MQTT/Kafka) can sustain vehicle telemetry rate (~10–100 Hz per vehicle) with <100 ms end-to-end latency.",
+        "Network Link provides sufficient bandwidth for telemetry + SafetyAlert streams without sustained congestion.",
+        "Subscriber processing time (model integration, validation) is <200 ms per update.",
+        "Customer-defined latency target is 1.0 s p95 or customer-specified alternative.",
+        "Teleoperation module has sufficient CPU, memory, and network resources to handle worksite model update load."
+      ],
+      "open_risks": [
+        "Message broker becomes bottleneck if telemetry rate exceeds capacity; requires broker scaling or rate limiting.",
+        "Subscriber processing time dominates latency; requires profiling and optimization.",
+        "High-priority queue starvation if SafetyAlert volume exceeds broker capacity; requires queue isolation and admission control.",
+        "Teleoperation module becomes overloaded; requires load testing and scaling strategy.",
+        "Safety Services requires direct, low-latency access to worksite model; may require separate 'Worksite Model Service' sub-module."
+      ],
+      "evidence_needed": [
+        "Broker performance benchmarks (throughput, latency, scalability) for expected telemetry rate.",
+        "Subscriber processing time measurements (model integration, validation, distribution).",
+        "End-to-end latency telemetry across representative scenarios (equipment state change, SafetyAlert, network degradation).",
+        "Load testing results for Teleoperation module under peak telemetry load.",
+        "Safety Services' worksite model access patterns and latency requirements.",
+        "Customer acceptance criteria for worksite model update latency (baseline 1.0 s p95 or alternative)."
+      ]
+    }
+  }
+}

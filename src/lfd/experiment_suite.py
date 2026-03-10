@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
@@ -132,6 +133,119 @@ def run_nghe_experiment_suite_to_csv(
         _write_csv(csv_path, rows)
         print(f"Wrote {len(rows)} new experiment results to {csv_path}")
     
+    return csv_path
+
+
+@dataclass(frozen=True)
+class CrossEvalExperimentSuiteConfig:
+    requirements_file: str | Path
+    outdir: str | Path
+    cr_ids: List[str]
+    trials_per_cr: int
+    available_modules: List[str]
+    known_interfaces: List[str]
+    producer_models: List[str]
+
+
+def _short_model_name(model: str) -> str:
+    return model.split("/")[-1].replace(".", "").replace("-", "")
+
+
+def run_nghe_cross_eval_experiment_suite_to_csv(
+    *,
+    config: CrossEvalExperimentSuiteConfig,
+    csv_path: str | Path,
+    skip_existing: bool = True,
+) -> Path:
+    csv_path = Path(csv_path)
+    _ensure_parent_dir(csv_path)
+
+    rows: List[Dict[str, Any]] = []
+    outdir = Path(config.outdir)
+
+    for cr_id in config.cr_ids:
+        for trial in range(1, config.trials_per_cr + 1):
+            for producer_model in config.producer_models:
+                short_producer = _short_model_name(producer_model)
+                run_id = f"{cr_id}_trial{trial}_{short_producer}"
+
+                # --- produce outputs (GATE-FD + baseline) ---
+                workflow_prefix = f"workflow_{short_producer}"
+                baseline_prefix = f"baseline_{short_producer}"
+
+                existing_workflow = list(outdir.glob(f"{workflow_prefix}_{cr_id}_trial{trial}_*.json"))
+                existing_baseline = list(outdir.glob(f"{baseline_prefix}_{cr_id}_trial{trial}_*.json"))
+
+                if existing_workflow and existing_baseline and skip_existing:
+                    ours_path = str(existing_workflow[0])
+                    baseline_path = str(existing_baseline[0])
+                    print(f"Reusing existing outputs for {run_id}")
+                else:
+                    print(f"Running decomposition: {run_id}")
+                    comp = compare_nghe_cr_and_save(
+                        requirements_file=config.requirements_file,
+                        cr_id=cr_id,
+                        outdir=config.outdir,
+                        available_modules=config.available_modules,
+                        known_interfaces=config.known_interfaces,
+                        model_ours=producer_model,
+                        model_baseline=producer_model,
+                        run_id=f"{cr_id}_trial{trial}",
+                        workflow_prefix=workflow_prefix,
+                        baseline_prefix=baseline_prefix,
+                    )
+
+                    ours_path = comp["ours"].get("_output_file")
+                    baseline_path = comp["baseline"].get("_output_file")
+                    if not isinstance(ours_path, str) or not isinstance(baseline_path, str):
+                        raise RuntimeError("Experiment did not produce expected _output_file paths")
+
+                # --- cross-evaluate with every OTHER model ---
+                eval_models = [m for m in config.producer_models if m != producer_model]
+
+                for eval_model in eval_models:
+                    short_eval = _short_model_name(eval_model)
+                    eval_run_id = f"{run_id}_evalby_{short_eval}"
+
+                    existing_eval = list(outdir.glob(f"evaluation_{eval_run_id}_*.json")) if skip_existing else []
+                    if existing_eval:
+                        print(f"Reusing existing eval {eval_run_id}")
+                        ev = json.loads(existing_eval[0].read_text(encoding="utf-8"))
+                    else:
+                        print(f"Evaluating {run_id} with evaluator={eval_model}")
+                        ev = evaluate_two_output_files_and_save(
+                            ours_path=ours_path,
+                            baseline_path=baseline_path,
+                            outdir=config.outdir,
+                            run_id=eval_run_id,
+                            model=eval_model,
+                        )
+
+                    evaluation = ev.get("evaluation") if isinstance(ev.get("evaluation"), dict) else {}
+                    flat_scores = _flatten_eval_scores(evaluation)
+
+                    rows.append(
+                        {
+                            "cr_id": cr_id,
+                            "trial": trial,
+                            "producer_model": producer_model,
+                            "evaluator_model": eval_model,
+                            "run_id": eval_run_id,
+                            "available_modules": "|".join(config.available_modules),
+                            "known_interfaces": "|".join(config.known_interfaces),
+                            "ours_output_file": ours_path,
+                            "baseline_output_file": baseline_path,
+                            "evaluation_output_file": ev.get("_output_file"),
+                            **flat_scores,
+                        }
+                    )
+
+    if not rows:
+        print("No new experiments to run - all trials already exist")
+    else:
+        _write_csv(csv_path, rows)
+        print(f"Wrote {len(rows)} cross-eval experiment results to {csv_path}")
+
     return csv_path
 
 

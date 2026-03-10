@@ -1,0 +1,167 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current operational state (vehicle position, task progress, environmental changes, safety events) within p95 ≤ 1.0 s latency for all supported update scenarios (teleoperated commands, autonomous task execution, sensor data ingestion, safety alerts).",
+    "rationale": "CR-NGHE-007 is a non-functional requirement (latency constraint) that must be refined into a functional statement specifying what updates occur, from which sources, and under what conditions. The p95 ≤ 1.0 s acceptance criterion is a measurable performance target. High safety criticality demands explicit inclusion of safety event propagation in the update scope.",
+    "verification_idea": "Instrument worksite model update pipeline with end-to-end latency measurement from source event (telemetry arrival, tasking command, safety alert) to model state change visibility. Measure p95 latency across representative update scenarios in lab and field conditions.",
+    "sub_frs": [
+      "FR-NGHE-007.1: Ingest telemetry data (vehicle position, sensor readings, task state) from Vehicle module into worksite model",
+      "FR-NGHE-007.2: Ingest tasking commands and acknowledgments from Teleoperation module into worksite model",
+      "FR-NGHE-007.3: Ingest safety alerts and status changes from Safety Services module into worksite model",
+      "FR-NGHE-007.4: Propagate worksite model updates to all authorized consumers (Site Manager, Operator, Tele-operator, Safety Manager) within latency budget",
+      "FR-NGHE-007.5: Ensure worksite model consistency and ordering of concurrent updates across distributed sources"
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized event-driven worksite model with synchronous ingestion from all sources (Vehicle, Teleoperation, Safety Services) via blocking API calls; model updates published to subscribers with in-process message queue",
+      "DP-B: Distributed worksite model with asynchronous event streaming (Kafka/RabbitMQ) from all sources; model updates computed in real-time stream processor; results cached and served via low-latency query API",
+      "DP-C: Hybrid pull-push model: Vehicle and Safety Services push critical updates (telemetry, alerts) via high-priority channel; Teleoperation commands pulled on-demand; worksite model updated via event log with eventual consistency guarantees",
+      "DP-D: Replicated worksite model instances at Vehicle, Teleoperation, and Safety Services modules; periodic synchronization via delta protocol; Site Manager queries nearest replica"
+    ],
+    "selected_dp": "DP-B: Distributed worksite model with asynchronous event streaming from all sources; real-time stream processor computes model state; low-latency query API serves consumers.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Decoupling via event streaming reduces synchronous dependencies between Vehicle, Teleoperation, and Safety Services modules",
+        "Stream processor is independent of source module implementation details (protocol, format negotiation)",
+        "Query API abstracts model storage from consumer logic",
+        "Risk: Stream processor becomes a single point of latency bottleneck if not properly scaled"
+      ],
+      "notes": "DP-B exhibits low coupling in the functional domain (sources and consumers are independent) but introduces a new architectural component (stream processor) that must be carefully designed to avoid becoming a bottleneck. Asynchronous design allows sources to operate at their natural rates without blocking on model updates."
+    },
+    "assumptions_risks": [
+      "Assumption: Network infrastructure supports low-latency event delivery (< 100 ms p95) from Vehicle, Teleoperation, Safety Services to stream processor",
+      "Assumption: Stream processor can sustain ingestion rate of all concurrent update sources without queueing delays exceeding 300 ms",
+      "Risk: Eventual consistency model may introduce brief windows where consumers see stale worksite state; acceptable only if safety-critical updates (alerts) are delivered synchronously",
+      "Risk: Stream processor failure cascades to all consumers; requires high-availability design (replication, failover)",
+      "Risk: Debugging latency issues in distributed system is complex; requires comprehensive observability (tracing, metrics)"
+    ],
+    "recommended_revision": "Refine DP-B to explicitly separate safety-critical updates (SafetyAlert) from operational updates (Telemetry, Tasking): safety alerts bypass stream processor and are delivered synchronously to Safety Services and Site Manager; operational updates flow through stream processor with p95 ≤ 700 ms latency budget, leaving 300 ms for safety alert propagation."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "Worksite model data store, event streaming infrastructure (Kafka/RabbitMQ cluster), real-time stream processor (Flink/Spark Streaming job), query API server, and model consistency logic. Owns the contract that all worksite state updates flow through this module and are served to authorized consumers within latency SLA."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Vehicle module publishes telemetry events (position, sensor readings, task state) to NGHE Solution event stream; NGHE Solution ingests and processes into worksite model"
+      },
+      {
+        "name": "Tasking",
+        "direction": "inout",
+        "details": "Teleoperation module sends tasking commands to NGHE Solution; NGHE Solution acknowledges receipt and updates worksite model with command state; Teleoperation queries worksite model for task progress"
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "in",
+        "details": "Safety Services module publishes safety alerts and status changes to NGHE Solution; NGHE Solution ingests with high priority and propagates to Site Manager and Operator with minimal latency"
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "NGHE Solution communicates with Vehicle, Teleoperation, and Safety Services modules over Network Link; also serves worksite model queries to Site Manager and other consumers over Network Link"
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "NGHE Solution is the natural owner of worksite model state and update orchestration. All sources (Vehicle, Teleoperation, Safety Services) are external to this module and communicate via well-defined interfaces. Minimal diffusion: worksite model logic is centralized in this module."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 15,
+        "diffusion_score": 85,
+        "notes": "Vehicle module is a source of telemetry, not the owner of worksite model. If worksite model were embedded in Vehicle, it would be inaccessible to Teleoperation and Safety Services consumers. High diffusion: would require replication across all modules."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Teleoperation module is a consumer and source of tasking commands, not the owner of worksite model. Embedding worksite model here would create tight coupling with Vehicle and Safety Services. High diffusion: would require replication."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 25,
+        "diffusion_score": 75,
+        "notes": "Safety Services module is a source of safety alerts and a consumer of worksite model state. Embedding worksite model here would couple safety logic to operational state management. High diffusion: would require replication to serve other consumers."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "NGHE Solution is the single authoritative owner of worksite model state. All sources (Vehicle, Teleoperation, Safety Services) publish updates to NGHE Solution via event streaming interfaces. All consumers (Site Manager, Operator, Tele-operator, Safety Manager) query worksite model from NGHE Solution via query API. This design minimizes diffusion and ensures consistency.",
+    "containment_risks": [
+      "Risk: NGHE Solution becomes a central bottleneck if event ingestion or query API throughput is insufficient. Mitigation: design for horizontal scaling of stream processor and query API.",
+      "Risk: Failure of NGHE Solution worksite model cascades to all consumers. Mitigation: implement high-availability design with replicated model instances and automatic failover.",
+      "Risk: Network latency between sources and NGHE Solution contributes to end-to-end latency. Mitigation: co-locate stream processor with network infrastructure; use low-latency transport (UDP, gRPC).",
+      "Risk: Consistency issues if sources publish updates out-of-order or with clock skew. Mitigation: implement vector clocks or sequence numbers in event schema; stream processor enforces ordering."
+    ],
+    "recommended_revision": "Explicitly define the worksite model schema (vehicle position, task state, safety status, timestamp) and the event schema (source, event type, payload, sequence number, timestamp). Define the query API contract (supported queries, response format, latency SLA). Define the failover and recovery procedure for NGHE Solution worksite model."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-B (distributed event streaming with real-time stream processor) directly addresses the refined FR requirement to update worksite model within p95 ≤ 1.0 s latency. The asynchronous design decouples sources and consumers, enabling independent scaling. The stream processor is the logical mechanism for computing model state from distributed events. Recommended revision to separate safety-critical updates from operational updates strengthens the design."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Risk: If worksite model logic is not fully contained in NGHE Solution, updates may be computed in multiple places (Vehicle, Teleoperation, Safety Services), leading to inconsistency. Mitigation: enforce that all model updates flow through NGHE Solution stream processor.",
+        "Risk: If query API is not centralized in NGHE Solution, consumers may query stale replicas. Mitigation: all consumers query NGHE Solution query API, not local caches.",
+        "Risk: If event streaming infrastructure is not owned by NGHE Solution, latency and reliability are not guaranteed. Mitigation: NGHE Solution owns Kafka/RabbitMQ cluster and stream processor."
+      ],
+      "containment_notes": "NGHE Solution is the clear owner of worksite model state and update orchestration. All external interfaces (Telemetry, Tasking, SafetyAlert, Network Link) are well-defined and flow through NGHE Solution. No diffusion of worksite model logic to other modules is required."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible via instrumentation of event streaming pipeline and query API. Latency can be measured end-to-end from source event (telemetry arrival, tasking command, safety alert) to model state change visibility. Acceptance criteria (p95 ≤ 1.0 s) can be validated in lab and field conditions.",
+      "allocation_clarity": "Allocation is clear: NGHE Solution owns worksite model update latency. Vehicle, Teleoperation, and Safety Services modules own source event generation latency (telemetry, tasking, alerts). Network Link owns transport latency. Site Manager, Operator, Tele-operator, Safety Manager own consumer query latency. End-to-end latency budget is allocated across these components."
+    },
+    "recommended_revisions": [
+      "Refine DP-B to explicitly separate safety-critical updates (SafetyAlert) from operational updates (Telemetry, Tasking) with different latency budgets and delivery guarantees.",
+      "Define worksite model schema, event schema, and query API contract in detail.",
+      "Define high-availability and failover procedures for NGHE Solution worksite model.",
+      "Define observability requirements (tracing, metrics, logging) for debugging latency issues in distributed system."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "CR-NGHE-007 is a non-functional requirement (latency constraint) that has been successfully refined into a functional requirement (update worksite model) with a selected design approach (distributed event streaming). The refined FR is not yet atomic and requires further decomposition into sub-FRs for ingestion, processing, and propagation of updates. The selected DP is sound and exhibits low coupling. The assigned IM (NGHE Solution) is the clear owner with minimal diffusion. All gates pass. Proceed to decompose sub-FRs at the next level.",
+    "next_level_sub_frs": [
+      "FR-NGHE-007.1: Ingest telemetry data (vehicle position, sensor readings, task state) from Vehicle module into worksite model",
+      "FR-NGHE-007.2: Ingest tasking commands and acknowledgments from Teleoperation module into worksite model",
+      "FR-NGHE-007.3: Ingest safety alerts and status changes from Safety Services module into worksite model",
+      "FR-NGHE-007.4: Propagate worksite model updates to all authorized consumers (Site Manager, Operator, Tele-operator, Safety Manager) within latency budget",
+      "FR-NGHE-007.5: Ensure worksite model consistency and ordering of concurrent updates across distributed sources"
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Network infrastructure supports low-latency event delivery (< 100 ms p95) from Vehicle, Teleoperation, Safety Services to stream processor",
+        "Stream processor can sustain ingestion rate of all concurrent update sources without queueing delays exceeding 300 ms",
+        "Safety-critical updates (SafetyAlert) can be delivered synchronously with p95 ≤ 300 ms latency",
+        "Operational updates (Telemetry, Tasking) can tolerate eventual consistency with p95 ≤ 700 ms latency",
+        "NGHE Solution has sufficient compute and storage capacity to maintain worksite model and serve queries within SLA"
+      ],
+      "open_risks": [
+        "Stream processor becomes a single point of latency bottleneck if not properly scaled",
+        "Stream processor failure cascades to all consumers; requires high-availability design",
+        "Debugging latency issues in distributed system is complex; requires comprehensive observability",
+        "Network latency between sources and NGHE Solution contributes to end-to-end latency",
+        "Consistency issues if sources publish updates out-of-order or with clock skew"
+      ],
+      "evidence_needed": [
+        "Network latency measurements between Vehicle, Teleoperation, Safety Services and NGHE Solution",
+        "Stream processor throughput and latency benchmarks under expected load",
+        "Worksite model schema and event schema design",
+        "Query API contract and performance benchmarks",
+        "High-availability and failover test results",
+        "End-to-end latency measurements in lab and field conditions"
+      ]
+    }
+  }
+}

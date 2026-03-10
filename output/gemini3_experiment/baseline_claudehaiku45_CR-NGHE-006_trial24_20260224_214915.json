@@ -1,0 +1,161 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and designated work zones with sufficient fidelity to support autonomous path planning and operator situational awareness.",
+    "rationale": "The original FR was vague on scope (what constitutes 'area analysis') and lacked specificity on fidelity requirements, update cadence, and consumer functions. Refinement clarifies that the worksite model is a persistent, multi-layer representation consumed by planning (path planning, task sequencing) and execution (real-time collision avoidance, operator display). High safety criticality demands explicit hazard representation and real-time update capability.",
+    "verification_idea": "Acceptance: (1) Model generated within 5 minutes of site entry; (2) Terrain elevation accuracy ±0.5 m over 95% of mapped area; (3) Static obstacles detected and represented with 90% recall; (4) Dynamic hazards (personnel) detected within 10 m radius, update latency <2 s; (5) Work zones defined and enforced in path planning; (6) Model available via standard interface to planning and execution subsystems.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire terrain and obstacle data from onboard sensors (LiDAR, camera, IMU) and external sources (site survey, operator input).",
+      "CR-NGHE-006.2: Fuse multi-modal sensor data into a unified 3D spatial representation with confidence metrics.",
+      "CR-NGHE-006.3: Classify and label terrain, obstacles, hazards, and work zones in the model.",
+      "CR-NGHE-006.4: Maintain and update the worksite model in real-time as the vehicle moves and new sensor data arrives.",
+      "CR-NGHE-006.5: Provide worksite model access to planning and execution functions via standardized query/subscription interface.",
+      "CR-NGHE-006.6: Enforce safety constraints (no-go zones, personnel proximity alerts) derived from the worksite model and safety plan."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized mapping service (SLAM-based) running on vehicle compute, fusing LiDAR + camera + IMU, publishing model updates via Telemetry interface to planning/execution consumers.",
+      "DP-B: Distributed sensor processing: onboard perception module generates local obstacle map; tele-operator provides high-level site context (work zones, hazards) via Tasking interface; fusion occurs at planning layer.",
+      "DP-C: Hybrid cloud-edge: vehicle acquires raw sensor data; edge compute (on-vehicle) performs real-time obstacle detection; cloud service (via Network Link) performs offline terrain reconstruction and work-zone optimization; results cached locally."
+    ],
+    "selected_dp": "DP-A: Centralized mapping service (SLAM-based) running on vehicle compute, fusing LiDAR + camera + IMU, publishing model updates via Telemetry interface to planning/execution consumers.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling to sensor hardware (LiDAR, camera, IMU) is expected and acceptable; decoupled via sensor abstraction layer.",
+        "Coupling to planning/execution consumers is via Telemetry interface (standard, many-to-one publish-subscribe); acceptable.",
+        "No coupling to Safety Services at DP level; safety constraints applied downstream by planning/execution modules consuming the model."
+      ],
+      "notes": "DP-A is internally cohesive (all mapping logic in one service) and externally loosely coupled (standard interface). Avoids distributed consensus (DP-B) and cloud dependency (DP-C), reducing latency and failure modes critical for safety-critical worksite modeling."
+    },
+    "assumptions_risks": [
+      "Assumption: Vehicle compute has sufficient CPU/GPU capacity for real-time SLAM (LiDAR + camera fusion). Risk: If compute is undersized, model update latency may exceed 2 s, violating dynamic hazard detection requirement. Mitigation: Specify compute platform early; prototype SLAM performance.",
+      "Assumption: LiDAR and camera are available and calibrated. Risk: Sensor failure or miscalibration degrades model fidelity. Mitigation: Implement sensor health monitoring; fallback to LiDAR-only mode if camera fails.",
+      "Assumption: Telemetry interface has sufficient bandwidth and latency for model updates (estimated 10–50 MB/s for point clouds, <500 ms latency). Risk: Network congestion or interface bottleneck. Mitigation: Implement model compression (octree, voxel grid); prioritize critical regions.",
+      "Assumption: Planning/execution modules can consume model updates asynchronously. Risk: If consumers expect synchronous model queries, latency may increase. Mitigation: Provide both publish-subscribe (Telemetry) and query (custom interface) access patterns."
+    ],
+    "recommended_revision": "Clarify compute platform specifications (CPU, GPU, memory) and SLAM algorithm selection (e.g., ROS2 Nav2 SLAM Toolbox, Cartographer, or custom). Define model update frequency (e.g., 10 Hz) and compression strategy. Specify fallback behavior if primary sensors fail (e.g., degrade to LiDAR-only, reduce planning speed)."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "The Vehicle module encapsulates all onboard perception, mapping, and real-time model maintenance. It owns the SLAM service, sensor fusion pipeline, and model storage. It publishes worksite model updates via Telemetry interface to external consumers (planning, execution, tele-operator display). It receives sensor calibration and site context updates via Tasking interface."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle publishes worksite model updates (terrain grid, obstacle list, hazard positions, work-zone boundaries) as Telemetry messages. Consumers: planning/execution modules, operator display. Frequency: 10 Hz (configurable). Payload: compressed 3D model representation (octree or voxel grid)."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives site context and mapping directives via Tasking (e.g., 'map region X', 'add work zone Y', 'update hazard Z'). Source: tele-operator, planning module, or external site survey service. Allows operator/planner to inject high-level site knowledge into the model."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Optional: Vehicle may transmit raw sensor data or model snapshots to cloud service for offline analysis or backup. Receives updated terrain maps or work-zone definitions from cloud. Used only if cloud-based terrain reconstruction is enabled; otherwise dormant."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "Excellent containment. SLAM, sensor fusion, and model maintenance are core vehicle perception functions. All real-time processing must reside on vehicle for latency-critical safety. Minimal diffusion: only Telemetry/Tasking interfaces cross boundary. This is the natural home for worksite mapping."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 40,
+        "diffusion_score": 60,
+        "notes": "Poor containment. NGHE Solution is a top-level system container; assigning worksite mapping here would diffuse the function across multiple sub-modules (Vehicle, Teleoperation, Safety Services) and obscure ownership. Not recommended."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 25,
+        "diffusion_score": 75,
+        "notes": "Poor containment. Teleoperation is primarily a human-machine interface and command channel. While tele-operator may view and annotate the worksite model, the core mapping and SLAM logic should not reside here. Diffusion risk: mixing perception with control/display logic."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 30,
+        "diffusion_score": 70,
+        "notes": "Poor containment. Safety Services consumes the worksite model to enforce safety constraints (e.g., no-go zones, personnel proximity alerts) but should not own the model generation logic. Assigning mapping here would couple safety logic to perception, violating separation of concerns."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module is the optimal owner of worksite mapping because: (1) it owns the sensors (LiDAR, camera, IMU) that feed the mapping pipeline; (2) real-time SLAM and model updates must execute on vehicle compute for latency and safety; (3) the worksite model is a core vehicle perception artifact, analogous to odometry or localization; (4) external consumers (planning, execution, Safety Services) access the model via standard interfaces (Telemetry, Tasking), maintaining loose coupling.",
+    "containment_risks": [
+      "Risk: Vehicle module becomes overloaded if it also owns path planning, collision avoidance, and task execution. Mitigation: Ensure Vehicle owns only perception (mapping, localization, sensor fusion); planning and execution are separate modules consuming Vehicle outputs.",
+      "Risk: Worksite model updates may conflict with real-time vehicle control loops (e.g., SLAM update blocks motor control). Mitigation: Implement asynchronous, non-blocking model updates; use separate threads/processes for perception and control.",
+      "Risk: Sensor failures (LiDAR, camera) degrade model quality without explicit fallback. Mitigation: Implement sensor health monitoring; define graceful degradation modes (e.g., LiDAR-only, reduced planning speed)."
+    ],
+    "recommended_revision": "Confirm that Vehicle module owns only perception and mapping; planning, execution, and safety constraint enforcement are separate modules. Define internal Vehicle architecture: separate threads for SLAM, sensor fusion, and model storage. Specify Telemetry payload schema (e.g., ROS2 OccupancyGrid or custom protobuf). Implement sensor health monitoring and fallback modes."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-A (centralized SLAM-based mapping on vehicle) directly addresses the refined FR. It provides real-time worksite model generation, terrain/obstacle representation, and multi-modal sensor fusion. The DP is specific, implementable, and traceable to all sub-FRs (sensor acquisition, fusion, classification, maintenance, access, safety constraints). No logical gaps or contradictions."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Low diffusion risk: Vehicle module is a natural home for perception logic. Telemetry and Tasking interfaces are standard and well-defined. No duplication of mapping logic across modules."
+      ],
+      "containment_notes": "Vehicle module achieves 95% containment score. SLAM, sensor fusion, and model storage are cohesive and owned by Vehicle. External interfaces (Telemetry out, Tasking in, Network Link optional) are minimal and standard. Ownership is clear: Vehicle is responsible for model generation and maintenance; consumers (planning, execution, Safety Services) are responsible for model interpretation and constraint enforcement."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. Worksite model generation is verifiable via standard metrics: terrain accuracy (±0.5 m), obstacle recall (90%), dynamic hazard detection latency (<2 s), model availability (via Telemetry interface). Acceptance tests can be automated (sensor simulation, ground-truth comparison).",
+      "allocation_clarity": "Clear. Vehicle module is allocated CR-NGHE-006 and its sub-FRs (sensor acquisition, fusion, classification, maintenance, access). Planning and execution modules are allocated downstream FRs (path planning, collision avoidance, task execution) that consume the worksite model. Safety Services is allocated FR for safety constraint enforcement (no-go zones, personnel alerts) using the model as input."
+    },
+    "recommended_revisions": [
+      "Refine sub-FR CR-NGHE-006.6 (safety constraints): clarify whether Vehicle module enforces constraints or merely provides model data to Safety Services. Recommend: Vehicle provides model; Safety Services enforces constraints. This maintains separation of concerns.",
+      "Define worksite model schema (e.g., ROS2 OccupancyGrid, custom protobuf) and Telemetry payload format. Specify compression strategy (octree, voxel grid) to meet bandwidth constraints.",
+      "Specify SLAM algorithm and compute platform (CPU, GPU, memory). Prototype SLAM performance on target hardware to validate latency and accuracy assumptions.",
+      "Define sensor health monitoring and fallback modes (e.g., LiDAR-only, reduced planning speed if camera fails)."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "CR-NGHE-006 is not atomic; it comprises six sub-FRs spanning sensor acquisition, fusion, classification, maintenance, access, and safety constraint enforcement. Each sub-FR requires further decomposition to DP and IM. The refined FR and selected DP are sound and pass all gates, but the next level of detail is necessary to specify algorithms, interfaces, and module boundaries for sub-functions. Proceeding to decompose sub-FRs will clarify ownership of sensor abstraction, fusion logic, model storage, and safety constraint application.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire terrain and obstacle data from onboard sensors (LiDAR, camera, IMU) and external sources (site survey, operator input).",
+      "CR-NGHE-006.2: Fuse multi-modal sensor data into a unified 3D spatial representation with confidence metrics.",
+      "CR-NGHE-006.3: Classify and label terrain, obstacles, hazards, and work zones in the model.",
+      "CR-NGHE-006.4: Maintain and update the worksite model in real-time as the vehicle moves and new sensor data arrives.",
+      "CR-NGHE-006.5: Provide worksite model access to planning and execution functions via standardized query/subscription interface.",
+      "CR-NGHE-006.6: Enforce safety constraints (no-go zones, personnel proximity alerts) derived from the worksite model and safety plan."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Vehicle compute platform has sufficient CPU/GPU capacity for real-time SLAM (LiDAR + camera fusion).",
+        "LiDAR and camera sensors are available, calibrated, and provide sufficient fidelity for terrain and obstacle detection.",
+        "Telemetry interface has sufficient bandwidth (10–50 MB/s) and latency (<500 ms) for model updates.",
+        "Planning/execution modules can consume model updates asynchronously via Telemetry publish-subscribe.",
+        "Safety constraints (no-go zones, personnel alerts) are enforced downstream by Safety Services or planning modules, not by Vehicle mapping module.",
+        "Worksite model is a persistent, multi-layer representation (terrain grid, obstacle list, hazard positions, work-zone boundaries).",
+        "Model update frequency is 10 Hz (configurable); terrain accuracy is ±0.5 m; obstacle recall is 90%; dynamic hazard detection latency is <2 s."
+      ],
+      "open_risks": [
+        "Compute platform undersizing: Vehicle compute may lack capacity for real-time SLAM, causing model update latency to exceed 2 s. Mitigation: Specify compute platform early; prototype SLAM performance.",
+        "Sensor failure or miscalibration: LiDAR or camera failure degrades model fidelity without explicit fallback. Mitigation: Implement sensor health monitoring; define graceful degradation modes.",
+        "Network congestion: Telemetry interface may become bottleneck if model updates are large or frequent. Mitigation: Implement model compression; prioritize critical regions.",
+        "Safety constraint enforcement ambiguity: Unclear whether Vehicle module or Safety Services enforces no-go zones and personnel alerts. Mitigation: Clarify in sub-FR CR-NGHE-006.6; recommend Safety Services owns constraint enforcement.",
+        "Model schema and interface specification: Worksite model format and Telemetry payload are not yet defined. Mitigation: Define schema (ROS2 OccupancyGrid, custom protobuf) and compression strategy in next decomposition level."
+      ],
+      "evidence_needed": [
+        "SLAM algorithm selection and performance data (latency, accuracy, CPU/GPU usage) on target compute platform.",
+        "Sensor specifications (LiDAR range/resolution, camera FOV/resolution, IMU accuracy) and calibration procedure.",
+        "Telemetry interface bandwidth and latency measurements under nominal and peak load.",
+        "Worksite model schema definition (ROS2 OccupancyGrid, custom protobuf, or other) and compression strategy.",
+        "Acceptance test plan: terrain accuracy validation, obstacle recall measurement, dynamic hazard detection latency, model availability verification.",
+        "Sensor health monitoring and fallback mode specification (e.g., LiDAR-only, reduced planning speed).",
+        "Safety constraint enforcement allocation: clarify whether Vehicle or Safety Services owns no-go zone and personnel alert logic."
+      ]
+    }
+  }
+}

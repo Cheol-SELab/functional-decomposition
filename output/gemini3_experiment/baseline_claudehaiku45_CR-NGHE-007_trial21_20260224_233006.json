@@ -1,0 +1,166 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current equipment state, environmental conditions, and operational events within p95 ≤ 1.0 s latency for all supported update scenarios, ensuring operational decisions are based on timely information.",
+    "rationale": "CR-NGHE-007 addresses a critical operational requirement: timely situational awareness. The worksite model is the shared representation of reality used by operators, tele-operators, and autonomous systems. Latency directly impacts safety (delayed hazard detection), productivity (stale task assignments), and effectiveness (poor decision quality). The p95 metric acknowledges that occasional outliers are acceptable, but the 95th percentile must meet the customer threshold. High safety criticality demands explicit traceability from latency to hazard mitigation.",
+    "verification_idea": "Instrument the update pipeline (sensor acquisition → model ingestion → distribution) with end-to-end timestamps. Measure p95 latency across representative scenarios: equipment state changes (position, orientation, attachment status), environmental updates (obstacle detection, terrain changes), and event notifications (alarms, mode transitions). Validate against customer-defined acceptance criteria in staged field trials.",
+    "sub_frs": [
+      "FR-NGHE-007.1: Acquire worksite sensor data (equipment telemetry, environmental sensors, operator inputs) with sufficient frequency and fidelity.",
+      "FR-NGHE-007.2: Process and fuse sensor data into a coherent worksite model representation.",
+      "FR-NGHE-007.3: Distribute updated worksite model to all authorized consumers (local operators, tele-operators, autonomous systems, safety services) within latency budget.",
+      "FR-NGHE-007.4: Detect and mitigate latency violations or data staleness that could compromise safety."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized worksite model server with periodic polling from all sensors; clients pull updates on demand.",
+      "DP-B: Distributed event-driven architecture with publish-subscribe messaging; sensors push updates to a message broker; model consumers subscribe to relevant topics.",
+      "DP-C: Hybrid push-pull with edge caching; sensors push critical updates (safety events) immediately; non-critical state updates are batched and pulled periodically.",
+      "DP-D: Real-time streaming pipeline with in-memory model store (e.g., Redis) and low-latency message transport (e.g., gRPC, QUIC); sensors stream updates; consumers subscribe to model change streams."
+    ],
+    "selected_dp": "DP-D: Real-time streaming pipeline with in-memory model store and low-latency message transport. Sensors stream updates via high-performance message broker (e.g., Kafka, NATS, or proprietary real-time transport); worksite model is maintained in a low-latency in-memory store (e.g., Redis, shared memory); consumers subscribe to model change streams via gRPC or equivalent low-latency RPC. This design minimizes end-to-end latency by eliminating polling delays, reducing serialization overhead, and enabling push-based distribution.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between sensor acquisition rate and model update frequency: if sensors cannot sustain the required streaming rate, latency targets will be missed. Mitigation: define sensor data contracts (frequency, format, reliability).",
+        "Coupling between network reliability and latency: packet loss or congestion can cause retransmissions and jitter. Mitigation: use QoS mechanisms (priority queuing, bandwidth reservation) and redundant network paths.",
+        "Coupling between model consistency and latency: strong consistency guarantees (e.g., distributed transactions) can increase latency. Mitigation: adopt eventual consistency with conflict-free replicated data types (CRDTs) or operational transformation for non-critical updates; use strong consistency only for safety-critical state.",
+        "Coupling between consumer diversity and latency: heterogeneous consumers (local UI, tele-op, autonomous systems) may have different latency tolerances. Mitigation: provide multiple subscription modes (real-time, batched, filtered) and allow consumers to specify their latency SLA."
+      ],
+      "notes": "DP-D is well-decoupled from specific sensor types, network topologies, and consumer implementations. The streaming architecture naturally supports incremental updates and selective subscriptions, reducing unnecessary data flow. However, operational complexity (managing message broker, in-memory store, and stream processing) is higher than simpler alternatives; this is justified by the safety-critical latency requirement."
+    },
+    "assumptions_risks": [
+      "Assumption: Network infrastructure supports low-latency, reliable message transport (e.g., dedicated network segment, QoS policies, or private cloud). Risk: if network is shared with other traffic or has high jitter, latency targets may not be achievable. Mitigation: conduct network characterization study; reserve bandwidth; consider edge computing to reduce network dependency.",
+      "Assumption: Sensors can stream data at required frequency without overwhelming the message broker. Risk: sensor burst traffic or broker overload could cause queuing delays. Mitigation: implement backpressure mechanisms, rate limiting, and load shedding policies.",
+      "Assumption: In-memory model store has sufficient capacity and can sustain required update throughput. Risk: memory exhaustion or contention could degrade latency. Mitigation: implement data retention policies, sharding, and performance monitoring.",
+      "Assumption: Consumers can process model updates at the streaming rate. Risk: slow consumers could cause backlog and latency increase. Mitigation: implement consumer-side buffering, filtering, and adaptive subscription modes.",
+      "Assumption: Safety-critical updates (e.g., emergency stop, hazard detection) are prioritized and delivered with guaranteed latency. Risk: if safety updates are queued behind non-critical updates, safety could be compromised. Mitigation: implement separate high-priority channels for safety events; use interrupt-driven delivery for critical alerts."
+    ],
+    "recommended_revision": "Refine DP-D to explicitly separate safety-critical and non-critical update streams. Safety-critical updates (e.g., obstacle detection, emergency commands) should use a dedicated, low-latency channel with guaranteed delivery and priority queuing. Non-critical updates (e.g., equipment diagnostics, productivity metrics) can use a best-effort streaming channel. This two-tier approach ensures that latency targets are met for safety-relevant information while allowing flexibility for non-critical data."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "The Teleoperation module owns the real-time streaming pipeline for worksite model updates, including: (1) subscription and ingestion of sensor data streams from Vehicle and Safety Services; (2) maintenance of the in-memory worksite model representation; (3) distribution of model updates to authorized consumers (local operators, tele-operators, autonomous systems) via streaming subscriptions; (4) latency monitoring and alerting for SLA violations. The module integrates with Network Link for message transport and with Tasking for operational context."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Incoming sensor data streams from Vehicle (equipment state, position, orientation, attachment status) and Safety Services (environmental hazards, safety events). High-frequency, low-latency ingestion required."
+      },
+      {
+        "name": "Tasking",
+        "direction": "inout",
+        "details": "Operational context and task assignments that inform model updates (e.g., current task, expected equipment behavior). Tasking may also consume worksite model updates to validate task feasibility."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Outgoing safety-critical updates (e.g., latency SLA violations, model inconsistencies that could compromise safety). Delivered with guaranteed priority and low latency."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Underlying network transport for all streaming communication. Teleoperation module depends on Network Link QoS (bandwidth, latency, reliability) to meet end-to-end latency targets."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.4,
+        "diffusion_score": 0.8,
+        "notes": "NGHE Solution is the top-level system container. Worksite model updates are a system-level concern that spans multiple subsystems (Vehicle, Teleoperation, Safety Services). Assigning to NGHE Solution would result in high diffusion (logic scattered across multiple child modules) and poor ownership clarity. Not recommended as primary owner."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.3,
+        "diffusion_score": 0.9,
+        "notes": "Vehicle is responsible for equipment control and local telemetry generation. While Vehicle produces sensor data, it should not own the worksite model or distribution pipeline. Assigning here would couple vehicle control logic with global model management, violating separation of concerns. High diffusion risk."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.95,
+        "diffusion_score": 0.1,
+        "notes": "Teleoperation is the natural owner of real-time situational awareness and model distribution. Tele-operators depend on timely, accurate worksite models to make remote control decisions. The module already owns communication infrastructure and consumer-facing interfaces. Streaming pipeline, in-memory model store, and subscription management are core Teleoperation responsibilities. Low diffusion: logic is cohesive and localized."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.5,
+        "diffusion_score": 0.7,
+        "notes": "Safety Services consumes worksite model updates to detect hazards and enforce safety policies. While Safety Services is a critical consumer, it should not own the model distribution pipeline. Assigning here would couple safety logic with real-time infrastructure, making it difficult to evolve either independently. Moderate containment; high diffusion risk."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "Teleoperation is the optimal owner because: (1) it is the primary consumer of real-time worksite models (tele-operators require timely situational awareness); (2) it already owns communication infrastructure and low-latency message transport; (3) it has clear interfaces to Vehicle (Telemetry input), Safety Services (SafetyAlert output), and Tasking (operational context); (4) the streaming pipeline is a core Teleoperation capability, not a cross-cutting concern; (5) ownership clarity enables accountability for latency SLA compliance.",
+    "containment_risks": [
+      "Risk: If Teleoperation module becomes overloaded with model management logic, it could become a bottleneck or single point of failure. Mitigation: design the module with clear separation between ingestion, model store, and distribution layers; consider internal sub-modules or microservices if complexity grows.",
+      "Risk: Local operators (on-site equipment operators) may not have direct access to Teleoperation module if it is tele-operation-centric. Mitigation: ensure that local operator interfaces (e.g., on-vehicle displays, local control stations) subscribe to the same model update streams; provide local caching and fallback mechanisms.",
+      "Risk: Safety Services may have stricter latency requirements than Teleoperation. If Safety Services is a consumer rather than co-owner, its latency needs might not be prioritized. Mitigation: define separate high-priority channels for safety-critical updates; establish SLA contracts between Teleoperation and Safety Services.",
+      "Risk: Vehicle sensors may not stream data at the required frequency or reliability. Mitigation: define sensor data contracts (frequency, format, reliability); implement sensor health monitoring and fallback strategies."
+    ],
+    "recommended_revision": "Establish a clear interface contract between Teleoperation (model owner) and Safety Services (safety consumer). Define which updates are safety-critical (e.g., obstacle detection, emergency commands) and require guaranteed low-latency delivery, and which are non-critical (e.g., equipment diagnostics). Implement a two-tier subscription model: (1) high-priority safety channel with guaranteed latency ≤ 100 ms; (2) standard channel with p95 latency ≤ 1.0 s. This ensures that safety requirements are met without over-constraining non-critical updates."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-D (real-time streaming pipeline with in-memory model store) directly addresses FR-NGHE-007 (worksite model update latency ≤ 1.0 s p95). The streaming architecture minimizes latency by eliminating polling delays, reducing serialization overhead, and enabling push-based distribution. The two-tier approach (safety-critical and non-critical streams) ensures that latency targets are met for safety-relevant information. Assumptions and risks are well-documented and mitigable."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Teleoperation module ownership is clear and well-justified. However, if the module grows to include other real-time services (e.g., autonomous system coordination, predictive analytics), it could become a monolith. Mitigation: plan for internal sub-modules or microservices as complexity grows.",
+        "Vehicle and Safety Services are consumers of the worksite model, not owners. This is appropriate for separation of concerns, but requires clear interface contracts and SLA agreements. Mitigation: establish formal interface specifications and latency SLAs between Teleoperation and consumers."
+      ],
+      "containment_notes": "Teleoperation module contains the streaming pipeline, in-memory model store, and subscription management. External interfaces (Telemetry, Tasking, SafetyAlert, Network Link) are well-defined and necessary. No evidence of logic diffusion or unnecessary coupling. Ownership is clear and accountable."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible via instrumentation of the update pipeline with end-to-end timestamps. Latency can be measured across representative scenarios (equipment state changes, environmental updates, event notifications) in lab and field trials. SLA compliance can be monitored continuously in production.",
+      "allocation_clarity": "Allocation is clear: Teleoperation module owns the worksite model update pipeline and is accountable for meeting the p95 ≤ 1.0 s latency target. Sub-FRs (sensor acquisition, data processing, distribution, latency monitoring) are allocated to specific components within the module or to dependent modules (Vehicle, Safety Services, Network Link)."
+    },
+    "recommended_revisions": [
+      "Refine the DP to explicitly define the two-tier update strategy (safety-critical and non-critical streams) and the latency SLA for each tier.",
+      "Establish formal interface contracts between Teleoperation and consumers (Vehicle, Safety Services, Tasking) that specify data formats, frequencies, and latency guarantees.",
+      "Define a latency monitoring and alerting strategy: how will SLA violations be detected, reported, and remediated?",
+      "Plan for scalability: as the number of sensors and consumers grows, how will the streaming pipeline scale? Consider sharding, load balancing, and edge computing strategies."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-NGHE-007 is not atomic; it decomposes into four sub-FRs that require further refinement and design. The selected DP (real-time streaming pipeline) is sound and well-justified, but its realization depends on successful decomposition of sub-FRs. Specifically, FR-NGHE-007.1 (sensor acquisition), FR-NGHE-007.2 (data processing and fusion), FR-NGHE-007.3 (distribution), and FR-NGHE-007.4 (latency monitoring) each require their own FR-DP-IM analysis to ensure that latency targets are met end-to-end. The Teleoperation module assignment is appropriate and well-justified, but the module's internal architecture (streaming broker, model store, subscription manager) must be designed in the next level.",
+    "next_level_sub_frs": [
+      "FR-NGHE-007.1: Acquire worksite sensor data (equipment telemetry, environmental sensors, operator inputs) with sufficient frequency and fidelity to support real-time model updates.",
+      "FR-NGHE-007.2: Process and fuse sensor data into a coherent worksite model representation with minimal latency and high consistency.",
+      "FR-NGHE-007.3: Distribute updated worksite model to all authorized consumers (local operators, tele-operators, autonomous systems, safety services) within latency budget, with priority for safety-critical updates.",
+      "FR-NGHE-007.4: Detect and mitigate latency violations or data staleness that could compromise safety or operational effectiveness."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Network infrastructure supports low-latency, reliable message transport (e.g., dedicated network segment, QoS policies, or private cloud).",
+        "Sensors can stream data at required frequency without overwhelming the message broker.",
+        "In-memory model store has sufficient capacity and can sustain required update throughput.",
+        "Consumers can process model updates at the streaming rate.",
+        "Safety-critical updates are prioritized and delivered with guaranteed latency.",
+        "Customer-defined latency target is p95 ≤ 1.0 s for all supported update scenarios (to be confirmed in requirements review).",
+        "Worksite model representation is well-defined and stable (schema, data types, consistency model)."
+      ],
+      "open_risks": [
+        "Network latency and jitter could exceed design assumptions, making p95 target unachievable. Mitigation: conduct network characterization study; reserve bandwidth; consider edge computing.",
+        "Sensor data quality or frequency could be insufficient to support real-time model updates. Mitigation: define sensor data contracts; implement sensor health monitoring.",
+        "Safety Services may have stricter latency requirements than Teleoperation. Mitigation: establish separate high-priority channels for safety-critical updates.",
+        "Teleoperation module could become a bottleneck or single point of failure. Mitigation: design for scalability and redundancy; plan for internal sub-modules or microservices.",
+        "Local operators may not have access to Teleoperation module if it is tele-operation-centric. Mitigation: ensure local operator interfaces subscribe to the same model update streams; provide local caching."
+      ],
+      "evidence_needed": [
+        "Network characterization study: latency, jitter, bandwidth, reliability of proposed network infrastructure.",
+        "Sensor data contract specifications: frequency, format, reliability, and latency of each sensor type.",
+        "Worksite model schema and consistency model: data types, update semantics, conflict resolution strategies.",
+        "Consumer latency requirements: SLA targets for each consumer type (local operator, tele-operator, autonomous system, safety service).",
+        "Proof-of-concept or prototype: demonstrate that the streaming pipeline can achieve p95 ≤ 1.0 s latency with representative sensor data and consumer load.",
+        "Field trial results: validate latency targets in realistic worksite conditions with actual equipment and operators."
+      ]
+    }
+  }
+}

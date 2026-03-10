@@ -1,0 +1,161 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current equipment state, environmental conditions, and operational events with a p95 latency not exceeding the customer-defined target (baseline 1.0 s) across all supported update scenarios.",
+    "rationale": "CR-NGHE-007 requires clarification of scope (what constitutes 'worksite model'), measurement basis (p95 latency across which scenarios), and customer-specific acceptance criteria. The refined FR explicitly bounds the latency requirement to a statistical percentile and acknowledges customer tailoring, critical for high-safety-criticality systems where deterministic guarantees matter.",
+    "verification_idea": "Instrument worksite model update pipeline with end-to-end latency telemetry; measure p95 latency across representative scenarios (equipment state change, sensor event, tele-operator command, safety alert); compare against customer acceptance criteria; validate under nominal and degraded network conditions.",
+    "sub_frs": [
+      "FR-NGHE-007.1: Capture and transmit equipment state changes (position, orientation, operational mode) with minimal latency.",
+      "FR-NGHE-007.2: Ingest and process worksite sensor data (environmental, proximity, safety) into the model with bounded latency.",
+      "FR-NGHE-007.3: Propagate model updates to all authorized consumers (Site Manager, Tele-operator, Safety Services) within latency budget.",
+      "FR-NGHE-007.4: Prioritize safety-critical updates (SafetyAlert events) to meet stricter latency targets than routine telemetry."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized worksite model server with real-time event streaming; equipment and sensors publish state changes via high-frequency telemetry protocol; server aggregates and broadcasts updates to consumers.",
+      "DP-B: Distributed edge-based model replicas on Vehicle and Teleoperation modules; each replica maintains local state and synchronizes via eventual-consistency gossip protocol; consumers query nearest replica.",
+      "DP-C: Hybrid hierarchical model: Vehicle maintains authoritative equipment state; Teleoperation and Safety Services maintain read-only replicas synchronized via publish-subscribe with priority queuing for safety events.",
+      "DP-D: Message-queue-based architecture with latency-optimized routing; equipment publishes to topic-based queues; Safety Services subscribes to high-priority queue with guaranteed delivery; Site Manager and Tele-operator subscribe to standard queue."
+    ],
+    "selected_dp": "DP-C: Hybrid hierarchical model with Vehicle as authoritative source, Teleoperation and Safety Services as synchronized replicas, and priority-based publish-subscribe for safety-critical updates.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Vehicle module must expose authoritative state interface (Telemetry) with sufficient fidelity and update frequency.",
+        "Teleoperation and Safety Services must implement consistent replica synchronization logic to avoid divergence.",
+        "Network Link must support priority queuing to enforce safety-event latency guarantees."
+      ],
+      "notes": "DP-C decouples model ownership (Vehicle) from consumption (Teleoperation, Safety Services), reducing circular dependencies. Safety criticality is addressed via priority queuing, aligning with high-risk tailoring. Coupling is primarily through well-defined interfaces (Telemetry, SafetyAlert) rather than shared mutable state."
+    },
+    "assumptions_risks": [
+      "Assumption: Vehicle module can reliably publish state changes at sufficient frequency (≥10 Hz) to meet p95 latency target.",
+      "Assumption: Network Link supports priority-based message delivery with bounded jitter.",
+      "Risk: If Vehicle publishes infrequently or with high variance, p95 latency will exceed target; mitigation: implement predictive state interpolation on replicas.",
+      "Risk: Replica divergence under network partitions could lead to inconsistent safety decisions; mitigation: implement conflict-resolution rules and periodic reconciliation.",
+      "Risk: Publish-subscribe overhead (serialization, network transmission) may dominate latency budget; mitigation: optimize message format and use binary protocols."
+    ],
+    "recommended_revision": "Refine DP-C to explicitly specify: (1) Vehicle telemetry publication frequency and message format, (2) replica synchronization protocol (e.g., CRDT, operational transformation), (3) priority queue semantics and latency SLAs for safety vs. routine updates, (4) network link assumptions (bandwidth, jitter, packet loss tolerance)."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Safety Services",
+      "scope": "Owns the worksite model update ingestion, prioritization, and distribution logic for safety-critical and operational updates. Receives authoritative state from Vehicle via Telemetry and SafetyAlert interfaces; maintains a synchronized replica of the worksite model; exposes model state to authorized consumers (Site Manager, Tele-operator) via SafetyAlert and Telemetry interfaces."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Receives equipment state, sensor data, and operational events from Vehicle module at high frequency (≥10 Hz); used to update worksite model replica."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "Receives safety-critical events from Vehicle and other sensors with high priority; propagates alerts to authorized consumers (Site Manager, Tele-operator) with guaranteed low latency (p95 ≤ 500 ms)."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Optionally sends corrective tasking commands to Vehicle if model-based safety analysis detects hazardous conditions."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Underlying transport for all telemetry and alert messages; Safety Services assumes priority queuing and bounded latency guarantees."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "NGHE Solution is the system-level container but does not own specific worksite model logic; assigning to NGHE Solution would diffuse responsibility across multiple sub-modules and obscure ownership."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Vehicle is the authoritative source of equipment state but is not the appropriate owner of model aggregation and distribution logic; Vehicle should focus on state capture and transmission, not consumption-side synchronization."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.5,
+        "diffusion_score": 0.5,
+        "notes": "Teleoperation is a consumer of the worksite model but not the authoritative owner; assigning model update logic to Teleoperation would couple it to Vehicle state and complicate multi-consumer scenarios."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.85,
+        "diffusion_score": 0.15,
+        "notes": "Safety Services is the natural owner of worksite model updates because: (1) safety criticality is the primary driver of latency requirements, (2) Safety Services must ingest and prioritize safety-critical events, (3) Safety Services is responsible for distributing alerts to authorized consumers, (4) model synchronization logic is tightly coupled to safety decision-making."
+      }
+    ],
+    "ownership_candidate": "Safety Services",
+    "containment_hypothesis": "Safety Services owns the worksite model update pipeline, including ingestion from Vehicle (Telemetry, SafetyAlert), replica synchronization, and distribution to consumers. Vehicle remains the authoritative source of equipment state; Teleoperation and Site Manager are consumers. This assignment aligns with safety criticality and minimizes diffusion of model logic across modules.",
+    "containment_risks": [
+      "Risk: Safety Services may become a bottleneck if model update throughput exceeds its processing capacity; mitigation: implement asynchronous event processing and load shedding for non-critical updates.",
+      "Risk: Tight coupling between Safety Services and Vehicle via Telemetry interface could complicate Vehicle evolution; mitigation: define Telemetry interface as a stable contract with versioning.",
+      "Risk: If Teleoperation or Site Manager require direct access to model state (not via Safety Services), containment boundary may need revision; mitigation: enforce all model access through Safety Services APIs."
+    ],
+    "recommended_revision": "Clarify the boundary between Vehicle (state capture) and Safety Services (state aggregation and distribution). Define explicit APIs for Telemetry and SafetyAlert interfaces, including message schemas, frequency guarantees, and priority levels. Specify replica synchronization protocol and conflict-resolution rules to ensure consistency under network partitions."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid hierarchical model with priority-based publish-subscribe) directly addresses the refined FR requirement for p95 latency ≤ 1.0 s by: (1) centralizing model ownership in Vehicle to reduce state divergence, (2) implementing priority queuing to prioritize safety-critical updates, (3) using publish-subscribe to minimize latency for consumers. DP-C is feasible, testable, and aligns with high-safety-criticality constraints."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Safety Services owns model update logic but depends on Vehicle for authoritative state; if Vehicle interface changes, Safety Services must adapt. Mitigation: define stable Telemetry interface contract.",
+        "Model replica synchronization logic in Safety Services may need to be replicated in Teleoperation if it also maintains a local model; mitigation: implement synchronization as a shared library or service."
+      ],
+      "containment_notes": "Safety Services is the appropriate owner of worksite model updates because it is responsible for safety-critical event prioritization and distribution. Vehicle remains the authoritative source; Teleoperation and Site Manager are consumers. This assignment minimizes diffusion and aligns with safety criticality."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Worksite model update latency can be measured end-to-end via instrumentation of the Telemetry and SafetyAlert pipelines. p95 latency can be computed from telemetry logs. Verification is feasible in both lab and field environments.",
+      "allocation_clarity": "FR-NGHE-007 is allocated to Safety Services with clear ownership of model ingestion, synchronization, and distribution. Sub-FRs (FR-NGHE-007.1 through 007.4) can be further allocated to Vehicle (state capture), Network Link (transport), and Safety Services (aggregation and distribution)."
+    },
+    "recommended_revisions": [
+      "Refine DP-C to specify replica synchronization protocol (e.g., CRDT, operational transformation, or simple eventual consistency with conflict resolution).",
+      "Define Telemetry and SafetyAlert interface contracts, including message schemas, frequency guarantees, and priority levels.",
+      "Establish latency budgets for each stage of the pipeline: Vehicle state capture (e.g., 50 ms), Network Link transmission (e.g., 200 ms), Safety Services processing (e.g., 300 ms), consumer delivery (e.g., 450 ms).",
+      "Specify network assumptions (bandwidth, jitter, packet loss) and validate that DP-C can meet p95 latency under these conditions."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "CR-NGHE-007 has been refined to a clear, testable FR with explicit latency targets and safety criticality. DP-C (hybrid hierarchical model) is a sound design choice that addresses the FR and aligns with the high-safety-criticality constraint. Safety Services is the appropriate IM owner. However, the sub-FRs (FR-NGHE-007.1 through 007.4) require further decomposition to allocate responsibility for state capture (Vehicle), transport (Network Link), and consumer distribution (Teleoperation, Site Manager). Proceeding to the next decomposition level will clarify these allocations and enable detailed design of the Telemetry and SafetyAlert interfaces.",
+    "next_level_sub_frs": [
+      "FR-NGHE-007.1: Capture and transmit equipment state changes (position, orientation, operational mode) with minimal latency.",
+      "FR-NGHE-007.2: Ingest and process worksite sensor data (environmental, proximity, safety) into the model with bounded latency.",
+      "FR-NGHE-007.3: Propagate model updates to all authorized consumers (Site Manager, Tele-operator, Safety Services) within latency budget.",
+      "FR-NGHE-007.4: Prioritize safety-critical updates (SafetyAlert events) to meet stricter latency targets than routine telemetry."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Vehicle module can reliably publish state changes at ≥10 Hz frequency.",
+        "Network Link supports priority-based message delivery with bounded jitter.",
+        "Safety Services can process and synchronize model updates without exceeding 300 ms latency budget.",
+        "Replica synchronization protocol (e.g., CRDT) can maintain consistency under network partitions.",
+        "Customer-defined latency target is 1.0 s p95 or will be specified during detailed design."
+      ],
+      "open_risks": [
+        "Vehicle state publication frequency may be insufficient to meet p95 latency target; requires validation during detailed design.",
+        "Replica divergence under network partitions could lead to inconsistent safety decisions; requires conflict-resolution rules.",
+        "Publish-subscribe overhead (serialization, network transmission) may dominate latency budget; requires optimization of message format.",
+        "Teleoperation and Site Manager may require direct access to model state, complicating Safety Services ownership; requires clarification of consumer requirements."
+      ],
+      "evidence_needed": [
+        "Detailed specification of Telemetry interface (message schema, frequency, fidelity).",
+        "Detailed specification of SafetyAlert interface (message schema, priority levels, latency SLAs).",
+        "Network Link latency and jitter characteristics under nominal and degraded conditions.",
+        "Replica synchronization protocol specification and conflict-resolution rules.",
+        "Latency budget allocation across Vehicle, Network Link, and Safety Services.",
+        "Verification plan for p95 latency measurement in lab and field environments."
+      ]
+    }
+  }
+}

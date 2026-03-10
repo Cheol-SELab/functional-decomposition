@@ -1,0 +1,162 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation communication packet loss at or below the customer-defined threshold (acceptance criterion: ≤1% under agreed network conditions) to ensure safe and effective remote equipment operation.",
+    "rationale": "CR-NGHE-009 addresses a critical quality-of-service requirement for teleoperation. Packet loss directly impacts operator situational awareness, control responsiveness, and safety. Refining the FR to explicitly reference the acceptance criterion (≤1%) and network conditions scope clarifies the measurable target and boundary conditions. High safety criticality demands precise definition of what 'communication quality' means operationally.",
+    "verification_idea": "Conduct packet loss measurement under agreed network conditions (e.g., 4G/5G coverage, latency profile, interference scenarios). Measure end-to-end packet loss across Telemetry and Tasking interfaces during representative teleoperation missions. Acceptance: measured packet loss ≤ customer-defined limit (default 1%) over sustained operation (e.g., 1-hour mission).",
+    "sub_frs": [
+      "FR-NGHE-009.1: The teleoperation system shall detect and report packet loss events in real-time.",
+      "FR-NGHE-009.2: The teleoperation system shall implement error correction or redundancy mechanisms to minimize effective packet loss impact on critical control signals.",
+      "FR-NGHE-009.3: The teleoperation system shall gracefully degrade or alert the operator when packet loss exceeds safe thresholds."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Implement adaptive forward error correction (FEC) and packet retransmission with configurable timeout and retry limits, tuned to customer network conditions.",
+      "DP-B: Deploy dual-path redundant communication channels (primary and backup) with automatic failover to maintain packet delivery below 1% loss threshold.",
+      "DP-C: Implement application-level acknowledgment and selective repeat ARQ (Automatic Repeat reQuest) for critical control frames, with non-critical telemetry subject to best-effort delivery.",
+      "DP-D: Utilize network QoS (Quality of Service) prioritization and traffic shaping to reserve bandwidth for teleoperation control, reducing congestion-induced packet loss."
+    ],
+    "selected_dp": "DP-C: Implement application-level acknowledgment and selective repeat ARQ for critical control frames, with non-critical telemetry subject to best-effort delivery, combined with DP-D network QoS prioritization to achieve ≤1% packet loss on safety-critical signals.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "DP-C and DP-D are loosely coupled: QoS prioritization (DP-D) operates at network layer; ARQ (DP-C) operates at application layer. Both can coexist without functional conflict.",
+        "DP-C requires knowledge of which frames are 'critical' (control) vs. 'non-critical' (telemetry)—this is a design decision that must be documented in Safety Services and Teleoperation modules.",
+        "DP-D depends on network infrastructure support (carrier/ISP QoS capability); this is an assumption that must be validated with customer network conditions."
+      ],
+      "notes": "Combination of DP-C and DP-D is recommended because: (1) ARQ alone may not achieve 1% loss if network congestion is severe; (2) QoS alone does not guarantee packet delivery; (3) together they provide defense-in-depth. Risk: if customer network does not support QoS, fallback to DP-C + DP-A (FEC) may be required."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Customer network infrastructure supports QoS tagging and prioritization (or can be configured to do so).",
+      "ASSUMPTION: Acceptable latency budget allows for ARQ retransmission delays (typically 100–500 ms per retry).",
+      "RISK: If network latency is very high (>1 s), ARQ retransmission may cause unacceptable control lag; mitigation: implement timeout-based fallback to best-effort or alert operator.",
+      "RISK: Selective repeat ARQ adds complexity to protocol state machine; mitigation: use proven library or COTS protocol stack (e.g., QUIC, custom UDP-based ARQ).",
+      "RISK: Distinguishing 'critical' vs. 'non-critical' frames requires safety analysis; if miscategorized, non-critical loss could cascade to safety impact; mitigation: Safety Services module must validate frame classification."
+    ],
+    "recommended_revision": "Refine DP-C to explicitly state: 'Critical control frames (steering, brake, emergency stop) shall use selective repeat ARQ with per-frame acknowledgment; non-critical telemetry (sensor readings, status) shall use best-effort delivery with periodic heartbeat validation. QoS shall prioritize critical frames at network layer. Fallback: if packet loss exceeds 2% despite ARQ, operator shall be alerted and teleoperation mode shall transition to safe state (e.g., hold position, await manual intervention).'"
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Owns the teleoperation communication protocol stack, including application-level ARQ logic, frame classification (critical vs. non-critical), acknowledgment handling, and integration with Network Link for QoS tagging. Responsible for detecting and reporting packet loss events to Safety Services and operator UI."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives operator commands (steering, throttle, brake, emergency stop) from tele-operator. Tasking frames are classified as critical and subject to ARQ with acknowledgment."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Transmits vehicle state (position, orientation, sensor readings, status) to tele-operator. Telemetry frames are classified as non-critical and subject to best-effort delivery with periodic heartbeat validation."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Reports packet loss events, ARQ failures, and communication quality degradation to Safety Services. Triggers alerts if packet loss exceeds safe thresholds."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Interfaces with underlying network transport (4G/5G, WiFi, or hybrid). Teleoperation module requests QoS prioritization tags for critical frames; Network Link applies prioritization at network layer."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "Teleoperation module is the natural owner of ARQ logic, frame classification, and acknowledgment handling. All protocol state machines and retransmission timers are contained within this module. Minimal diffusion: only external interface definitions (Tasking, Telemetry, SafetyAlert, Network Link) cross module boundaries."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Safety Services should NOT own the ARQ implementation; however, it must own the safety logic that determines acceptable packet loss thresholds and the decision to degrade/alert. Assigning ARQ to Safety Services would create high diffusion (protocol details mixed with safety policy). Recommended: Safety Services owns the safety policy; Teleoperation owns the mechanism."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 10,
+        "diffusion_score": 90,
+        "notes": "Vehicle module is responsible for physical control (motors, brakes, steering). Teleoperation communication logic does not belong in Vehicle; it would create tight coupling and diffusion of communication concerns into vehicle control logic."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 30,
+        "diffusion_score": 70,
+        "notes": "NGHE Solution is the system-level container but should not own detailed ARQ implementation. It should own the integration and orchestration of Teleoperation, Safety Services, and Network Link modules. Assigning ARQ to NGHE Solution would diffuse protocol details into the system-level module."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the optimal owner because: (1) it already owns the teleoperation protocol and frame definitions; (2) ARQ, acknowledgment, and retransmission logic are core teleoperation concerns; (3) containment is high (95%) with minimal diffusion; (4) external interfaces (Tasking, Telemetry, SafetyAlert, Network Link) are well-defined and already expected by Teleoperation. Safety Services will own the safety policy (thresholds, degradation rules) and will consume SafetyAlert from Teleoperation.",
+    "containment_risks": [
+      "RISK: If Teleoperation module becomes too large (ARQ + protocol + frame handling + QoS integration), it may violate single-responsibility principle. MITIGATION: Consider sub-modules within Teleoperation (e.g., ARQ Engine, Frame Classifier, QoS Adapter) if complexity grows.",
+      "RISK: Network Link module must support QoS tagging API; if Network Link does not expose this capability, Teleoperation cannot implement DP-D. MITIGATION: Validate Network Link interface contract early; if QoS tagging is not available, revise DP to rely on DP-A (FEC) instead.",
+      "RISK: Safety Services must validate frame classification (critical vs. non-critical); if Safety Services and Teleoperation disagree on classification, safety impact could result. MITIGATION: Establish clear, documented frame classification rules; Safety Services shall audit and approve frame classification during design review."
+    ],
+    "recommended_revision": "Confirm that Network Link module exposes a QoS tagging interface (e.g., setQoSPriority(frameId, priority_level)). If not available, revise DP to remove DP-D and rely solely on DP-C (ARQ) + DP-A (FEC). Additionally, establish a Frame Classification Registry (owned by Safety Services, implemented in Teleoperation) that documents which frames are critical and why; this registry shall be reviewed and approved by Safety Manager and System Engineer before implementation."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "Selected DP (ARQ + QoS) directly addresses the FR requirement to maintain ≤1% packet loss. DP-C (ARQ) ensures critical control frames are reliably delivered; DP-D (QoS) reduces congestion-induced loss. Together, they provide a coherent solution to the functional requirement. Assumptions (network QoS support, acceptable latency) are documented and can be validated with customer."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "DIFFUSION RISK: If Teleoperation module grows to include both ARQ logic and QoS integration, it may become a 'god module.' MITIGATION: Plan for sub-module decomposition (ARQ Engine, QoS Adapter) in next design iteration if complexity exceeds threshold.",
+        "DIFFUSION RISK: Safety Services must own the safety policy (thresholds, degradation rules) but Teleoperation owns the mechanism (ARQ, reporting). Clear interface contract (SafetyAlert) must be established to prevent policy logic from leaking into Teleoperation. MITIGATION: Document SafetyAlert schema and safety policy rules in a separate design artifact; review with Safety Manager."
+      ],
+      "containment_notes": "Teleoperation module achieves 95% containment for ARQ and frame classification logic. External interfaces (Tasking, Telemetry, SafetyAlert, Network Link) are well-defined and minimal. No significant diffusion of protocol concerns into other modules. Ownership boundary is clear and defensible."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible: (1) Unit test ARQ state machine and retransmission logic in isolation; (2) Integration test with mock Network Link to validate QoS tagging; (3) System test with real network (4G/5G) under agreed conditions to measure end-to-end packet loss; (4) Safety test to validate SafetyAlert triggering and operator degradation behavior. Acceptance criterion (≤1% packet loss) is measurable and testable.",
+      "allocation_clarity": "Allocation is clear: Teleoperation owns ARQ, frame classification, and SafetyAlert reporting. Safety Services owns safety policy and degradation rules. Vehicle owns physical control. Network Link owns QoS tagging. No ambiguity in ownership or responsibility."
+    },
+    "recommended_revisions": [
+      "Validate Network Link module interface contract to confirm QoS tagging capability is available; if not, revise DP to remove DP-D.",
+      "Establish Frame Classification Registry (owned by Safety Services, implemented in Teleoperation) and obtain Safety Manager approval before implementation.",
+      "Document acceptable latency budget for ARQ retransmission; if latency budget is <100 ms, ARQ may not be feasible and DP must be revised.",
+      "Plan for sub-module decomposition within Teleoperation if ARQ + QoS integration complexity exceeds single-module threshold (e.g., >5000 LOC, >10 state machines)."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The refined FR is well-defined and atomic at the system level, but the selected DP (ARQ + QoS) is complex and requires further decomposition into sub-FRs and sub-DPs. The three sub-FRs identified (FR-NGHE-009.1: detect/report packet loss; FR-NGHE-009.2: error correction/redundancy; FR-NGHE-009.3: graceful degradation) must each be decomposed to lower levels to define detailed design parameters, module assignments, and verification strategies. Additionally, critical assumptions (Network Link QoS support, latency budget, frame classification) must be validated before proceeding to implementation. Zigzag down to decompose sub-FRs and validate assumptions.",
+    "justification_detail": "This is a high-safety-criticality requirement with complex technical dependencies (network QoS, ARQ protocol, safety policy). A single-level decomposition is insufficient. The DP is sound but requires sub-level design to address: (1) ARQ protocol state machine design (FR-NGHE-009.2); (2) packet loss detection and reporting logic (FR-NGHE-009.1); (3) safety policy and degradation rules (FR-NGHE-009.3). Each sub-FR should be decomposed to DP and IM in the next iteration.",
+    "next_level_sub_frs": [
+      "FR-NGHE-009.1: The teleoperation system shall detect packet loss events (missing acknowledgments, timeout) and report them to Safety Services via SafetyAlert interface within 100 ms of detection.",
+      "FR-NGHE-009.2: The teleoperation system shall implement selective repeat ARQ with configurable retry limits and timeout thresholds to ensure critical control frames are delivered with <1% loss probability.",
+      "FR-NGHE-009.3: The teleoperation system shall monitor packet loss rate in real-time and trigger SafetyAlert if loss exceeds 2% (warning) or 5% (critical); Safety Services shall decide whether to degrade teleoperation mode or alert operator."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Customer network infrastructure supports QoS tagging and prioritization (or can be configured to do so).",
+        "Acceptable latency budget allows for ARQ retransmission delays (typically 100–500 ms per retry); if latency budget is <100 ms, ARQ may not be feasible.",
+        "Network Link module exposes a QoS tagging interface; if not available, DP must be revised to rely on FEC instead of QoS.",
+        "Frame classification (critical vs. non-critical) can be determined statically at design time; if dynamic classification is required, DP complexity increases significantly.",
+        "Operator can tolerate brief control lag (100–500 ms) during ARQ retransmission; if real-time control is required, ARQ may not be suitable."
+      ],
+      "open_risks": [
+        "RISK: Network QoS support not available in customer network; MITIGATION: Validate with customer early; if not available, revise DP to use FEC (DP-A) instead.",
+        "RISK: Latency budget is too tight for ARQ; MITIGATION: Measure latency in customer network; if <100 ms, consider DP-B (dual-path redundancy) instead.",
+        "RISK: Frame classification is incorrect or incomplete; MITIGATION: Safety Services must audit and approve frame classification; conduct safety analysis to validate.",
+        "RISK: ARQ protocol implementation is buggy or incomplete; MITIGATION: Use proven COTS protocol stack (e.g., QUIC) or conduct rigorous unit and integration testing.",
+        "RISK: SafetyAlert interface is not well-defined; MITIGATION: Document SafetyAlert schema and safety policy rules in next design iteration; review with Safety Manager."
+      ],
+      "evidence_needed": [
+        "Network Link module interface contract (QoS tagging capability).",
+        "Customer network conditions specification (latency, bandwidth, congestion profile).",
+        "Latency budget for teleoperation control (acceptable ARQ retransmission delay).",
+        "Frame classification rules and safety analysis (which frames are critical, why).",
+        "SafetyAlert schema and safety policy rules (thresholds, degradation actions).",
+        "ARQ protocol specification and implementation plan (COTS vs. custom).",
+        "Test plan for packet loss measurement and verification under agreed network conditions."
+      ]
+    }
+  }
+}

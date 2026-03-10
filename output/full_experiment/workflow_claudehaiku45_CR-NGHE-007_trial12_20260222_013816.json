@@ -1,0 +1,180 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current operational state within the customer-defined latency target.",
+    "rationale": "The original FR conflates two concerns: (1) the obligation to update the model itself, and (2) the timeliness constraint on that update. The refined FR isolates the functional requirement (what must be updated and why) from the acceptance criterion (the latency bound). This separation allows the FR to remain solution-neutral and problem-focused, while the latency target is captured as a non-functional requirement (NFR) or acceptance criterion. The phrase 'current operational state' clarifies scope without prescribing how state is sensed or transmitted.",
+    "verification_idea": "Measure end-to-end latency from the moment a worksite condition changes (e.g., equipment position, obstacle detection, safety zone breach) to the moment the worksite model reflects that change in the operator's view or system decision logic. Verify that measured latency meets the customer-defined target (e.g., p95 ≤ 1.0 s) across representative update scenarios.",
+    "sub_frs": [
+      "FR-NGHE-007.1: The NGHE solution shall sense and capture worksite operational state changes (equipment position, obstacles, safety zones, operational events).",
+      "FR-NGHE-007.2: The NGHE solution shall transmit worksite state information from the field to the model repository.",
+      "FR-NGHE-007.3: The NGHE solution shall integrate received state information into the worksite model.",
+      "FR-NGHE-007.4: The NGHE solution shall make the updated worksite model available to authorized users and decision-making subsystems."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Synchronous state capture and model update – Acquire operational state from field sources at request time, validate against safety policies, and atomically update the worksite model before returning confirmation to the requester.",
+      "DP2: Asynchronous event-driven state propagation – Field sources emit state-change events; a decoupled event processor validates, transforms, and applies updates to the worksite model; requesters query the model or subscribe to change notifications.",
+      "DP3: Hybrid polling with local caching – Maintain a local cache of worksite state updated via periodic polling from field sources; on update requests, refresh cache entries selectively based on criticality, then apply validated updates to the model.",
+      "DP4: Dual-layer model with eventual consistency – Maintain a fast-path in-memory model for low-latency reads and a persistent authoritative model; updates flow through both layers with asynchronous reconciliation to ensure consistency within the latency window.",
+      "DP5: State aggregation via hierarchical observers – Deploy hierarchical state observers at different operational zones; each observer captures local state, validates locally, and propagates summaries upward; the worksite model is updated by merging zone summaries."
+    ],
+    "selected_dp": "DP2: Asynchronous event-driven state propagation – Field sources emit state-change events; a decoupled event processor validates, transforms, and applies updates to the worksite model; requesters query the model or subscribe to change notifications.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Event schema coupling: If event formats are tightly coupled to internal model representation, schema evolution becomes brittle. Mitigation: Define event contracts independently of model schema.",
+        "Validation logic coupling: Safety policy validation must not be duplicated across event processor and model layer. Mitigation: Centralize validation in a dedicated policy engine module.",
+        "Latency tail risk: Event processing queue depth or policy validation latency could exceed p95 target under peak load. Mitigation: Implement bounded queue with backpressure and profile validation latency separately.",
+        "Ordering dependency: If field sources emit events out-of-order or with clock skew, model state could diverge. Mitigation: Enforce logical ordering via sequence numbers or causal timestamps; document ordering guarantees in event contract."
+      ],
+      "notes": "DP2 decouples field source acquisition from model update, enabling independent scaling and fault isolation. Event-driven design supports both synchronous (request-response) and asynchronous (subscription) access patterns. Latency is bounded by event processing pipeline, not by field source response time, which is favorable for meeting p95 target. Risk is primarily in validation and ordering correctness, not architectural coupling."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Field sources can emit state-change events reliably (or polling can be triggered on-demand). RISK: If sources are unreliable or emit stale events, model divergence increases. Mitigation: Implement event deduplication, versioning, and periodic reconciliation.",
+      "ASSUMPTION: Safety policy validation can be performed in-line within event processing latency budget. RISK: Complex policies or external policy service calls could exceed p95 target. Mitigation: Pre-compute policy rules, cache policy state, or implement policy evaluation in a separate fast-path module.",
+      "ASSUMPTION: Worksite model schema is stable or versioned. RISK: Schema evolution could break event processors or queries. Mitigation: Adopt schema versioning and support multiple model versions during transition.",
+      "ASSUMPTION: Customer-defined latency target (p95 ≤ 1.0 s) is achievable with event-driven architecture. RISK: If latency target is sub-100ms, event queuing and async processing may not suffice. Mitigation: Validate latency target against field source response time and policy validation time; consider DP1 (synchronous) if target is tighter.",
+      "ASSUMPTION: Operational policies are deterministic and can be evaluated without external I/O. RISK: If policies require real-time external data (e.g., weather, traffic), latency could spike. Mitigation: Cache external data or define policy evaluation SLA.",
+      "ASSUMPTION: Event ordering and idempotency are manageable. RISK: Out-of-order or duplicate events could corrupt model state. Mitigation: Implement idempotent event handlers and enforce causal ordering via timestamps or sequence numbers."
+    ],
+    "recommended_revision": "FR (refined): The NGHE solution shall update the worksite model to reflect current operational state, validated against safety policies, within the customer-defined latency target (p95 ≤ 1.0 s for supported update scenarios). The solution shall support both synchronous (request-response) and asynchronous (subscription-based) access patterns and maintain model consistency under concurrent updates and field source failures. Traceability: Each model update shall be attributed to a source event with timestamp and policy validation result for audit and debugging."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "Centralized event-driven state management layer that receives field-sourced state-change events, validates and transforms them through a decoupled event processor, maintains the authoritative worksite model, and exposes query and subscription interfaces to all requesters (Vehicle, Teleoperation, Safety Services)."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Field sources (Vehicle sensors, environmental monitors) emit state-change events into the event processor via Telemetry ingestion."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "NGHE Solution publishes validated state updates and model snapshots to Tasking consumers (Vehicle, Teleoperation) for decision-making and task coordination."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Event processor emits safety-critical state changes and constraint violations to Safety Services via SafetyAlert notifications."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Asynchronous event transport and subscription management; requesters subscribe to model change notifications over Network Link."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "Excellent fit. NGHE Solution is the natural home for centralized state management, event processing, and model authority. Event validation, transformation, and storage are core responsibilities. Interfaces (Telemetry in, Tasking/SafetyAlert out, Network Link for subscriptions) align cleanly. Minimal diffusion: only subscription transport and external event sources leak out."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 25,
+        "diffusion_score": 75,
+        "notes": "Poor fit. Vehicle is a field agent, not a state aggregator. Placing event processor and worksite model here would couple all other modules (Teleoperation, Safety Services) directly to Vehicle, creating tight coupling and single-point-of-failure. Event validation and model authority belong upstream, not in a field agent."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 30,
+        "diffusion_score": 70,
+        "notes": "Poor fit. Teleoperation is a consumer/requester of state, not the authoritative source or processor. Placing event processing and model here would make Vehicle and Safety Services dependent on Teleoperation's availability and logic, violating separation of concerns. Teleoperation should query and subscribe, not own the model."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Poor fit. Safety Services is a specialized consumer focused on constraint validation and alerts. Placing the general-purpose event processor and worksite model here would couple non-safety state concerns (e.g., task progress, resource allocation) to safety logic, creating unnecessary dependencies and making safety services a bottleneck for all state updates."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "NGHE Solution is the single authoritative owner of asynchronous event-driven state propagation. It receives Telemetry events from field sources, processes them through a decoupled event processor (validation, transformation, enrichment), maintains the worksite model as the single source of truth, and exposes query and subscription interfaces via Network Link to all downstream consumers (Vehicle, Teleoperation, Safety Services). This design ensures cohesion (all state logic is centralized), minimizes coupling (consumers depend only on NGHE Solution's published interfaces, not on each other), and supports scalability (event processor can be optimized independently).",
+    "containment_risks": [
+      "Event processor performance bottleneck: If event volume is very high, the centralized processor may become a throughput constraint. Mitigation: design processor with async/parallel validation and batching.",
+      "Model consistency under concurrent updates: Multiple field sources emitting events simultaneously may cause race conditions. Mitigation: implement event ordering, versioning, and conflict resolution in the processor.",
+      "Subscription scalability: Large numbers of subscribers (Vehicle, Teleoperation, Safety Services instances) may overwhelm Network Link. Mitigation: use pub/sub patterns with topic filtering and backpressure handling.",
+      "Latency sensitivity: Safety-critical state changes must propagate to Safety Services with low latency. Mitigation: prioritize SafetyAlert events in the processor queue; consider separate fast-path for safety events.",
+      "Model schema evolution: Changes to worksite model structure may require coordinated updates across all consumers. Mitigation: version the model schema and support backward compatibility in event transformation."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. Latency acceptance criterion (p95 ≤ 1.0 s) is measurable and testable. NGHE Solution as IM boundary owns end-to-end latency from Telemetry ingestion through event processor to model update completion. Verification can instrument event timestamps at ingress, processor stages, and model commit points. Safety-critical path (SafetyAlert) can be separately instrumented for compliance with safety plan requirements.",
+      "allocation_clarity": "Clear. FR maps unambiguously to DP (asynchronous event-driven propagation) and IM (NGHE Solution as centralized state authority). Ownership boundary is well-defined: NGHE Solution receives Telemetry, processes events, maintains worksite model, and publishes via Tasking/SafetyAlert/Network Link. All requesters (Vehicle, Teleoperation, Safety Services) are external consumers with no state ownership."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP2 (asynchronous event-driven state propagation) directly addresses FR requirement to update worksite model within latency target. Decoupled event processor design enables non-blocking updates and supports concurrent field sources. Event validation and transformation ensure model consistency. Query and subscription interfaces satisfy requester access patterns. Design is sound for supporting customer-defined latency targets through async processing and pub/sub patterns."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Event processor performance bottleneck: High-volume field sources (multiple Vehicle sensors, environmental monitors) may saturate processor throughput, violating p95 ≤ 1.0 s latency. Risk is contained within NGHE Solution IM but requires internal optimization (async validation, batching, parallel processing) to mitigate.",
+        "Model consistency under concurrent updates: Multiple simultaneous Telemetry events from field sources risk race conditions and out-of-order application. Mitigation (event ordering, versioning, conflict resolution) must be implemented within NGHE Solution event processor; no diffusion to external modules, but internal complexity is high.",
+        "Subscription scalability: Large subscriber populations (Vehicle instances, Teleoperation sessions, Safety Services) may overwhelm Network Link transport or NGHE Solution's pub/sub dispatcher. Risk is at IM boundary (Network Link interface) rather than diffused across modules, but requires careful capacity planning.",
+        "Safety-critical latency path: SafetyAlert events must meet stricter latency than general Tasking updates. Risk of safety events queuing behind non-critical updates in shared event processor. Mitigation: separate fast-path queue or priority scheduling within NGHE Solution processor.",
+        "Model schema evolution: Worksite model structure changes require coordinated updates to event transformation logic and all consumer subscriptions. Risk is primarily internal to NGHE Solution (transformation logic) but has external impact on consumer contracts. Mitigation: versioned model schema and backward-compatible event transformation."
+      ],
+      "containment_notes": "Excellent containment (95/5 score). DP is tightly bound to NGHE Solution IM with minimal diffusion. Event processor, model storage, validation, and transformation logic are all centralized. External interfaces (Telemetry in, Tasking/SafetyAlert out, Network Link subscriptions) are clean and well-defined. No evidence of DP logic scattered across Vehicle, Teleoperation, or Safety Services modules. Identified risks are internal optimization and consistency challenges within NGHE Solution, not architectural diffusion. Recommended internal mitigations: (1) async/parallel event validation with batching, (2) event ordering and versioning with conflict resolution, (3) pub/sub with topic filtering and backpressure, (4) priority queue for SafetyAlert events, (5) versioned model schema with backward compatibility."
+    },
+    "recommended_revisions": [
+      "Refine event processor design to specify latency SLAs for different event classes: safety-critical events (e.g., constraint violations) should have p95 ≤ 100 ms; general state updates p95 ≤ 1.0 s. Document priority queue or fast-path mechanism for SafetyAlert events.",
+      "Add internal IM sub-structure to NGHE Solution: decompose into (a) Telemetry Ingestion (receives field events), (b) Event Processor (validates, transforms, orders), (c) Worksite Model Store (maintains authoritative state), (d) Subscription Manager (handles pub/sub). This clarifies internal responsibilities and enables independent optimization.",
+      "Specify event ordering and conflict resolution strategy: define how concurrent updates from multiple field sources are sequenced (e.g., timestamp-based, version vector, causal ordering). Document in DP or IM design specification.",
+      "Define model schema versioning and backward compatibility policy: specify how model structure changes are communicated to subscribers and how old/new event formats are handled during transitions.",
+      "Add latency instrumentation and monitoring requirements to acceptance criteria: specify measurement points (Telemetry ingress, processor stages, model commit, subscription dispatch) and reporting cadence for p95 latency tracking.",
+      "Clarify Network Link transport guarantees: specify whether event delivery is at-least-once, exactly-once, or best-effort, and how ordering is preserved across subscribers. This affects model consistency and subscription reliability."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "Gate results pass all three criteria (FR-IM, FR-DP, DP-IM), confirming the current level is sound. However, recommended_revisions explicitly call for internal IM sub-structure decomposition and refined latency SLAs for safety-critical vs. general events. Given high safety criticality and identified risks (event processor bottleneck, model consistency under concurrency, SafetyAlert priority path), decomposing NGHE Solution into sub-FRs is justified to: (1) isolate safety-critical latency requirements (p95 ≤ 100 ms for SafetyAlert) from general state updates (p95 ≤ 1.0 s), (2) clarify internal responsibilities (Telemetry Ingestion, Event Processor, Worksite Model Store, Subscription Manager), (3) enable independent optimization and risk mitigation, (4) establish clear ownership and verification boundaries for each internal module. This is a controlled decomposition within NGHE Solution IM, not a rejection of the current level.",
+    "next_level_sub_frs": [
+      "FR2.1: Ingest Telemetry events from field sources (Vehicle sensors, environmental monitors) with minimal latency overhead and lossless capture.",
+      "FR2.2: Validate and transform Telemetry events into worksite model updates with event ordering and conflict resolution under concurrent field source activity.",
+      "FR2.3: Maintain authoritative worksite model state with consistency guarantees and support efficient query and subscription access patterns.",
+      "FR2.4: Dispatch model updates to external consumers (Tasking, SafetyAlert, Network Link subscriptions) with differentiated latency SLAs: safety-critical events p95 ≤ 100 ms, general updates p95 ≤ 1.0 s.",
+      "FR2.5: Manage model schema versioning and backward-compatible event transformation to support schema evolution without breaking consumer contracts."
+    ],
+    "revise": {
+      "target": "FR",
+      "why": "Current FR2 ('Update worksite model from Telemetry within latency target') is correct but underspecified for safety-critical decomposition. Refine to explicitly separate safety-critical latency requirement (SafetyAlert events, p95 ≤ 100 ms) from general state update requirement (p95 ≤ 1.0 s). This clarification should appear in FR2 statement or as a constraint annotation, enabling sub-FRs to inherit differentiated SLAs. Example revision: 'FR2: Update worksite model from Telemetry with differentiated latency: safety-critical events (SafetyAlert) p95 ≤ 100 ms, general state updates p95 ≤ 1.0 s, ensuring model consistency under concurrent field source activity and supporting external consumer subscriptions.'"
+    },
+    "record": {
+      "assumptions": [
+        "NGHE Solution is the sole authoritative owner of worksite model state; no distributed consensus or eventual consistency model is acceptable for safety-critical updates.",
+        "Event ordering and conflict resolution can be implemented within NGHE Solution without requiring external coordination or distributed transaction protocols.",
+        "Network Link transport provides at-least-once delivery semantics; NGHE Solution is responsible for idempotency and ordering guarantees at the application layer.",
+        "SafetyAlert events are a distinct class with stricter latency requirements than general Tasking updates; priority queuing or fast-path processing is feasible within event processor.",
+        "Model schema versioning and backward compatibility can be managed through event transformation logic without requiring schema registry or external governance.",
+        "Telemetry ingestion rate and concurrent field source volume are bounded such that async event processing with batching and parallel validation can meet p95 ≤ 1.0 s target."
+      ],
+      "open_risks": [
+        "Event processor performance bottleneck under high-volume concurrent Telemetry: risk of p95 latency exceeding 1.0 s if ingestion rate or field source concurrency exceeds design capacity. Mitigation: capacity planning, load testing, and internal optimization (async validation, batching, parallel processing) required before deployment.",
+        "Model consistency under concurrent updates: race conditions or out-of-order event application could corrupt worksite model state. Mitigation: event ordering strategy (timestamp-based, version vector, or causal ordering) and conflict resolution logic must be specified and tested.",
+        "SafetyAlert priority path: risk of safety-critical events queuing behind non-critical updates if shared event processor queue is not properly prioritized. Mitigation: separate fast-path queue or priority scheduling required; latency instrumentation must verify p95 ≤ 100 ms for SafetyAlert class.",
+        "Subscription scalability: large subscriber populations (Vehicle instances, Teleoperation sessions, Safety Services) may overwhelm pub/sub dispatcher or Network Link transport. Mitigation: topic filtering, backpressure handling, and capacity planning required.",
+        "Model schema evolution: breaking changes to worksite model structure could invalidate consumer subscriptions or event transformation logic. Mitigation: versioned schema and backward-compatible transformation required; consumer contract management needed.",
+        "Latency instrumentation gaps: current acceptance criteria specify p95 ≤ 1.0 s but do not define measurement points or reporting cadence. Risk of latency SLA violations going undetected. Mitigation: add instrumentation requirements to DP/IM specification (Telemetry ingress, processor stages, model commit, subscription dispatch)."
+      ],
+      "evidence_needed": [
+        "Capacity analysis: maximum Telemetry ingestion rate (events/sec) and concurrent field source count under normal and peak workload conditions.",
+        "Event ordering and conflict resolution specification: document chosen strategy (timestamp-based, version vector, causal ordering) and provide proof of correctness under concurrent updates.",
+        "SafetyAlert latency measurement: instrumentation data showing p95 latency for SafetyAlert events under peak load, demonstrating p95 ≤ 100 ms achievement.",
+        "Subscription scalability testing: load test results showing pub/sub dispatcher and Network Link transport behavior under large subscriber populations (e.g., 100+ Vehicle instances, 10+ Teleoperation sessions).",
+        "Model schema versioning policy: document versioning scheme, backward compatibility rules, and migration strategy for schema changes.",
+        "Latency instrumentation specification: define measurement points, sampling strategy, and reporting cadence for p95 latency tracking across Telemetry ingestion, event processor stages, model commit, and subscription dispatch.",
+        "Network Link transport guarantees: specification of delivery semantics (at-least-once, exactly-once, best-effort), ordering preservation, and idempotency handling.",
+        "Safety-critical path analysis: document which event types and model updates are safety-critical and require p95 ≤ 100 ms latency; justify classification and verify SafetyAlert fast-path implementation."
+      ]
+    }
+  }
+}

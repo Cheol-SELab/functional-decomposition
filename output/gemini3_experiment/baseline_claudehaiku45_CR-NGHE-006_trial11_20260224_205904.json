@@ -1,0 +1,165 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and work-zone boundaries, with sufficient fidelity to support autonomous path planning and operator situational awareness.",
+    "rationale": "The original FR was vague on fidelity requirements, update frequency, and use-case binding. Refinement clarifies that the model must serve both planning (offline) and execution (real-time) functions, must distinguish static from dynamic features, and must be safety-critical (high criticality tailoring). This enables downstream DP selection to address sensing, fusion, and distribution architecture.",
+    "verification_idea": "Acceptance test: (1) Worksite model generated within 5 minutes of site entry; (2) Terrain elevation accuracy ±0.5 m over 95% of mapped area; (3) Obstacle detection recall ≥95% for objects >0.3 m; (4) Model available to planning and execution subsystems via agreed interface; (5) Safety-critical features (hazard zones) marked with confidence metadata.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire worksite sensor data (LiDAR, camera, GNSS, IMU) from vehicle platform.",
+      "CR-NGHE-006.2: Fuse multi-modal sensor data into unified 3D terrain and obstacle representation.",
+      "CR-NGHE-006.3: Classify and label worksite features (terrain, static obstacles, dynamic hazards, work zones) with confidence scores.",
+      "CR-NGHE-006.4: Distribute worksite model to planning, execution, and operator interfaces with low-latency guarantees.",
+      "CR-NGHE-006.5: Validate model completeness and safety-critical feature accuracy against acceptance criteria."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Onboard multi-sensor fusion (LiDAR + stereo camera + GNSS/IMU) with local 3D occupancy grid and feature classification; model pushed to cloud for planning and operator dashboards.",
+      "DP-B: Distributed sensing: vehicle-mounted primary sensors (LiDAR, camera) with real-time local processing; secondary sensors (ground-based LiDAR, drone imagery) for validation and gap-fill; centralized fusion in cloud backend.",
+      "DP-C: Hybrid edge-cloud: vehicle acquires raw sensor streams; edge compute (onboard GPU) performs real-time obstacle detection and local path safety checks; cloud backend performs offline terrain reconstruction and planning-layer model refinement.",
+      "DP-D: Operator-in-the-loop mapping: tele-operator provides manual annotation and validation of sensor-derived features; machine learning model trained on annotated data to improve future autonomous classification."
+    ],
+    "selected_dp": "DP-C: Hybrid edge-cloud architecture with onboard real-time obstacle detection and safety validation, coupled with cloud-based terrain reconstruction and planning-layer model refinement. This balances latency-critical safety (edge) with fidelity and planning support (cloud), aligns with teleoperation and safety services integration, and supports iterative model improvement.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between vehicle sensor acquisition (DP-C edge) and Safety Services validation (DP-C cloud) is managed via SafetyAlert interface; loose coupling via asynchronous messaging.",
+        "Coupling between Vehicle telemetry streaming and Teleoperation dashboard is managed via Telemetry interface; unidirectional, low coupling.",
+        "Coupling between worksite model distribution and planning/execution functions is managed via Tasking interface; model is read-only from consumer perspective, reducing coupling."
+      ],
+      "notes": "DP-C introduces a two-tier processing model (edge + cloud) which requires careful interface definition and latency budgeting. Risk: if edge-cloud link fails, safety-critical decisions must degrade gracefully to edge-only mode. Mitigation: define fallback logic and test offline scenarios."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Vehicle platform has sufficient onboard compute (GPU/FPGA) to run real-time obstacle detection at ≥10 Hz.",
+      "ASSUMPTION: Network link (Telemetry, Tasking) provides ≤500 ms round-trip latency for cloud-to-vehicle model updates.",
+      "RISK: If onboard compute is insufficient, real-time safety checks will fail; mitigation: conduct early hardware feasibility study.",
+      "RISK: If network is unreliable, cloud-based planning model becomes stale; mitigation: implement local model caching and versioning.",
+      "RISK: Multi-sensor fusion (LiDAR + camera + GNSS) introduces calibration complexity; mitigation: design automated calibration workflow and include in commissioning process."
+    ],
+    "recommended_revision": "DP-C is sound but should be refined to explicitly define: (1) edge compute latency budget (e.g., obstacle detection <100 ms), (2) cloud model update frequency (e.g., terrain reconstruction every 30 s), (3) fallback behavior if cloud link is lost (e.g., use cached model + edge-only safety checks), (4) sensor fusion algorithm (e.g., Kalman filter for GNSS/IMU, occupancy grid for LiDAR/camera). These details will be addressed in sub-FR decomposition."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "Onboard sensor acquisition, edge compute for real-time obstacle detection and safety validation, local model caching, and telemetry streaming. Includes LiDAR, stereo camera, GNSS/IMU, GPU/FPGA compute module, and local storage. Does NOT include cloud backend, planning algorithms, or operator dashboards (those are in NGHE Solution or Teleoperation)."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle streams raw sensor data (LiDAR point clouds, camera frames, GNSS/IMU) and edge-processed features (detected obstacles, local occupancy grid) to cloud backend and operator dashboards. Frequency: 10 Hz for obstacle data, 1 Hz for terrain updates."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives updated worksite model (terrain mesh, feature labels, work-zone boundaries) from cloud backend. Used to refresh local cache and inform real-time safety checks. Frequency: 0.5 Hz (every 2 s) or on-demand."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "Vehicle sends safety-critical alerts (e.g., 'hazard detected in path') to Safety Services; receives safety policy updates and override commands. Latency: <100 ms for alerts, <500 ms for policy updates."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Underlying communication channel (4G/5G, WiFi, or satellite) connecting vehicle to cloud and operator. Provides transport for Telemetry, Tasking, and SafetyAlert. Assumed available but may be lossy or high-latency in remote worksites."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Vehicle is the natural home for sensor acquisition, edge compute, and local model caching. Onboard obstacle detection and safety validation are tightly coupled to vehicle dynamics and real-time constraints. Diffusion risk: if cloud model updates are delayed, local cache may become stale; mitigated by versioning and fallback logic."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.65,
+        "diffusion_score": 0.35,
+        "notes": "NGHE Solution could host cloud-based terrain reconstruction and planning-layer model refinement, but sensor acquisition and edge compute are better localized to Vehicle. If worksite model generation is entirely in NGHE Solution, it creates tight coupling between vehicle and cloud, increasing latency and reducing fault tolerance. Not recommended as primary IM."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Teleoperation is primarily for operator control and situational awareness, not sensor fusion or model generation. Assigning worksite mapping to Teleoperation would scatter sensor processing logic across vehicle and operator interface, violating cohesion. Not recommended."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.55,
+        "diffusion_score": 0.45,
+        "notes": "Safety Services validates and enforces safety policies on the worksite model (e.g., marking hazard zones, checking path safety). However, Safety Services should consume the model, not generate it. Assigning model generation to Safety Services would conflate data production with policy enforcement. Not recommended as primary IM."
+      }
+    ],
+    "ownership_candidate": "Vehicle (primary) with supporting cloud backend in NGHE Solution. Vehicle owns sensor acquisition, edge compute, and local caching. NGHE Solution owns cloud-based terrain reconstruction, planning-layer refinement, and model distribution to planning/execution functions.",
+    "containment_hypothesis": "Worksite model generation is best decomposed into two sub-modules: (1) Vehicle.EdgeMapping (onboard sensor fusion and obstacle detection), (2) NGHE Solution.CloudMapping (terrain reconstruction and planning-layer refinement). This split respects latency and fault-tolerance constraints while maintaining cohesion within each module.",
+    "containment_risks": [
+      "RISK: If edge compute is insufficient, real-time obstacle detection will fail or be delayed, compromising safety. Mitigation: conduct early hardware feasibility study and define fallback to cloud-only mode.",
+      "RISK: If cloud-to-vehicle link is lossy, model updates will be delayed or lost, causing local cache to diverge from ground truth. Mitigation: implement versioning, checksums, and re-request logic.",
+      "RISK: Sensor calibration (LiDAR-camera-GNSS alignment) is complex and may drift over time. Mitigation: design automated calibration workflow and include in commissioning and maintenance processes.",
+      "RISK: Multi-modal sensor fusion introduces algorithmic complexity and potential for false positives/negatives. Mitigation: validate fusion algorithm against acceptance criteria in controlled test environment before deployment."
+    ],
+    "recommended_revision": "Assign primary IM to Vehicle with explicit sub-module boundaries: Vehicle.SensorAcquisition (hardware interface layer), Vehicle.EdgeFusion (real-time sensor fusion and obstacle detection), Vehicle.LocalCache (model versioning and fallback logic). Define clear interfaces between these sub-modules and to external systems (Telemetry, Tasking, SafetyAlert). This will be detailed in sub-FR decomposition."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "Refined FR clearly specifies worksite model content (terrain, obstacles, hazards, work zones), fidelity requirements (±0.5 m elevation, ≥95% obstacle recall), and use cases (planning, execution, operator awareness). Selected DP-C (hybrid edge-cloud) directly addresses these requirements: edge compute provides real-time safety validation, cloud backend provides high-fidelity terrain and planning support. Coupling is managed via well-defined interfaces (Telemetry, Tasking, SafetyAlert). No fundamental mismatch between FR and DP."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "DP-C requires coordination between Vehicle (edge) and NGHE Solution (cloud). If this coordination is not carefully managed, logic may diffuse across module boundaries. Mitigation: define clear ownership of each processing stage (acquisition -> edge fusion -> cloud refinement) and enforce via interface contracts.",
+        "Sensor calibration logic could diffuse across Vehicle, Teleoperation (operator validation), and Safety Services (policy enforcement). Mitigation: centralize calibration in Vehicle.EdgeFusion and expose via well-defined interface."
+      ],
+      "containment_notes": "Vehicle is the natural home for sensor acquisition and edge compute; NGHE Solution is the natural home for cloud-based refinement and planning support. This split respects latency and fault-tolerance constraints. Interfaces (Telemetry, Tasking, SafetyAlert) are well-defined and minimize coupling. Containment score for Vehicle is 0.92, indicating strong fit."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Refined FR includes specific acceptance criteria (terrain accuracy ±0.5 m, obstacle recall ≥95%, model availability to planning/execution, safety-critical feature marking). These are measurable and testable. Vehicle IM can be verified via: (1) sensor characterization tests (accuracy, latency), (2) fusion algorithm validation (ground truth comparison), (3) interface compliance tests (Telemetry, Tasking, SafetyAlert). Cloud backend can be verified via: (1) terrain reconstruction accuracy, (2) planning-layer model fidelity, (3) end-to-end latency and availability.",
+      "allocation_clarity": "FR is allocated to Vehicle (sensor acquisition, edge fusion, local caching) and NGHE Solution (cloud refinement, planning support). Allocation is clear and traceable. Sub-FRs (CR-NGHE-006.1 through 006.5) provide further decomposition guidance."
+    },
+    "recommended_revisions": [
+      "Refine DP-C to explicitly define edge compute latency budget (e.g., obstacle detection <100 ms) and cloud model update frequency (e.g., terrain reconstruction every 30 s). This will inform hardware selection and algorithm design.",
+      "Define fallback behavior if cloud link is lost: Vehicle should continue operating with cached model and edge-only safety checks. This should be tested and validated.",
+      "Specify sensor fusion algorithm (e.g., Kalman filter for GNSS/IMU, occupancy grid for LiDAR/camera) and validation approach (e.g., ground truth comparison in controlled test environment).",
+      "Define model versioning and consistency protocol between edge cache and cloud backend to prevent divergence."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "Refined FR is clear, DP-C is sound and well-justified, and Vehicle IM is the correct primary assignment with strong containment score (0.92). However, DP-C introduces a two-tier processing model (edge + cloud) that requires further decomposition to define sub-module boundaries, interface contracts, and fallback logic. Sub-FRs (CR-NGHE-006.1 through 006.5) provide clear decomposition path. Recommend proceeding to next level of functional decomposition to detail sensor acquisition, fusion, classification, distribution, and validation sub-functions.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire worksite sensor data (LiDAR, camera, GNSS, IMU) from vehicle platform with specified accuracy and latency.",
+      "CR-NGHE-006.2: Fuse multi-modal sensor data into unified 3D terrain and obstacle representation with confidence metadata.",
+      "CR-NGHE-006.3: Classify and label worksite features (terrain, static obstacles, dynamic hazards, work zones) with safety-critical marking.",
+      "CR-NGHE-006.4: Distribute worksite model to planning, execution, and operator interfaces with low-latency guarantees and fallback logic.",
+      "CR-NGHE-006.5: Validate model completeness and safety-critical feature accuracy against acceptance criteria."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Vehicle platform has sufficient onboard compute (GPU/FPGA) to run real-time obstacle detection at ≥10 Hz.",
+        "Network link provides ≤500 ms round-trip latency for cloud-to-vehicle model updates.",
+        "Sensor fusion (LiDAR + camera + GNSS/IMU) is feasible with automated calibration workflow.",
+        "Worksite model is read-only from planning/execution perspective; updates are pushed from cloud backend.",
+        "Safety Services validates model completeness and enforces safety policies; Vehicle generates model content."
+      ],
+      "open_risks": [
+        "Onboard compute may be insufficient for real-time obstacle detection; early hardware feasibility study required.",
+        "Network link may be unreliable in remote worksites; fallback to edge-only mode must be tested.",
+        "Sensor calibration may drift over time; automated re-calibration workflow must be designed and validated.",
+        "Multi-sensor fusion introduces algorithmic complexity; false positives/negatives must be characterized and mitigated.",
+        "Cloud-to-vehicle model updates may be delayed or lost; versioning and consistency protocol must be defined."
+      ],
+      "evidence_needed": [
+        "Hardware feasibility study: confirm onboard GPU/FPGA can achieve ≥10 Hz obstacle detection latency.",
+        "Network characterization: measure latency, packet loss, and bandwidth in representative worksite environments.",
+        "Sensor fusion validation: compare fusion algorithm output against ground truth in controlled test environment.",
+        "Fallback testing: validate edge-only mode operation when cloud link is unavailable.",
+        "End-to-end latency measurement: confirm model updates reach planning/execution functions within acceptable time budget.",
+        "Acceptance criteria validation: confirm terrain accuracy ±0.5 m and obstacle recall ≥95% are achievable with selected sensors and algorithms."
+      ]
+    }
+  }
+}

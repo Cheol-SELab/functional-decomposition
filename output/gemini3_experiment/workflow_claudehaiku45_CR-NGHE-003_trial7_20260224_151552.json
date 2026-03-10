@@ -1,0 +1,171 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall enable measurement and reporting of energy consumption per unit of work output.",
+    "rationale": "The original FR conflates two distinct obligations: (1) the ability to measure and report energy efficiency metrics, and (2) the achievement of a target value. The latter is a performance constraint on the system's operation, not a functional requirement of the system itself. The refined FR focuses on the functional capability—providing visibility into energy efficiency—which is solution-neutral and measurable. Achievement of the energy_per_ton ≤ E_target acceptance criterion is a system-level performance requirement that emerges from the combined design of the NGHE solution, not a single FR.",
+    "verification_idea": "Verify that the NGHE solution provides a mechanism (sensor integration, data logging, reporting interface) to capture energy_used and ton_moved over the evaluation period, and that reported values can be independently validated against ground truth measurements.",
+    "sub_frs": [
+      "FR-NGHE-003.1: The NGHE solution shall measure total energy consumed during operation.",
+      "FR-NGHE-003.2: The NGHE solution shall measure or infer total work output (e.g., mass moved, distance traveled, or equivalent productivity metric) during operation.",
+      "FR-NGHE-003.3: The NGHE solution shall compute and report the energy efficiency ratio (energy per unit work output) at defined intervals."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Instrument energy input (fuel/electricity) at source; instrument work output (tonnage moved) at point of delivery; compute ratio asynchronously via data aggregation pipeline",
+      "DP2: Embed real-time energy and tonnage sensors in the equipment; compute energy_per_ton locally on edge device; transmit periodic summaries to reporting system",
+      "DP3: Establish energy metering at facility boundary (aggregate); correlate with independently logged tonnage records per shift/job; reconcile via post-hoc analysis",
+      "DP4: Instrument energy consumption at subsystem level (motor, hydraulics, drivetrain); instrument tonnage at load cell; fuse signals via state machine to attribute energy to work phases; compute efficiency per phase and aggregate"
+    ],
+    "selected_dp": "DP1: Instrument energy input (fuel/electricity) at source; instrument work output (tonnage moved) at point of delivery; compute ratio asynchronously via data aggregation pipeline",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Energy metering and tonnage measurement remain logically independent; either can be upgraded without redesigning the other",
+        "Asynchronous computation decouples sensor acquisition from reporting, allowing flexibility in aggregation window and algorithm refinement",
+        "Data pipeline abstraction isolates measurement physics from acceptance-criteria evaluation logic"
+      ],
+      "notes": "DP1 exhibits low coupling because (1) energy and work are measured at distinct physical boundaries, (2) computation is deferred and centralized, and (3) the ratio formula is simple and stable. DP2 risks tight coupling between edge compute and sensor selection; DP3 introduces reconciliation complexity and temporal ambiguity; DP4 couples energy attribution logic to equipment subsystem architecture, making it brittle to equipment changes."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Energy source (fuel tank, electrical meter) is accessible and stable for instrumentation without operational disruption.",
+      "ASSUMPTION: Tonnage measurement point (load cell, scale, or derived from displacement) is unambiguous and represents actual work output per acceptance criteria.",
+      "ASSUMPTION: Data aggregation pipeline has sufficient temporal resolution and clock synchronization to correlate energy and tonnage records reliably.",
+      "RISK: If energy metering is installed downstream of parasitic losses (e.g., compressor, auxiliary systems), measured energy may exceed actual propulsion energy; acceptance criteria may fail spuriously.",
+      "RISK: If tonnage is measured at intermediate point (e.g., hopper) rather than final delivery, double-counting or loss of material in transit could invalidate energy_per_ton ratio.",
+      "RISK: Asynchronous aggregation introduces latency; real-time feedback for operator optimization is not supported by this DP alone.",
+      "RISK: Data pipeline failure or clock skew could cause misalignment of energy and tonnage records, leading to incorrect ratio computation."
+    ],
+    "recommended_revision": "FR should be refined to explicitly state: (1) whether energy_per_ton is computed per shift, per job, or per continuous window; (2) whether real-time feedback to operators is required (if yes, DP2 or DP4 may be preferred despite coupling); (3) definition of 'point of delivery' for tonnage measurement to eliminate ambiguity. Additionally, add a sub-FR: 'The solution shall isolate parasitic energy consumption from propulsion energy' to clarify scope and guide sensor placement. Consider DP1 as baseline for batch/post-hoc analysis; if operational feedback is mandated, propose hybrid: DP1 for acceptance reporting + DP2 edge summary for operator dashboards, with clear data ownership boundaries between modules."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "System-level energy efficiency monitoring and reporting; aggregates instrumentation data from Vehicle and Teleoperation subsystems; computes and publishes energy-to-work ratios asynchronously"
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Receives fuel/electricity consumption data from Vehicle; receives tonnage/work output data from Vehicle and Teleoperation"
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Publishes computed energy efficiency ratios and aggregated metrics to monitoring/reporting consumers"
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Optional: alerts if energy efficiency degrades below safety-critical thresholds (e.g., fuel efficiency anomalies indicating mechanical failure)"
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.85,
+        "diffusion_score": 0.15,
+        "notes": "Strong containment: data aggregation pipeline, asynchronous computation, and ratio calculation are system-level concerns. Instrumentation points (fuel/electricity at source, tonnage at delivery) are logically owned by Vehicle and Teleoperation, but aggregation and ratio computation belong at NGHE Solution level. Minor diffusion: requires Telemetry interfaces to pull data from Vehicle and Teleoperation."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Weak containment: Vehicle can instrument fuel/electricity input locally, but cannot fully contain work output instrumentation (delivery point is external to vehicle). Asynchronous aggregation and ratio computation are system-level concerns, not vehicle-specific. High diffusion: logic would scatter across Vehicle, Teleoperation, and external systems."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Weak containment: Teleoperation may observe work output at delivery point, but cannot instrument fuel/electricity input (vehicle-side). Asynchronous aggregation and ratio computation are not teleoperation-specific. High diffusion: requires tight coupling to Vehicle for energy data and external systems for aggregation."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Very weak containment: Safety Services is not the primary owner of energy efficiency monitoring. While safety may consume efficiency alerts, the core instrumentation and ratio computation belong elsewhere. High diffusion: would require Safety Services to orchestrate data collection across Vehicle and Teleoperation, violating separation of concerns."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "The DP is fundamentally a system-level data aggregation and analytics concern. NGHE Solution is the appropriate boundary because it sits at the architectural layer where heterogeneous data sources (Vehicle energy input, Teleoperation work output) converge. The asynchronous pipeline pattern and ratio computation are system-integration responsibilities, not subsystem-specific logic. Vehicle and Teleoperation own the instrumentation points themselves (via Telemetry interfaces), but NGHE Solution owns the aggregation, transformation, and derived metric computation.",
+    "containment_risks": [
+      "Risk: Telemetry interface contract must be stable and well-defined. If Vehicle or Teleoperation change their instrumentation schema, NGHE Solution's pipeline must adapt.",
+      "Risk: Asynchronous computation introduces eventual consistency; consumers of the ratio metric must tolerate staleness. This must be documented in the Telemetry output interface.",
+      "Risk: If work output instrumentation is distributed across multiple Teleoperation instances or delivery points, NGHE Solution must handle aggregation across geographically or temporally dispersed data sources.",
+      "Risk: Ownership clarity: Vehicle and Teleoperation must not attempt to compute or cache the ratio themselves; they must only emit raw instrumentation data to Telemetry."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP1 directly and sufficiently addresses the FR. The three-part strategy (instrument energy input at source, instrument work output at delivery point, compute ratio asynchronously) is logically sound and maps cleanly to the functional requirement to enable measurement and reporting of energy consumption per unit of work output. The asynchronous aggregation pipeline is an appropriate design choice for a system-level metric that depends on heterogeneous data sources."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Telemetry interface contract stability: Vehicle and Teleoperation subsystems own instrumentation points but must emit data in a schema that NGHE Solution expects. Schema drift or versioning misalignment could break the aggregation pipeline. Recommend versioned Telemetry interface specification with backward compatibility rules.",
+        "Eventual consistency tolerance: Asynchronous computation introduces latency between energy/work data emission and ratio publication. Consumers (monitoring, reporting, safety systems) must tolerate stale metrics. This must be explicitly documented in the outbound Telemetry interface contract, including maximum acceptable staleness bounds.",
+        "Distributed work output aggregation: If work output is instrumented across multiple geographically or temporally dispersed Teleoperation instances or delivery points, NGHE Solution must handle deduplication, temporal alignment, and partial data scenarios. Recommend explicit handling rules in the aggregation pipeline design.",
+        "Ownership boundary enforcement: Vehicle and Teleoperation subsystems must not cache, transform, or pre-compute energy-to-work ratios locally. They must emit only raw instrumentation data. Recommend architectural guardrails (e.g., code review checklist, interface contracts) to prevent ratio computation logic from diffusing into subsystems."
+      ],
+      "containment_notes": "NGHE Solution achieves strong containment (0.85 score) as the system-level aggregation and analytics owner. The DP is appropriately localized: instrumentation points are owned by Vehicle (fuel/electricity) and Teleoperation (work output), but aggregation, transformation, and ratio computation are correctly assigned to NGHE Solution. This avoids high-diffusion alternatives (e.g., embedding ratio logic in Vehicle or Teleoperation, which would scatter the DP across multiple modules and violate separation of concerns). The Telemetry interfaces (in/out) are the critical bridge; they must be stable, versioned, and well-documented to prevent DP diffusion."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible. The acceptance criterion `energy_per_ton = energy_used / ton_moved ≤ E_target` is measurable and traceable to the IM boundary. NGHE Solution's outbound Telemetry interface publishes computed ratios; these can be logged, audited, and compared against E_target over the agreed evaluation period. Recommend: (1) define E_target numerically and evaluation period explicitly in requirements; (2) establish data provenance and audit trail for energy and tonnage inputs; (3) document staleness bounds and aggregation windows to ensure ratio computation is reproducible and defensible.",
+      "allocation_clarity": "Allocation is clear. FR ownership is assigned to NGHE Solution (system-level measurement and reporting). DP ownership is split: Vehicle owns fuel/electricity instrumentation (DP component 1), Teleoperation owns work output instrumentation (DP component 2), and NGHE Solution owns the aggregation pipeline and ratio computation (DP component 3). IM boundaries are well-defined: NGHE Solution is the primary module; Vehicle and Teleoperation are external data sources accessed via Telemetry interfaces. Recommend: (1) formalize ownership in a RACI matrix or interface control document; (2) define Telemetry schema and versioning strategy; (3) document assumptions about data availability, frequency, and accuracy from Vehicle and Teleoperation."
+    },
+    "recommended_revisions": [
+      "Formalize Telemetry interface contracts: Define schema, versioning, backward compatibility rules, and SLAs for energy and tonnage data emission from Vehicle and Teleoperation. Include data quality expectations (e.g., precision, frequency, latency).",
+      "Document eventual consistency model: Specify maximum acceptable staleness for published energy-to-work ratios. Define aggregation windows (e.g., rolling 24-hour, daily, weekly) and how partial or delayed data is handled.",
+      "Add data provenance and audit trail: NGHE Solution must log source, timestamp, and transformation of all energy and tonnage inputs used in ratio computation. This supports verification against E_target and enables root-cause analysis if ratios degrade.",
+      "Clarify distributed aggregation logic: If work output is instrumented across multiple Teleoperation instances or delivery points, define deduplication, temporal alignment, and partial data handling rules in the aggregation pipeline design.",
+      "Establish ownership guardrails: Add architectural constraints (e.g., code review checklist, interface governance) to prevent Vehicle or Teleoperation from computing or caching energy-to-work ratios locally. Ensure they emit only raw instrumentation data.",
+      "Define E_target and evaluation period numerically: Ensure acceptance criterion is quantified and evaluation period is explicit (e.g., 'energy_per_ton ≤ 0.5 kWh/ton over 30-day rolling window'). Link to worksite safety plan and operational policies as stated in constraints.",
+      "Consider SafetyAlert interface: The optional SafetyAlert output (for fuel efficiency anomalies indicating mechanical failure) is mentioned but not fully specified. Clarify trigger conditions, alert severity levels, and integration with Safety Services to prevent diffusion of safety logic into NGHE Solution."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass with strong logical coherence and containment (0.85 score). However, the gate results expose critical architectural dependencies and diffusion risks that cannot be fully resolved at the current level of abstraction. The recommended revisions cluster around four concrete sub-problems: (1) Telemetry interface contract stability and versioning, (2) eventual consistency tolerance and staleness bounds, (3) data provenance and audit trail for verification, and (4) distributed aggregation logic for multi-instance work output. These are not defects in the current FR-DP-IM mapping but rather dependencies that must be decomposed into sub-FRs to ensure the DP can be realized safely and verifiably. Given high safety criticality (fuel efficiency anomalies may indicate mechanical failure), explicit sub-level design is warranted to prevent DP diffusion into Vehicle or Teleoperation and to establish verifiable data quality contracts. Proceeding to next-level decomposition will clarify ownership boundaries, interface governance, and verification strategy.",
+    "next_level_sub_frs": [
+      "FR1.1: Enable stable, versioned Telemetry interface contracts for energy and work output instrumentation data, with backward compatibility guarantees and explicit data quality SLAs (precision, frequency, latency, staleness bounds).",
+      "FR1.2: Implement asynchronous aggregation pipeline with explicit handling of eventual consistency, including definition of aggregation windows, partial data tolerance, deduplication rules, and temporal alignment logic for distributed work output sources.",
+      "FR1.3: Establish data provenance and audit trail for all energy and tonnage inputs used in energy-per-ton ratio computation, enabling reproducible verification against E_target and root-cause analysis of efficiency degradation.",
+      "FR1.4: Enforce architectural ownership guardrails to prevent Vehicle and Teleoperation subsystems from computing, caching, or transforming energy-to-work ratios locally; ensure they emit only raw instrumentation data via Telemetry interfaces.",
+      "FR1.5: Define SafetyAlert interface and trigger logic for fuel efficiency anomalies indicating potential mechanical failure, with explicit severity levels and integration points to Safety Services, preventing safety logic diffusion into NGHE Solution core."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "The current DP (three-part strategy: instrument energy at source, instrument work at delivery, compute ratio asynchronously) is logically sound but underspecified in three critical areas: (1) Telemetry interface contract design (schema, versioning, SLA), (2) aggregation pipeline semantics (eventual consistency model, staleness bounds, partial data handling), and (3) data provenance and audit trail mechanism. These are not defects but rather design details that must be elevated to explicit sub-DPs to ensure the DP can be realized without diffusion risk. Recommend revising the current DP statement to explicitly reference these three sub-components as mandatory design elements, not optional refinements. This will clarify that the DP is incomplete until these sub-DPs are specified and will prevent premature implementation that omits critical architectural safeguards."
+    },
+    "record": {
+      "assumptions": [
+        "Vehicle and Teleoperation subsystems can emit raw instrumentation data (fuel/electricity, work output) via stable Telemetry interfaces without pre-computation of ratios.",
+        "NGHE Solution has sufficient computational and storage capacity to aggregate heterogeneous data sources asynchronously and publish ratios with acceptable latency (staleness bounds to be defined).",
+        "E_target and evaluation period are quantified numerically in the worksite safety plan and operational policies (e.g., '≤0.5 kWh/ton over 30-day rolling window').",
+        "Eventual consistency (stale metrics) is tolerable for monitoring and reporting use cases; safety-critical decisions do not depend on real-time energy-per-ton ratios.",
+        "Work output is instrumented at delivery points (e.g., tonnage moved, distance traveled) and can be correlated temporally with energy consumption data.",
+        "Telemetry interface versioning and backward compatibility can be enforced through architectural governance (code review, interface control documents)."
+      ],
+      "open_risks": [
+        "Telemetry schema drift: Vehicle or Teleoperation may evolve instrumentation data format without coordinating with NGHE Solution, breaking the aggregation pipeline. Mitigation: formalize interface contract with versioning rules and SLA enforcement.",
+        "Eventual consistency tolerance: Consumers of energy-per-ton ratios (monitoring dashboards, safety systems) may not tolerate staleness; if safety decisions depend on real-time ratios, the asynchronous DP may be insufficient. Mitigation: explicitly document staleness bounds and clarify which use cases can tolerate delayed metrics.",
+        "Distributed aggregation complexity: If work output is instrumented across multiple geographically or temporally dispersed Teleoperation instances, deduplication and temporal alignment become non-trivial. Partial or out-of-order data may produce incorrect ratios. Mitigation: define explicit aggregation rules and test with realistic multi-instance scenarios.",
+        "Data provenance and audit trail overhead: Logging source, timestamp, and transformation for all inputs may introduce significant storage and computational cost. Mitigation: define retention policy and sampling strategy to balance auditability with resource constraints.",
+        "SafetyAlert diffusion: If fuel efficiency anomalies are used to detect mechanical failure, safety logic may diffuse into NGHE Solution, violating separation of concerns. Mitigation: explicitly separate SafetyAlert trigger logic from core ratio computation; define integration points with Safety Services.",
+        "Verification reproducibility: If aggregation pipeline is non-deterministic (e.g., due to eventual consistency, partial data handling), reproducing the same energy-per-ton ratio for the same input data may be difficult. Mitigation: document aggregation semantics precisely and establish audit trail to enable reproducible verification."
+      ],
+      "evidence_needed": [
+        "Telemetry interface specification document: schema, versioning strategy, backward compatibility rules, SLAs for energy and tonnage data (precision, frequency, latency, staleness bounds).",
+        "Aggregation pipeline design document: eventual consistency model, aggregation windows, partial data handling rules, deduplication logic, temporal alignment strategy for distributed work output sources.",
+        "Data provenance and audit trail design: logging mechanism, retention policy, sampling strategy, integration with verification and root-cause analysis workflows.",
+        "Ownership guardrails specification: code review checklist, interface governance rules, architectural constraints to prevent Vehicle or Teleoperation from computing or caching energy-to-work ratios.",
+        "SafetyAlert interface specification: trigger conditions, severity levels, integration points with Safety Services, separation of safety logic from core ratio computation.",
+        "Quantified E_target and evaluation period: numerical acceptance criterion (e.g., '≤0.5 kWh/ton over 30-day rolling window'), linked to worksite safety plan and operational policies.",
+        "Verification and validation plan: test scenarios for multi-instance aggregation, eventual consistency tolerance, partial data handling, data provenance audit trail, SafetyAlert trigger conditions."
+      ]
+    }
+  }
+}

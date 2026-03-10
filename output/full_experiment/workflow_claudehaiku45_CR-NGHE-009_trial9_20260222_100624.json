@@ -1,0 +1,178 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation communication integrity within customer-defined packet loss limits during agreed network conditions.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting teleoperation as a capability, and (2) meeting packet loss quality criteria. The refined FR isolates the quality/performance obligation (communication integrity) as the core functional requirement, removing the implicit 'support teleoperation' clause which is a higher-level system capability. The phrase 'communication quality meeting the customer-defined packet loss limit' is replaced with 'maintain teleoperation communication integrity within customer-defined packet loss limits' to emphasize the functional outcome (integrity preservation) rather than a design parameter (packet loss metric). This keeps the FR in the problem domain while remaining solution-neutral regarding network architecture, protocols, or redundancy mechanisms.",
+    "verification_idea": "Conduct teleoperation trials under agreed network conditions (latency, bandwidth, interference profiles) and measure end-to-end packet loss across representative operational scenarios. Verify that measured packet loss does not exceed the customer-defined threshold (e.g., ≤1%). Document network conditions, test duration, payload types, and loss statistics.",
+    "sub_frs": [
+      "FR-NGHE-009.1: The NGHE solution shall enable bidirectional command and telemetry transmission between tele-operator and remote equipment during teleoperation sessions.",
+      "FR-NGHE-009.2: The NGHE solution shall detect and report communication degradation (packet loss, latency anomalies) to the tele-operator and safety manager in real-time.",
+      "FR-NGHE-009.3: The NGHE solution shall enforce operational constraints (e.g., reduced speed, autonomous hold, safe shutdown) when communication integrity falls below acceptable thresholds."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Implement adaptive packet redundancy and selective retransmission based on real-time loss detection and customer-configurable thresholds",
+      "DP2: Employ forward error correction (FEC) encoding with configurable redundancy levels tuned to measured network conditions",
+      "DP3: Establish dual independent communication paths with automatic failover and load balancing to reduce single-path loss impact",
+      "DP4: Deploy jitter buffering and packet reordering logic with timeout-based loss detection and on-demand retransmission",
+      "DP5: Implement network condition monitoring and dynamic codec/payload adaptation to reduce packet size and loss sensitivity",
+      "DP6: Combine lightweight acknowledgment (ACK) protocol with exponential backoff retransmission for critical control frames only"
+    ],
+    "selected_dp": "DP1 + DP4 (Hybrid): Implement adaptive packet redundancy with selective retransmission (DP1) integrated with jitter buffering and loss detection (DP4). This provides a two-tier approach: (1) real-time loss detection via sequence numbering and timeout logic, (2) configurable redundancy injection and retransmission for frames exceeding customer-defined loss thresholds. The solution remains technology-agnostic and allows tuning of redundancy overhead vs. latency trade-off per customer network profile.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between loss detection logic (DP4) and redundancy injection (DP1) is acceptable because both operate on the same packet stream and share state (sequence numbers, loss metrics). This is a cohesive functional unit, not a problematic cross-domain dependency.",
+        "Risk: Tight coupling to network condition monitoring (DP5) if adaptive thresholds are required. Mitigation: Define a clean interface for network metrics input (latency, jitter, loss rate) so DP5 can be evolved independently.",
+        "Risk: Coupling to transport protocol specifics (TCP vs. UDP, frame boundaries). Mitigation: Ensure DP1+DP4 operate at a logical packet/frame abstraction layer, not protocol-specific implementation."
+      ],
+      "notes": "The hybrid DP avoids over-engineering (DP3 dual paths adds cost/complexity without necessity if loss is <1%). DP2 (FEC) is viable but stateless FEC may waste bandwidth if loss is bursty; DP1+DP4 is more adaptive. DP6 is too minimal for teleoperation safety criticality."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Customer-defined packet loss target (≤1%) is achievable within the agreed network conditions (e.g., LTE, WiFi, wired). If baseline loss is >5%, redundancy overhead may become prohibitive.",
+      "ASSUMPTION: Teleoperation control frames have acceptable latency tolerance for retransmission (e.g., 100–500 ms round-trip). If latency budget is <50 ms, retransmission may not be viable; FEC (DP2) becomes necessary.",
+      "RISK: Loss detection accuracy depends on sequence numbering and timeout tuning. Misconfiguration (timeout too short) causes false retransmissions; too long causes undetected loss. Mitigation: Provide customer-tunable timeout based on measured RTT.",
+      "RISK: Redundancy injection increases bandwidth consumption. If network is bandwidth-constrained, this may paradoxically increase loss. Mitigation: Monitor bandwidth utilization and cap redundancy overhead (e.g., max 20% overhead).",
+      "RISK: Worksite safety plan may mandate hard real-time guarantees (e.g., emergency stop must execute within 100 ms). Retransmission-based approach is probabilistic, not deterministic. Mitigation: Ensure critical safety frames bypass redundancy logic and use separate, low-latency path or hardwired fallback.",
+      "ASSUMPTION: Implementation can access packet-level telemetry (loss, jitter, RTT) from the network stack or monitoring layer. If not available, loss detection must rely on application-level timeouts only."
+    ],
+    "recommended_revision": "FR (refined): The NGHE solution shall maintain teleoperation communication integrity by detecting and recovering from packet loss up to the customer-defined threshold (≤1% under agreed network conditions) with a configurable redundancy strategy (selective retransmission or FEC) that respects latency and bandwidth constraints. Critical safety frames (e.g., emergency stop) shall be protected by a separate, deterministic mechanism (e.g., dual-path or hardwired fallback) independent of loss recovery logic. Network condition monitoring shall provide real-time feedback to tune redundancy parameters without manual reconfiguration."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Encapsulates real-time network reliability mechanisms including adaptive packet redundancy, selective retransmission, jitter buffering, and loss detection. Owns the logic for sequence numbering, timeout-based loss detection, configurable redundancy injection, and per-customer network profile tuning."
+    },
+    "external_interfaces": [
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Bidirectional interface for transmitting redundant/retransmitted packets and receiving incoming frames with sequence metadata for loss detection."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Outbound interface to report network health metrics (loss rate, redundancy overhead, jitter buffer depth) for monitoring and customer profile optimization."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Inbound interface to receive customer-defined loss thresholds and redundancy configuration parameters per network profile."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Outbound interface to escalate critical loss events or redundancy saturation conditions that may impact safety-critical teleoperation."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit: Teleoperation is the natural owner of network reliability for remote control. Loss detection, redundancy, and jitter buffering are core to maintaining real-time command/feedback fidelity. Minor diffusion: safety escalation requires SafetyAlert interface; network tuning parameters flow in via Tasking."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.65,
+        "diffusion_score": 0.35,
+        "notes": "Moderate fit: NGHE is a system-level container but overly broad. Adaptive redundancy and loss detection are teleoperation-specific concerns, not general NGHE responsibilities. High diffusion: would require Teleoperation to query NGHE for configuration and health state, creating unnecessary coupling."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor fit: Vehicle module typically owns onboard sensors, actuators, and local control logic. Network reliability for remote teleoperation is not a vehicle responsibility. High diffusion: Vehicle would need to expose network interfaces and loss detection logic, violating separation of concerns."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Poor fit: Safety Services owns safety policy enforcement and alerts, not network transport mechanisms. Redundancy and loss detection are reliability engineering concerns, not safety policy. High diffusion: Safety Services would become entangled with low-level packet logic, reducing clarity of safety responsibilities."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the optimal boundary because (1) adaptive packet redundancy and selective retransmission are intrinsic to maintaining real-time teleoperation fidelity under lossy networks, (2) jitter buffering and loss detection directly support command/feedback synchronization, (3) customer-defined loss thresholds and network profile tuning are teleoperation-specific configuration concerns, and (4) the DP remains technology-agnostic and does not require Vehicle or Safety Services to own transport-layer logic.",
+    "containment_risks": [
+      "Risk: If Teleoperation module is already heavily loaded with command encoding, feedback decoding, and latency compensation, adding redundancy and loss detection logic may reduce cohesion. Mitigation: Decompose Teleoperation into sub-modules (e.g., CommandEncoder, FeedbackDecoder, NetworkReliability) if complexity exceeds maintainability threshold.",
+      "Risk: Safety Services may need to be notified of network degradation that could affect safety margins. Mitigation: SafetyAlert interface ensures Teleoperation escalates critical loss events without Safety Services owning the detection logic.",
+      "Risk: Vehicle may need to adapt its control loop timing based on network jitter estimates. Mitigation: Telemetry interface allows Vehicle to subscribe to jitter buffer depth and latency estimates without coupling to redundancy implementation.",
+      "Risk: NGHE Solution may need to coordinate redundancy overhead across multiple teleoperation sessions. Mitigation: Tasking interface allows NGHE to set per-session redundancy budgets; Teleoperation respects those constraints without exposing internal state."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The FR specifies measurable acceptance criteria (packet loss ≤ 1% or customer-defined target under agreed network conditions). The IM boundary (Teleoperation module) owns loss detection via sequence numbering and timeout logic, enabling direct measurement of packet loss rate. Telemetry interface provides outbound reporting of loss rate, redundancy overhead, and jitter buffer depth, supporting continuous verification against acceptance criteria. Customer-defined thresholds flow inbound via Tasking interface, enabling per-profile validation.",
+      "allocation_clarity": "Clear. The Teleoperation IM is the unambiguous owner of adaptive packet redundancy, selective retransmission, jitter buffering, and loss detection. The FR requirement maps directly to DP1+DP4 logic contained within this module boundary. External interfaces (Network Link, Telemetry, Tasking, SafetyAlert) establish clear responsibility boundaries: Teleoperation detects and mitigates loss; SafetyAlert escalates critical events; Tasking configures thresholds; Telemetry reports health. No ambiguity regarding which module is accountable for maintaining communication integrity."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Minor: SafetyAlert interface creates a dependency on Safety Services for escalation logic. Mitigation: Teleoperation owns the decision to escalate (based on loss thresholds); Safety Services owns the response policy. Interface is unidirectional (out), preventing reverse coupling.",
+        "Minor: Tasking interface introduces inbound configuration dependency. Mitigation: Teleoperation must validate incoming thresholds and network profiles against design constraints (e.g., maximum redundancy overhead, minimum latency budget). Validation logic should remain within Teleoperation to prevent diffusion.",
+        "Minor: Vehicle and NGHE Solution may query Telemetry for jitter/latency estimates to adapt their own control loops. Mitigation: Telemetry is read-only; Teleoperation does not depend on Vehicle or NGHE for loss detection or redundancy decisions. Coupling is one-directional and non-critical.",
+        "Moderate: If Teleoperation module already owns command encoding, feedback decoding, and latency compensation, adding redundancy and loss detection logic may exceed cohesion limits. Mitigation: Decompose into sub-modules (NetworkReliability, CommandEncoder, FeedbackDecoder) if module complexity (cyclomatic complexity, interface count, responsibility count) exceeds maintainability thresholds. Current containment score of 0.92 suggests decomposition is not yet necessary, but should be monitored during detailed design."
+      ],
+      "containment_notes": "Excellent containment. Teleoperation module achieves 0.92 containment score with only 0.08 diffusion. The DP (adaptive redundancy + loss detection) is logically cohesive: both mechanisms operate on the same data (packet sequences, timeouts, network profiles) and serve the same goal (maintaining real-time teleoperation fidelity). No DP logic is scattered across Vehicle, Safety Services, or NGHE Solution. The four external interfaces (Network Link, Telemetry, Tasking, SafetyAlert) are well-defined and minimal, indicating tight module boundaries. Risk of DP diffusion is low provided that: (1) sub-module decomposition is applied if Teleoperation complexity grows beyond maintainability thresholds, (2) Tasking interface validation logic remains within Teleoperation, (3) SafetyAlert escalation criteria are documented and owned by Teleoperation (not delegated to Safety Services)."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "The DP (DP1 + DP4 hybrid) directly and sufficiently addresses the FR. FR requires maintaining teleoperation communication integrity within customer-defined packet loss limits under agreed network conditions. DP1 (adaptive packet redundancy with selective retransmission) directly mitigates packet loss by injecting redundant copies and retransmitting lost frames. DP4 (jitter buffering and loss detection) provides the detection mechanism (sequence numbering, timeout logic) necessary to identify loss and trigger DP1 actions. The hybrid approach is technology-agnostic and allows tuning of redundancy overhead vs. latency trade-off per customer network profile, satisfying the requirement for flexibility across diverse network conditions. Acceptance criterion (packet loss ≤ 1% or customer-defined target) is measurable and achievable through DP1+DP4 mechanisms. No logical gaps between FR and DP."
+    },
+    "recommended_revisions": [
+      "Clarify sub-module decomposition strategy: If Teleoperation module complexity exceeds 15 responsibilities or 10 external interfaces during detailed design, decompose into NetworkReliability (owns loss detection, redundancy injection, jitter buffering), CommandEncoder (owns command serialization), and FeedbackDecoder (owns feedback deserialization). This prevents diffusion of DP logic across multiple sub-modules.",
+      "Formalize Tasking interface validation: Document which customer-defined thresholds and network profiles are valid inputs (e.g., redundancy overhead ≤ X%, latency budget ≥ Y ms). Validation logic must remain within Teleoperation module to prevent diffusion of DP constraints to external callers.",
+      "Define SafetyAlert escalation criteria: Specify which loss detection events trigger SafetyAlert (e.g., sustained loss rate > 5%, redundancy saturation > 90%). Document that Teleoperation owns the detection and escalation decision; Safety Services owns the response policy. This prevents Safety Services from reverse-coupling into loss detection logic.",
+      "Add Telemetry reporting frequency and granularity: Specify whether loss rate, redundancy overhead, and jitter buffer depth are reported per-packet, per-frame, per-second, or per-session. This ensures Vehicle and NGHE Solution can subscribe to appropriate granularity without requiring Teleoperation to expose internal state.",
+      "Document network profile tuning mechanism: Specify whether customer-defined loss thresholds and redundancy budgets are static (set at initialization) or dynamic (updated during operation via Tasking interface). If dynamic, define the update protocol and any constraints on update frequency to prevent thrashing or instability.",
+      "Verify acceptance criterion measurability: Confirm that Teleoperation's loss detection mechanism (sequence numbering, timeout logic) can measure packet loss rate with sufficient accuracy and precision to verify the ≤ 1% acceptance criterion. If measurement uncertainty is significant, define acceptable measurement error bounds."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "Gate results confirm FR-DP-IM alignment with high verification feasibility and excellent containment (0.92). However, the moderate diffusion risk flagged in dp_im_gate—specifically that Teleoperation module may exceed cohesion limits if it already owns command encoding, feedback decoding, and latency compensation in addition to redundancy and loss detection—warrants decomposition into sub-FRs before detailed design. The recommended revisions explicitly call for sub-module decomposition strategy if complexity thresholds are exceeded. Given high safety criticality, proactive decomposition at the FR level is prudent to ensure each sub-module has clear, singular responsibility and measurable acceptance criteria. This prevents post-hoc refactoring and ensures safety-critical loss detection logic is isolated and independently verifiable.",
+    "next_level_sub_frs": [
+      "FR1.1: Detect packet loss in real-time teleoperation streams using sequence numbering and timeout logic, enabling identification of missing or delayed packets within the agreed latency budget.",
+      "FR1.2: Inject adaptive packet redundancy (selective retransmission and forward error correction) to mitigate detected packet loss, maintaining packet loss rate ≤ customer-defined threshold (default 1%) under agreed network conditions.",
+      "FR1.3: Buffer and reorder out-of-sequence packets to compensate for jitter and variable latency, ensuring command and feedback streams remain synchronized within acceptable tolerance (customer-defined or default ≤ 100 ms).",
+      "FR1.4: Validate inbound network profiles and loss thresholds from Tasking interface against design constraints (redundancy overhead, latency budget, buffer capacity), rejecting invalid configurations and logging violations.",
+      "FR1.5: Report packet loss rate, redundancy overhead, jitter buffer depth, and network health metrics to Telemetry interface at configurable granularity (per-packet, per-frame, per-second, per-session) to enable Vehicle and NGHE Solution to adapt control loops.",
+      "FR1.6: Escalate critical loss detection events (sustained loss rate > customer-defined threshold, redundancy saturation > 90%, jitter buffer overflow) to SafetyAlert interface, enabling Safety Services to trigger failsafe actions without reverse-coupling into loss detection logic."
+    ],
+    "revise": {
+      "target": "IM",
+      "why": "Decompose Teleoperation module into three sub-modules to isolate safety-critical loss detection and redundancy logic: (1) NetworkReliability (owns FR1.1, FR1.2, FR1.3, FR1.6—loss detection, redundancy injection, jitter buffering, escalation), (2) ConfigurationValidator (owns FR1.4—threshold and profile validation), (3) TelemetryReporter (owns FR1.5—health metrics reporting). This decomposition prevents diffusion of DP logic across command encoding, feedback decoding, and latency compensation responsibilities. Each sub-module has singular, measurable accountability and can be independently tested and verified. NetworkReliability becomes the safety-critical module requiring formal verification; ConfigurationValidator and TelemetryReporter are supporting modules with lower criticality."
+    },
+    "record": {
+      "assumptions": [
+        "Teleoperation module currently owns or will own command encoding, feedback decoding, and latency compensation logic in addition to redundancy and loss detection. If these responsibilities are already distributed across other modules, sub-module decomposition may not be necessary.",
+        "Packet loss detection via sequence numbering is feasible and provides sufficient accuracy to verify the ≤ 1% acceptance criterion. Measurement uncertainty is acceptable (assumed ≤ 0.1% absolute error).",
+        "Customer-defined loss thresholds and network profiles are provided via Tasking interface at initialization or updated dynamically during operation. Update frequency and constraints are defined by customer SLA.",
+        "SafetyAlert interface is unidirectional (Teleoperation → Safety Services). Safety Services does not reverse-couple into loss detection logic; escalation criteria are owned by Teleoperation.",
+        "Jitter buffer capacity and latency budget are sufficient to accommodate agreed network conditions. If network conditions exceed design assumptions, Teleoperation escalates via SafetyAlert and does not attempt to compensate.",
+        "Vehicle and NGHE Solution subscribe to Telemetry metrics at appropriate granularity without requiring Teleoperation to expose internal state or accept reverse-coupling requests."
+      ],
+      "open_risks": [
+        "Measurement uncertainty in packet loss detection: If sequence numbering or timeout logic introduces systematic bias (e.g., false positives due to reordering), measured loss rate may not accurately reflect true loss. Mitigation: Validate loss detection algorithm against ground-truth packet traces during integration testing.",
+        "Redundancy overhead saturation: If customer-defined loss thresholds are very low (e.g., < 0.1%), adaptive redundancy may require injecting more redundant packets than available bandwidth permits. Mitigation: Tasking interface validation must reject thresholds that exceed design constraints; document maximum achievable loss rate as a function of network bandwidth and latency budget.",
+        "Jitter buffer overflow under extreme network conditions: If jitter exceeds buffer capacity, packets are dropped, increasing effective loss rate. Mitigation: Escalate to SafetyAlert if buffer occupancy exceeds 90%; document buffer sizing assumptions and acceptable jitter ranges.",
+        "SafetyAlert escalation criteria ambiguity: If escalation thresholds (e.g., sustained loss > 5%) are not formally defined, Safety Services may not respond consistently. Mitigation: Formalize escalation criteria in FR1.6 acceptance criteria and document in SafetyAlert interface specification.",
+        "Dynamic threshold updates causing instability: If customer updates loss thresholds or network profiles during operation, redundancy injection may thrash or cause latency spikes. Mitigation: Define update protocol (e.g., apply new thresholds only at frame boundaries, rate-limit updates to once per second) and document constraints.",
+        "Sub-module interface complexity: Decomposing Teleoperation into three sub-modules (NetworkReliability, ConfigurationValidator, TelemetryReporter) introduces internal interfaces. If these interfaces are not well-defined, diffusion risk increases. Mitigation: Define sub-module interfaces explicitly during detailed design; ensure each interface has clear ownership and minimal coupling."
+      ],
+      "evidence_needed": [
+        "Detailed design specification for NetworkReliability sub-module: sequence numbering scheme, timeout logic, redundancy injection algorithm, jitter buffer implementation, escalation criteria.",
+        "Validation rules for ConfigurationValidator: acceptable ranges for loss thresholds, redundancy overhead, latency budget, buffer capacity; error handling and logging for invalid inputs.",
+        "Telemetry reporting specification: metrics (loss rate, redundancy overhead, jitter depth, buffer occupancy), granularity (per-packet, per-frame, per-second, per-session), update frequency, data format.",
+        "SafetyAlert escalation specification: event types (sustained loss, redundancy saturation, buffer overflow), thresholds, severity levels, response expectations from Safety Services.",
+        "Acceptance test plan for FR1.1–FR1.6: test cases for loss detection accuracy, redundancy effectiveness, jitter buffering, threshold validation, telemetry reporting, escalation triggering under various network conditions (packet loss, jitter, latency, bandwidth constraints).",
+        "Measurement uncertainty analysis: quantify bias and variance in packet loss detection; confirm that measured loss rate can verify ≤ 1% acceptance criterion with acceptable confidence (e.g., 95% CI).",
+        "Sub-module interface specification: define data structures, method signatures, and coupling constraints for NetworkReliability ↔ ConfigurationValidator, NetworkReliability ↔ TelemetryReporter, and external interfaces (Network Link, Tasking, SafetyAlert, Telemetry).",
+        "Safety criticality assessment: confirm that NetworkReliability sub-module is classified as safety-critical and subject to formal verification, code review, and testing per applicable standards (e.g., ISO 26262 for automotive, IEC 61508 for industrial)."
+      ]
+    }
+  }
+}

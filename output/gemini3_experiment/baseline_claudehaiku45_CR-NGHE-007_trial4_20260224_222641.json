@@ -1,0 +1,169 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current operational state (vehicle position, task progress, environmental changes, safety events) within p95 ≤ 1.0 s latency for all supported update scenarios (teleoperated commands, autonomous task execution, sensor data ingestion, safety alerts).",
+    "rationale": "CR-NGHE-007 is a latency requirement that must be decomposed into functional sub-requirements addressing data acquisition, transmission, processing, and model refresh. The refined FR explicitly names the update sources and the measurement boundary (p95 latency), making it testable and traceable to stakeholder needs (Site Manager situational awareness, Tele-operator control responsiveness, Safety Manager alert propagation).",
+    "verification_idea": "Instrument end-to-end latency measurement from event trigger (sensor reading, command issuance, safety event detection) to worksite model state change. Collect p95 latency across representative scenarios: teleoperated vehicle movement, autonomous task execution, safety alert injection, network congestion conditions.",
+    "sub_frs": [
+      "FR-NGHE-007.1: Acquire operational state data (vehicle telemetry, task status, environmental sensors) with minimal capture-to-transmission latency.",
+      "FR-NGHE-007.2: Transmit operational state updates over network link with bounded latency and reliability.",
+      "FR-NGHE-007.3: Process and fuse incoming state updates into a coherent worksite model representation.",
+      "FR-NGHE-007.4: Distribute updated worksite model to all authorized consumers (operator displays, safety services, autonomous planners) with minimal propagation delay.",
+      "FR-NGHE-007.5: Detect and handle late or out-of-order updates to maintain model consistency."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized worksite model server with pull-based client polling (clients request updates at fixed intervals).",
+      "DP-B: Distributed event-driven architecture with publish-subscribe messaging (producers emit state changes; subscribers receive via message broker).",
+      "DP-C: Hybrid push-pull with adaptive update frequency (server pushes critical updates; clients pull non-critical state on demand).",
+      "DP-D: Edge-local model caching with eventual consistency (each client maintains a local model; server broadcasts deltas asynchronously)."
+    ],
+    "selected_dp": "DP-B: Distributed event-driven architecture with publish-subscribe messaging. Producers (Vehicle telemetry, Safety Services, autonomous task executors) emit state-change events to a message broker. Subscribers (worksite model service, operator displays, safety dashboards) receive events with minimal latency. This design decouples producers from consumers, enables parallel processing, and naturally supports the p95 ≤ 1.0 s latency requirement through low-latency message brokers (e.g., Kafka, RabbitMQ, or custom real-time middleware).",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Message broker availability and latency are critical; broker failure blocks all model updates.",
+        "Event schema evolution must be managed to avoid breaking subscribers.",
+        "Clock synchronization across distributed producers affects timestamp ordering."
+      ],
+      "notes": "DP-B exhibits loose coupling between producers and consumers (good for modularity) but tight coupling to the message broker infrastructure (acceptable given its criticality). The design is decoupled from specific network transport (can use Telemetry interface over various protocols). Coupling is manageable via versioning and broker redundancy."
+    },
+    "assumptions_risks": [
+      "Assumption: Message broker latency (publish to first subscriber receive) is < 100 ms p95 under normal load.",
+      "Assumption: Network link (Telemetry interface) supports the required message throughput and latency.",
+      "Risk: If message broker becomes a bottleneck, latency SLA will be violated. Mitigation: broker capacity planning, load testing, and failover design.",
+      "Risk: Out-of-order message delivery could corrupt model state. Mitigation: implement sequence numbering and conflict resolution in model fusion logic.",
+      "Risk: High-frequency telemetry (e.g., 100 Hz sensor data) could overwhelm subscribers. Mitigation: implement filtering, aggregation, and priority-based message routing."
+    ],
+    "recommended_revision": "Clarify the message broker selection and latency budget allocation: (1) Specify broker technology and its p95 latency SLA. (2) Define message schema and versioning strategy. (3) Allocate latency budget: e.g., 200 ms for data acquisition, 300 ms for transmission, 300 ms for processing, 200 ms for distribution. (4) Define fallback behavior if broker latency exceeds budget."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "The NGHE Solution module owns the end-to-end worksite model update pipeline, including the message broker, model fusion service, and distribution logic. It integrates telemetry from Vehicle and Teleoperation modules, receives safety events from Safety Services, and exposes the updated worksite model via internal APIs and external interfaces."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Receives vehicle position, task progress, sensor readings, and operational state from Vehicle and Teleoperation modules. Used to populate worksite model with current operational data."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "in",
+        "details": "Receives safety events (hazard detection, policy violations, emergency stops) from Safety Services. Integrated into worksite model to inform operator and autonomous systems."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Distributes updated worksite model state to autonomous task planners and operator displays. Enables downstream systems to make decisions based on current model state."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Underlying transport for Telemetry and SafetyAlert ingress; used for Tasking egress. Latency of Network Link directly impacts end-to-end update latency."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "NGHE Solution is the natural owner of the worksite model update pipeline. It integrates inputs from multiple sources (Vehicle, Teleoperation, Safety Services) and distributes outputs to multiple consumers. High containment: the message broker, model fusion logic, and distribution service are all core to the NGHE solution's mission. Low diffusion: no duplication of model update logic across other modules."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Vehicle module produces telemetry but should not own the worksite model update pipeline. If Vehicle owned model updates, it would require knowledge of all consumers and model schema, creating tight coupling and diffusion of model logic across vehicle-specific code."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 25,
+        "diffusion_score": 75,
+        "notes": "Teleoperation module consumes worksite model updates but should not own the pipeline. Ownership would couple teleoperation logic to model infrastructure, making it difficult to support multiple teleoperation modes or future model schema changes."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 30,
+        "diffusion_score": 70,
+        "notes": "Safety Services produces SafetyAlert events but should not own the worksite model update pipeline. Safety Services should focus on hazard detection and policy enforcement, not on model distribution. Ownership would diffuse safety logic into infrastructure concerns."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "NGHE Solution is the appropriate owner because: (1) it is the system-level integrator responsible for coherent worksite state; (2) it has visibility into all data sources and consumers; (3) it can enforce latency SLAs across the entire pipeline; (4) it can manage model schema evolution and versioning; (5) it avoids diffusion of model logic across Vehicle, Teleoperation, and Safety Services modules.",
+    "containment_risks": [
+      "Risk: NGHE Solution module may become a monolith if all model update logic is centralized. Mitigation: decompose into sub-modules (message broker, model service, distribution service) with clear internal interfaces.",
+      "Risk: NGHE Solution depends on timely telemetry from Vehicle and SafetyAlert from Safety Services. If either producer is slow, latency SLA is violated. Mitigation: define producer latency SLAs and monitor compliance.",
+      "Risk: NGHE Solution must handle variable message rates and sizes from multiple producers. Mitigation: implement backpressure, buffering, and adaptive filtering."
+    ],
+    "recommended_revision": "Define internal sub-module boundaries within NGHE Solution: (1) Message Broker (owns publish-subscribe infrastructure). (2) Model Fusion Service (owns state aggregation and conflict resolution). (3) Distribution Service (owns consumer notification and API exposure). Document internal interfaces between sub-modules to enable independent testing and evolution."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-B (event-driven publish-subscribe) directly addresses the refined FR requirement for p95 ≤ 1.0 s latency. The design decouples producers from consumers, enabling low-latency event propagation. The DP is testable: latency can be measured end-to-end from event emission to model update. The DP is traceable to stakeholder needs (operator responsiveness, safety alert propagation). No independence violations: the DP does not couple unrelated FRs."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Risk: If message broker logic is duplicated across Vehicle, Teleoperation, and Safety Services modules, diffusion will occur. Mitigation: centralize broker in NGHE Solution; other modules use client libraries only.",
+        "Risk: If model fusion logic is implemented in multiple places (e.g., in Teleoperation for local caching and in NGHE Solution for global state), consistency issues will arise. Mitigation: single source of truth in NGHE Solution; other modules consume via APIs."
+      ],
+      "containment_notes": "NGHE Solution is the appropriate container for DP-B. It owns the message broker, model fusion service, and distribution logic. Vehicle, Teleoperation, and Safety Services are producers/consumers only; they do not own model update infrastructure. This containment avoids diffusion and maintains clear separation of concerns."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible: (1) Instrument message broker and model service with latency probes. (2) Inject test events from Vehicle, Teleoperation, and Safety Services. (3) Measure p95 latency from event emission to model update. (4) Repeat under various load conditions (normal, peak, congestion). (5) Validate against p95 ≤ 1.0 s acceptance criterion.",
+      "allocation_clarity": "Allocation is clear: NGHE Solution is responsible for end-to-end latency. Sub-allocations to Vehicle (telemetry capture latency), Network Link (transmission latency), and Safety Services (alert generation latency) are defined in sub-FR latency budgets. Each module's latency contribution is measurable and traceable."
+    },
+    "recommended_revisions": [
+      "Refine latency budget allocation across sub-FRs (FR-NGHE-007.1 through 007.5) with specific p95 targets for each stage.",
+      "Define message broker selection criteria and latency SLA (e.g., 'Kafka with p95 ≤ 100 ms latency under 10k msg/s load').",
+      "Specify model schema versioning and backward compatibility strategy to avoid breaking changes.",
+      "Define fallback behavior if latency SLA is violated (e.g., alert operator, degrade to lower-frequency updates, switch to backup broker).",
+      "Document internal sub-module boundaries within NGHE Solution (Message Broker, Model Fusion Service, Distribution Service) with interface specifications."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The refined FR is not yet atomic. It comprises five distinct sub-FRs (data acquisition, transmission, processing, distribution, consistency handling) that require further decomposition. Each sub-FR maps to a different stage in the latency pipeline and may have different DPs and IMs. Proceeding to the next decomposition level will clarify ownership, interfaces, and latency allocation across the pipeline. The current level (FR-NGHE-007 and DP-B) is sound and ready for sub-level analysis.",
+    "next_level_sub_frs": [
+      "FR-NGHE-007.1: Acquire operational state data (vehicle telemetry, task status, environmental sensors) with minimal capture-to-transmission latency (p95 ≤ 200 ms).",
+      "FR-NGHE-007.2: Transmit operational state updates over network link with bounded latency and reliability (p95 ≤ 300 ms).",
+      "FR-NGHE-007.3: Process and fuse incoming state updates into a coherent worksite model representation (p95 ≤ 300 ms).",
+      "FR-NGHE-007.4: Distribute updated worksite model to all authorized consumers (operator displays, safety services, autonomous planners) with minimal propagation delay (p95 ≤ 200 ms).",
+      "FR-NGHE-007.5: Detect and handle late or out-of-order updates to maintain model consistency (no latency impact; handled within FR-NGHE-007.3 budget)."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Message broker latency (publish to first subscriber receive) is < 100 ms p95 under normal load.",
+        "Network Link (Telemetry interface) supports required message throughput and latency.",
+        "Vehicle and Safety Services modules can produce telemetry and alerts with latency < 200 ms.",
+        "Worksite model schema is stable or versioned to support evolution.",
+        "Clock synchronization across distributed producers is maintained (e.g., via NTP).",
+        "Safety criticality (high) does not require synchronous consensus or Byzantine fault tolerance; asynchronous event-driven model is acceptable."
+      ],
+      "open_risks": [
+        "Message broker becomes a single point of failure. Mitigation: design for broker redundancy and failover.",
+        "Out-of-order message delivery corrupts model state. Mitigation: implement sequence numbering and conflict resolution.",
+        "High-frequency telemetry overwhelms subscribers. Mitigation: implement filtering, aggregation, and priority-based routing.",
+        "Network congestion causes Telemetry and SafetyAlert latency to exceed budget. Mitigation: QoS policies, traffic shaping, and fallback modes.",
+        "Model schema evolution breaks existing subscribers. Mitigation: versioning strategy and backward compatibility.",
+        "Safety Services latency is unpredictable due to complex hazard detection logic. Mitigation: profile and optimize Safety Services; allocate latency budget conservatively."
+      ],
+      "evidence_needed": [
+        "Message broker latency measurements under representative load profiles.",
+        "Network Link latency and throughput characterization (normal, peak, congestion).",
+        "Vehicle telemetry capture and transmission latency profile.",
+        "Safety Services alert generation latency profile.",
+        "End-to-end latency measurements from test scenarios (teleoperated movement, autonomous task, safety event).",
+        "Model schema and versioning strategy documentation.",
+        "Broker redundancy and failover design documentation.",
+        "Conflict resolution and out-of-order handling logic specification."
+      ]
+    }
+  }
+}

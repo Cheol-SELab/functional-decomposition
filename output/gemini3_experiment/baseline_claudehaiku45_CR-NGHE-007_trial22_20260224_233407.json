@@ -1,0 +1,162 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current equipment state, environmental conditions, and operational events with a p95 latency not exceeding the customer-defined target (baseline 1.0 s) across all supported update scenarios.",
+    "rationale": "CR-NGHE-007 addresses a critical operational requirement: timely situational awareness for site managers, operators, and tele-operators. Latency directly impacts safety decision-making and task coordination. The refinement clarifies scope (what is updated), performance metric (p95 latency), and acceptance criterion (customer-defined target). High safety criticality demands explicit traceability to update content and failure modes.",
+    "verification_idea": "Measure end-to-end latency from sensor/event generation through worksite model persistence and availability to consuming clients (site manager dashboard, operator HMI, tele-operator interface) under representative workload and network conditions. Validate p95 percentile across update scenarios (equipment telemetry, safety alerts, task status, environmental data).",
+    "sub_frs": [
+      "FR-007.1: Acquire and transmit equipment telemetry and state data with minimal latency.",
+      "FR-007.2: Receive, validate, and integrate updates into the worksite model with bounded processing latency.",
+      "FR-007.3: Persist worksite model updates durably and make them available to authorized consumers.",
+      "FR-007.4: Detect and handle update failures or delays that exceed latency targets; alert safety manager if safety-critical updates are delayed."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-007.A: Centralized worksite model server with real-time message queue (Kafka/RabbitMQ) for event ingestion, in-memory cache for hot data, and pub-sub distribution to clients.",
+      "DP-007.B: Distributed edge-based model replicas on vehicle and teleoperation nodes with eventual consistency and periodic reconciliation.",
+      "DP-007.C: Hybrid: lightweight edge caches synchronized to a central authoritative model via optimized delta-sync protocol with latency monitoring and failover.",
+      "DP-007.D: Direct peer-to-peer model updates between vehicles and tele-operator with local consensus and eventual global consistency."
+    ],
+    "selected_dp": "DP-007.C: Hybrid edge-cache + central-authoritative model with delta-sync protocol, latency monitoring, and safety-critical failover. This balances low-latency local access (edge caches), consistency guarantees (central authority), and resilience (failover to safety services).",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "DP-007.C couples worksite model update logic to network reliability and delta-sync protocol design; requires tight integration with Telemetry and Network Link interfaces.",
+        "Safety-critical failover logic couples to Safety Services module; must define handoff criteria and alert semantics.",
+        "Edge cache coherency couples to Vehicle and Teleoperation module architectures; requires agreed cache invalidation signals."
+      ],
+      "notes": "Coupling is acceptable because it is localized to well-defined interfaces (Telemetry, SafetyAlert, Network Link) and safety failover is a required feature, not an accidental dependency. Recommend explicit interface contracts and latency SLAs."
+    },
+    "assumptions_risks": [
+      "Assumption: Network latency is predictable and < 500 ms p95 for supported update scenarios. Risk: Unpredictable network jitter or congestion could violate p95 target; mitigation: implement adaptive batching and priority queuing.",
+      "Assumption: Central model server has sufficient throughput and availability (e.g., 99.9% uptime). Risk: Single point of failure; mitigation: replicate central model with active-passive or active-active failover.",
+      "Assumption: Delta-sync protocol overhead is negligible (< 50 ms). Risk: Protocol complexity or serialization overhead could exceed budget; mitigation: benchmark and optimize serialization (e.g., Protocol Buffers, MessagePack).",
+      "Assumption: Safety Services module can detect and respond to update delays within 100 ms. Risk: Delayed safety alert propagation; mitigation: define hard real-time requirements for safety failover path."
+    ],
+    "recommended_revision": "Refine DP-007.C to explicitly specify: (1) delta-sync protocol design and latency budget allocation (network + processing + persistence), (2) failover criteria and safety alert semantics, (3) cache coherency strategy (TTL, event-driven invalidation, or hybrid), (4) monitoring and observability hooks for latency tracking."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "End-to-end worksite model update pipeline: ingestion (Telemetry interface), processing (delta-sync, validation, caching), persistence (central model store), and distribution (pub-sub to Vehicle, Teleoperation, Safety Services). Includes latency monitoring, failover logic, and safety alert integration."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Receives equipment state, sensor data, and operational events from Vehicle and Teleoperation modules. Latency-critical: must support high-frequency updates (e.g., 10–100 Hz for safety-critical sensors)."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Distributes task assignments and operational directives to Vehicle and Teleoperation modules. Not directly latency-critical for model updates but may depend on current worksite model state."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "Receives safety-critical events (e.g., collision risk, equipment fault) and sends alerts to Safety Services module. Bidirectional: Safety Services may request model updates or confirm alert receipt."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Underlying network transport for all model updates, telemetry, and alerts. Latency of Network Link directly impacts p95 worksite model update latency."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "NGHE Solution is the system-level integration point and natural owner of end-to-end worksite model update logic. Worksite model is a core NGHE asset. Minimal diffusion: latency monitoring and failover are localized to this module."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Vehicle module is a producer of telemetry but not the owner of the central worksite model or update pipeline. Assigning model update logic to Vehicle would scatter the model across multiple vehicle instances and complicate consistency."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 25,
+        "diffusion_score": 75,
+        "notes": "Teleoperation module is a consumer and producer of model updates but not the authoritative owner. Assigning central model logic to Teleoperation would create asymmetry and coupling to tele-operator availability."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 30,
+        "diffusion_score": 70,
+        "notes": "Safety Services is a critical consumer of model updates and owner of safety failover logic, but not the owner of the general worksite model. Assigning model updates to Safety Services would conflate operational and safety concerns."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "NGHE Solution owns the worksite model update pipeline (DP-007.C) because: (1) it is the system-level integration point with visibility to all producers (Vehicle, Teleoperation) and consumers (Safety Services, site manager dashboard), (2) the worksite model is a shared asset that must be consistent across all stakeholders, (3) latency monitoring and failover logic are system-level concerns, not module-specific. Vehicle and Teleoperation modules are producers/consumers but not owners.",
+    "containment_risks": [
+      "Risk: NGHE Solution module may become a bottleneck if it centralizes all model update processing. Mitigation: design for horizontal scaling (e.g., sharded model store, load-balanced ingestion).",
+      "Risk: Tight coupling between NGHE Solution and Safety Services for failover logic. Mitigation: define explicit SafetyAlert interface contract and latency SLAs.",
+      "Risk: Network Link latency is outside NGHE Solution's direct control. Mitigation: implement adaptive batching and priority queuing to optimize use of available bandwidth; monitor and alert on network degradation."
+    ],
+    "recommended_revision": "Clarify ownership of edge caches in Vehicle and Teleoperation modules: are they owned by those modules (with NGHE Solution defining cache coherency protocol) or by NGHE Solution (with Vehicle/Teleoperation as managed clients)? Recommend the former for modularity: Vehicle and Teleoperation own their local caches; NGHE Solution owns the central model and delta-sync protocol."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-007.C (hybrid edge-cache + central model with delta-sync) directly addresses FR-007 (worksite model update latency ≤ p95 target). The DP provides mechanisms for low-latency local access (edge caches), consistency (central authority), and safety failover (SafetyAlert integration). Coupling is acceptable and localized to well-defined interfaces. Assumptions and risks are documented and mitigatable."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Diffusion risk: Delta-sync protocol implementation may be scattered across NGHE Solution, Vehicle, and Teleoperation modules if not carefully architected. Mitigation: define protocol as a shared library or service owned by NGHE Solution.",
+        "Diffusion risk: Latency monitoring and failover logic may leak into Safety Services module if not cleanly separated. Mitigation: define SafetyAlert interface contract with explicit latency SLAs and alert semantics."
+      ],
+      "containment_notes": "NGHE Solution is the appropriate owner of the worksite model update pipeline. Vehicle and Teleoperation modules are producers/consumers with local caches; they do not own the central model or delta-sync protocol. Safety Services is a critical consumer and owner of safety failover response, but not the model update logic itself. Containment score of 95 for NGHE Solution is justified."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible: measure end-to-end latency from telemetry ingestion to model availability across supported scenarios. Requires instrumentation of Telemetry, Network Link, and SafetyAlert interfaces. p95 latency target is measurable and testable.",
+      "allocation_clarity": "Allocation is clear: NGHE Solution owns the worksite model update pipeline and is responsible for meeting the p95 latency target. Vehicle and Teleoperation modules are responsible for timely telemetry production and cache coherency. Safety Services is responsible for failover response. Interfaces (Telemetry, SafetyAlert, Network Link) are well-defined."
+    },
+    "recommended_revisions": [
+      "Refine DP-007.C to specify latency budget allocation: network (e.g., 500 ms), processing (e.g., 200 ms), persistence (e.g., 100 ms), distribution (e.g., 100 ms). Total budget should leave margin for p95 target (e.g., 1.0 s).",
+      "Define delta-sync protocol specification: message format, compression, batching strategy, and error handling.",
+      "Define SafetyAlert interface contract: latency SLA for safety-critical updates, alert semantics, and failover criteria.",
+      "Specify monitoring and observability: latency tracking, percentile reporting, and alerting thresholds."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-007 is not atomic; it decomposes into four sub-FRs (telemetry acquisition, model integration, persistence, and safety failover). DP-007.C is sound and well-justified, but requires further refinement at the next level to address latency budget allocation, protocol design, and safety failover logic. NGHE Solution is the correct IM owner. Proceeding to decompose sub-FRs will clarify implementation details and reduce risk.",
+    "next_level_sub_frs": [
+      "FR-007.1: Acquire and transmit equipment telemetry and state data with minimal latency (target: < 200 ms p95 from sensor to NGHE Solution ingestion point).",
+      "FR-007.2: Receive, validate, and integrate updates into the worksite model with bounded processing latency (target: < 200 ms p95 from ingestion to model persistence).",
+      "FR-007.3: Persist worksite model updates durably and make them available to authorized consumers with minimal distribution latency (target: < 200 ms p95 from persistence to consumer availability).",
+      "FR-007.4: Detect and handle update failures or delays that exceed latency targets; alert safety manager if safety-critical updates are delayed (target: < 100 ms p95 from detection to SafetyAlert)."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Network latency is predictable and < 500 ms p95 for supported update scenarios.",
+        "Central model server has sufficient throughput and availability (99.9% uptime).",
+        "Delta-sync protocol overhead is negligible (< 50 ms).",
+        "Safety Services module can detect and respond to update delays within 100 ms.",
+        "Worksite model update scenarios are well-defined and representative of operational use."
+      ],
+      "open_risks": [
+        "Network jitter or congestion could violate p95 latency target; requires adaptive batching and priority queuing.",
+        "Central model server single point of failure; requires replication and failover.",
+        "Delta-sync protocol complexity could exceed latency budget; requires benchmarking and optimization.",
+        "Safety failover path latency could exceed safety requirements; requires hard real-time design.",
+        "Edge cache coherency strategy (TTL vs. event-driven) could impact latency and consistency; requires trade-off analysis."
+      ],
+      "evidence_needed": [
+        "Network latency characterization for supported update scenarios (baseline, p50, p95, p99).",
+        "Throughput and availability requirements for central model server.",
+        "Delta-sync protocol specification and latency budget allocation.",
+        "Safety failover criteria and latency SLAs.",
+        "Worksite model update scenarios and representative workload profiles.",
+        "Benchmark results for serialization and protocol overhead.",
+        "Monitoring and observability design for latency tracking and alerting."
+      ]
+    }
+  }
+}

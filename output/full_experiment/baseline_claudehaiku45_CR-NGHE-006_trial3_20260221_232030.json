@@ -1,0 +1,164 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and designated work zones with sufficient fidelity to support autonomous path planning and operator situational awareness.",
+    "rationale": "The original FR was vague on scope (what constitutes 'area analysis') and lacked specificity on fidelity requirements, update frequency, and consumer functions. Refinement clarifies that the worksite model must be dynamic, multi-layered (terrain + obstacles + hazards + zones), and explicitly linked to downstream planning/execution. High safety criticality demands explicit hazard representation.",
+    "verification_idea": "Acceptance: (1) Model generated within 5 minutes of site entry; (2) Terrain elevation accuracy ±0.5 m over 95% of mapped area; (3) Static obstacles detected with 90% recall, <5% false positive rate; (4) Dynamic hazards (personnel) detected within 2 m radius, update latency <500 ms; (5) Work zones defined and queryable by planning functions; (6) Model accessible via standardized interface to Tasking and Safety Services.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire terrain elevation data via onboard sensors (LiDAR/stereo) and fuse into coherent elevation map.",
+      "CR-NGHE-006.2: Detect and classify static obstacles (rocks, structures, vegetation) and maintain obstacle layer in worksite model.",
+      "CR-NGHE-006.3: Detect and track dynamic hazards (personnel, moving equipment) with real-time update and alert propagation.",
+      "CR-NGHE-006.4: Define, store, and manage work-zone boundaries (geofences) and operational policies per zone.",
+      "CR-NGHE-006.5: Expose worksite model via standardized interface to planning, execution, and safety functions."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized mapping service (on-vehicle compute) that fuses multi-sensor data (LiDAR, stereo, IMU, GNSS) into a unified 3D occupancy grid; terrain layer derived from elevation points; obstacles and hazards classified via learned models; work zones managed as polygon overlays; model published via REST API.",
+      "DP-B: Distributed sensor-to-cloud pipeline where raw sensor streams are transmitted to cloud backend for processing; cloud service generates and maintains authoritative worksite model; vehicle receives model updates via downlink; local caching for latency-critical queries.",
+      "DP-C: Hybrid approach: on-vehicle lightweight mapping (terrain + static obstacles) for real-time path planning; cloud-based enrichment (hazard classification, policy enforcement, multi-vehicle fusion) for planning and safety; bidirectional sync via Telemetry interface."
+    ],
+    "selected_dp": "DP-C: Hybrid on-vehicle + cloud worksite modeling with real-time local terrain/obstacle layer and cloud-enriched hazard/policy layer, synchronized via Telemetry interface.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Dependency on Telemetry interface for model sync (acceptable; Telemetry is a known interface).",
+        "Dependency on Safety Services for hazard classification rules and policy enforcement (acceptable; Safety Services is a known module).",
+        "Dependency on Vehicle compute platform for sensor integration (acceptable; Vehicle is a known module)."
+      ],
+      "notes": "DP-C avoids tight coupling to cloud availability (local fallback for terrain/obstacles) while enabling safety-critical hazard reasoning and multi-vehicle coordination via cloud. Decoupling is achieved via Telemetry interface abstraction."
+    },
+    "assumptions_risks": [
+      "Assumption: Vehicle has sufficient onboard compute (GPU/CPU) for real-time terrain and obstacle processing. Risk: If compute is limited, local processing may lag; mitigation: profile compute budget early.",
+      "Assumption: Telemetry bandwidth supports bidirectional model sync at required update frequency (e.g., 10 Hz for hazards). Risk: Network congestion may cause stale model; mitigation: implement local caching and graceful degradation.",
+      "Assumption: Cloud backend (Safety Services) can classify hazards and enforce policies with <500 ms latency. Risk: Cloud outage or latency spike could degrade safety; mitigation: implement local policy cache and conservative fallback rules.",
+      "Assumption: Sensor suite (LiDAR, stereo, IMU, GNSS) is available on Vehicle. Risk: Sensor failures or degradation (e.g., dust, rain) could corrupt model; mitigation: implement sensor health monitoring and model confidence scoring."
+    ],
+    "recommended_revision": "Clarify compute budget allocation between Vehicle and cloud; specify Telemetry bandwidth and latency SLAs; define fallback behavior if cloud is unavailable; specify sensor health monitoring and model confidence thresholds."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Safety Services",
+      "scope": "Worksite modeling and hazard analysis service: owns the authoritative worksite model (terrain, obstacles, dynamic hazards, work zones); integrates sensor data from Vehicle via Telemetry; performs hazard classification and policy enforcement; exposes model via SafetyAlert and Tasking interfaces to planning/execution and operator functions."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Receives raw sensor streams (LiDAR, stereo, IMU, GNSS) and vehicle pose from Vehicle; also receives model update requests and local cache state from Vehicle."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Publishes worksite model (terrain, obstacles, work zones) and operational constraints to planning functions; enables path planning and task scheduling to query model state."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Publishes hazard detections (personnel, dynamic obstacles) and policy violations to operator and autonomous safety functions; triggers alerts and operational constraints."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Underlying transport for Telemetry, Tasking, and SafetyAlert; ensures reliable delivery of model updates and alerts."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "NGHE Solution is the top-level system; worksite modeling is a critical subsystem but not the primary responsibility. Assigning to NGHE Solution would diffuse ownership and blur boundaries with Vehicle and Safety Services."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Vehicle owns sensor integration and local terrain/obstacle processing; however, hazard classification, policy enforcement, and multi-vehicle model fusion are safety-critical and require centralized authority. Assigning full worksite modeling to Vehicle would couple safety logic to vehicle firmware, reducing flexibility and increasing risk."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.1,
+        "diffusion_score": 0.9,
+        "notes": "Teleoperation is a consumer of worksite model (for operator situational awareness) but not a producer or authoritative owner. Assigning modeling to Teleoperation would violate separation of concerns."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.85,
+        "diffusion_score": 0.15,
+        "notes": "Safety Services is the natural owner of worksite modeling because: (1) hazard detection and classification are safety-critical functions; (2) policy enforcement (work zones, operational constraints) is a safety responsibility; (3) centralized model authority enables consistent safety reasoning across all consumers (planning, execution, operator); (4) Safety Services can integrate sensor data from Vehicle via Telemetry and expose model via SafetyAlert and Tasking without tight coupling."
+      }
+    ],
+    "ownership_candidate": "Safety Services",
+    "containment_hypothesis": "Safety Services is the optimal owner because worksite modeling is fundamentally a safety-critical function (hazard detection, policy enforcement, constraint propagation). By centralizing model authority in Safety Services, we achieve: (1) single source of truth for hazard state; (2) consistent policy enforcement across all operational modes; (3) clear interface boundaries (Telemetry in, SafetyAlert/Tasking out); (4) decoupling of safety logic from vehicle firmware; (5) support for multi-vehicle coordination and cloud-based enrichment.",
+    "containment_risks": [
+      "Risk: Safety Services becomes a bottleneck if model update latency exceeds real-time requirements (e.g., <500 ms for dynamic hazards). Mitigation: implement local caching on Vehicle and graceful degradation if Safety Services is unavailable.",
+      "Risk: Telemetry interface bandwidth may be insufficient for high-frequency sensor streams (e.g., LiDAR point clouds at 10 Hz). Mitigation: implement on-vehicle preprocessing (decimation, feature extraction) before transmission; profile bandwidth early.",
+      "Risk: Safety Services may not have sufficient compute to process all sensor data in real-time. Mitigation: implement hybrid processing (Vehicle handles terrain/obstacles locally; Safety Services handles hazard classification and policy); profile compute budget.",
+      "Risk: Network outage could isolate Safety Services from Vehicle, causing stale model. Mitigation: implement local model cache on Vehicle with conservative fallback policies; define recovery procedures."
+    ],
+    "recommended_revision": "Specify compute and bandwidth budgets for Safety Services; define model update frequency and latency SLAs; clarify fallback behavior if Safety Services is unavailable; implement local model cache on Vehicle with versioning and consistency checks."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid on-vehicle + cloud modeling) directly addresses all sub-FRs: (1) terrain acquisition via Vehicle sensors + Safety Services fusion; (2) obstacle detection via Vehicle sensors + Safety Services classification; (3) dynamic hazard detection via Safety Services with real-time update; (4) work-zone management via Safety Services; (5) model exposure via Tasking and SafetyAlert interfaces. No decoupling or missing logic detected."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Diffusion risk: DP-C requires coordination between Vehicle (sensor acquisition) and Safety Services (model authority). This is mitigated by clear interface boundaries (Telemetry, Tasking, SafetyAlert) and explicit ownership assignment to Safety Services."
+      ],
+      "containment_notes": "Safety Services is the clear owner of the authoritative worksite model. Vehicle is a sensor provider (via Telemetry). Teleoperation and NGHE Solution are consumers (via Tasking and SafetyAlert). This assignment avoids diffusion and maintains clear ownership boundaries."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible: (1) model generation time can be measured end-to-end; (2) terrain accuracy can be validated against ground truth; (3) obstacle detection can be evaluated via precision/recall metrics; (4) dynamic hazard detection can be tested in controlled scenarios; (5) work-zone queries can be validated against expected results; (6) interface compliance can be verified via integration tests.",
+      "allocation_clarity": "Allocation is clear: Safety Services owns worksite modeling; Vehicle provides sensors; Teleoperation and planning functions consume model. Interfaces (Telemetry, Tasking, SafetyAlert) are well-defined and traceable to known interface names."
+    },
+    "recommended_revisions": [
+      "Specify compute and bandwidth budgets for Safety Services to ensure real-time model updates.",
+      "Define model update frequency and latency SLAs (e.g., terrain updates at 1 Hz, hazards at 10 Hz).",
+      "Clarify fallback behavior if Safety Services is unavailable (e.g., Vehicle operates with local terrain/obstacle model only).",
+      "Implement local model cache on Vehicle with versioning and consistency checks.",
+      "Define sensor health monitoring and model confidence scoring to handle sensor degradation."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "CR-NGHE-006 is not atomic; it comprises five distinct sub-FRs (terrain acquisition, obstacle detection, hazard detection, work-zone management, model exposure). Each sub-FR requires detailed DP selection and IM assignment. Proceeding to the next decomposition level is necessary to allocate these sub-FRs to specific modules (e.g., Vehicle for sensor acquisition, Safety Services for hazard classification, Tasking interface for model exposure).",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire terrain elevation data via onboard sensors (LiDAR/stereo) and fuse into coherent elevation map.",
+      "CR-NGHE-006.2: Detect and classify static obstacles (rocks, structures, vegetation) and maintain obstacle layer in worksite model.",
+      "CR-NGHE-006.3: Detect and track dynamic hazards (personnel, moving equipment) with real-time update and alert propagation.",
+      "CR-NGHE-006.4: Define, store, and manage work-zone boundaries (geofences) and operational policies per zone.",
+      "CR-NGHE-006.5: Expose worksite model via standardized interface to planning, execution, and safety functions."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Vehicle has sufficient onboard compute (GPU/CPU) for real-time terrain and obstacle processing.",
+        "Telemetry bandwidth supports bidirectional model sync at required update frequency (e.g., 10 Hz for hazards).",
+        "Cloud backend (Safety Services) can classify hazards and enforce policies with <500 ms latency.",
+        "Sensor suite (LiDAR, stereo, IMU, GNSS) is available on Vehicle.",
+        "Safety Services is the authoritative owner of worksite model; Vehicle is a sensor provider.",
+        "Teleoperation and planning functions are consumers of worksite model via Tasking and SafetyAlert interfaces."
+      ],
+      "open_risks": [
+        "Compute budget allocation between Vehicle and Safety Services not yet finalized.",
+        "Telemetry bandwidth and latency SLAs not yet specified.",
+        "Fallback behavior if Safety Services is unavailable not yet defined.",
+        "Sensor health monitoring and model confidence thresholds not yet specified.",
+        "Local model cache consistency and versioning strategy not yet defined."
+      ],
+      "evidence_needed": [
+        "Compute budget analysis for Vehicle and Safety Services.",
+        "Telemetry bandwidth and latency measurements under nominal and degraded conditions.",
+        "Sensor specifications and failure modes (LiDAR, stereo, IMU, GNSS).",
+        "Cloud backend performance profile (hazard classification latency, throughput).",
+        "Integration test results for Telemetry, Tasking, and SafetyAlert interfaces.",
+        "Acceptance test results for terrain accuracy, obstacle detection, and hazard detection."
+      ]
+    }
+  }
+}

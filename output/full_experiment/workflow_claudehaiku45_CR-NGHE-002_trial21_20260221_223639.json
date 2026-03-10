@@ -1,0 +1,172 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall enable execution of the load→travel→dump cycle within the customer-defined cycle time target.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting/enabling the capability to achieve cycle time, and (2) actually achieving the measured KPI. The refined FR is atomic and solution-neutral by focusing on the functional obligation—enabling the cycle to execute within the time envelope—without prescribing how (e.g., via speed optimization, path planning, operator training, or equipment design). The actual achievement of p95 ≤ CT_target is a verification criterion tied to duty cycle and site conditions, not a functional requirement of the system itself. This separation allows DPs to address enablement (e.g., responsive controls, efficient hydraulics, predictable motion) independently of operational performance measurement.",
+    "verification_idea": "Demonstrate that under nominal duty cycle and representative site conditions, the NGHE solution's subsystems (propulsion, actuation, control response, load handling) do not introduce artificial delays or constraints that prevent the cycle from completing within CT_target. Measure end-to-end cycle time in controlled trials; confirm that any shortfall vs. CT_target is attributable to operator technique, site conditions, or load variability—not system design limitations.",
+    "sub_frs": [
+      "FR-NGHE-002.1: The NGHE solution shall execute the load phase (bucket fill, material consolidation) without introducing artificial time delays.",
+      "FR-NGHE-002.2: The NGHE solution shall execute the travel phase (loaded and empty transit) without introducing artificial time delays.",
+      "FR-NGHE-002.3: The NGHE solution shall execute the dump phase (material discharge, bucket return to load position) without introducing artificial time delays.",
+      "FR-NGHE-002.4: The NGHE solution shall provide responsive control inputs (operator or tele-operator commands) with latency and fidelity sufficient to support cycle time execution."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Decompose the load→travel→dump cycle into independent sub-processes (load, travel, dump) with dedicated control logic and resource allocation per phase, enabling parallel optimization of each phase's duration and sequencing constraints.",
+      "DP2: Implement a centralized cycle-time controller that monitors elapsed time against CT_target, dynamically adjusts process parameters (speed, acceleration, dwell times) in real-time to maintain p95 ≤ CT_target under varying site conditions.",
+      "DP3: Pre-calculate and store optimal cycle trajectories (load duration, travel speed profile, dump sequence) as a lookup table indexed by site condition parameters (terrain, load mass, distance), with runtime selection and execution.",
+      "DP4: Establish a hierarchical control architecture with a master cycle sequencer that enforces phase ordering and timing gates, delegating phase-specific execution to subordinate controllers with feedback loops for actual vs. planned duration.",
+      "DP5: Implement a predictive cycle-time model that estimates phase durations based on real-time sensor inputs (load mass, terrain roughness, distance), adjusts process parameters proactively, and logs deviations for continuous improvement."
+    ],
+    "selected_dp": "DP4: Establish a hierarchical control architecture with a master cycle sequencer that enforces phase ordering and timing gates, delegating phase-specific execution to subordinate controllers with feedback loops for actual vs. planned duration.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Tight coupling between master sequencer and subordinate phase controllers if interface contracts are not clearly defined (risk: changes to one phase controller force sequencer updates).",
+        "Dependency on accurate feedback from phase controllers; if feedback is delayed or unreliable, the master sequencer cannot make timely adjustments (risk: p95 target missed under degraded sensor conditions).",
+        "Assumption that phase durations are independently optimizable; if phases have hidden resource contention (e.g., hydraulic pressure, power budget), decomposition may not yield expected cycle-time improvement (risk: local optimization does not improve global cycle time)."
+      ],
+      "notes": "DP4 is selected because it balances logical independence (each phase has its own controller) with centralized timing governance (master sequencer enforces gates). This supports modular implementation and allows each phase to be optimized without redesigning the entire cycle. Coupling risks are manageable through clear interface specifications and feedback validation."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Phase controllers can reliably report actual duration within acceptable latency (< 10% of phase duration). RISK: If feedback is delayed or noisy, the master sequencer cannot detect phase overruns in time to compensate. MITIGATION: Define feedback SLA and implement sensor validation logic.",
+      "ASSUMPTION: The load→travel→dump cycle phases are sequentially dependent (no parallelization possible). RISK: If phases can overlap (e.g., dump while traveling), the hierarchical decomposition may not capture the optimal cycle structure. MITIGATION: Validate phase dependencies with customer operational data.",
+      "ASSUMPTION: Site conditions (terrain, distance, load mass) are known or measurable at cycle start. RISK: If conditions change mid-cycle or are unpredictable, pre-calculated trajectories (DP3 alternative) may be infeasible. MITIGATION: Ensure real-time sensor inputs feed the master sequencer.",
+      "ASSUMPTION: p95 ≤ CT_target is achievable under the agreed duty cycle without violating safety or equipment constraints. RISK: If CT_target is unrealistic given equipment capabilities, no control architecture can meet it. MITIGATION: Validate CT_target against equipment performance envelope early.",
+      "ASSUMPTION: Worksite safety plan does not impose hard constraints that conflict with cycle-time optimization (e.g., mandatory dwell times, speed limits). RISK: If safety constraints are binding, cycle-time optimization may be infeasible. MITIGATION: Integrate safety constraints into the master sequencer's timing gates."
+    ],
+    "recommended_revision": "Refine the selected DP4 to explicitly include: (1) a formal interface specification between the master sequencer and phase controllers (input: phase start signal, output: phase complete signal + actual duration); (2) a feedback validation layer that detects and flags sensor anomalies; (3) a fallback mode that executes a conservative (longer) cycle time if feedback is unreliable; (4) a constraint layer that enforces safety and operational policy limits on process parameters before the master sequencer adjusts them. This revision strengthens the coupling check by making dependencies explicit and testable."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "Encapsulates the hierarchical control architecture including master cycle sequencer, phase ordering logic, timing gates, subordinate phase controllers, and feedback loops for duration tracking and synchronization."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives high-level task directives and phase sequencing requests from teleoperation or mission planning layer"
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Exports actual vs. planned duration metrics, phase completion status, and control state for monitoring and diagnostics"
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "Receives safety constraints that may interrupt or gate phase transitions; exports safety-critical state changes and timing violations"
+      },
+      {
+        "name": "Network Link",
+        "direction": "out",
+        "details": "Transmits control state and synchronization feedback to remote teleoperation or distributed subordinate controllers if applicable"
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit. The hierarchical sequencer, phase controllers, timing gates, and feedback loops are all intrinsic to vehicle motion and task execution. Master cycle logic naturally resides here. Minor diffusion: safety constraints may originate from Safety Services, but enforcement gates remain in Vehicle."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor fit. Safety Services should validate and constrain, not own the sequencer or phase controllers. The core hierarchical control and timing logic would diffuse into Vehicle anyway. Safety Services should only provide constraint inputs via SafetyAlert interface."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Poor fit. Teleoperation is a command/control interface layer, not an execution engine. The master sequencer and subordinate phase controllers must reside in the Vehicle to enforce real-time timing and feedback. Teleoperation would only issue high-level Tasking directives."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.25,
+        "diffusion_score": 0.75,
+        "notes": "Very poor fit. NGHE Solution is a top-level system container. Placing the hierarchical control architecture here would create excessive abstraction and diffusion; the actual execution logic must be in Vehicle. NGHE Solution would orchestrate Vehicle via Tasking interface."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The hierarchical control architecture (master cycle sequencer, phase ordering, timing gates, subordinate controllers, and feedback loops) is fundamentally a vehicle-level execution concern. It governs how the vehicle executes phases of motion or task sequences in real time, enforces timing constraints, and reports actual vs. planned duration. This logic is tightly coupled to vehicle dynamics, actuator coordination, and sensor feedback. Placing it in Vehicle ensures cohesion, minimizes diffusion, and preserves clear separation of concerns: Vehicle owns execution; Teleoperation owns command interface; Safety Services owns constraint validation; NGHE Solution owns orchestration.",
+    "containment_risks": [
+      "If subordinate phase controllers are distributed across multiple physical subsystems (e.g., propulsion, steering, payload), the IM boundary may need to be refined to a Vehicle subsystem (e.g., 'Vehicle Control Module') to avoid internal diffusion. Current IM assumes Vehicle is sufficiently cohesive.",
+      "If timing gates require real-time synchronization with external systems (e.g., remote teleoperation feedback loops), Network Link coupling may increase; ensure latency budgets are met.",
+      "Safety Services may need to inject constraints that alter phase sequencing dynamically. Ensure SafetyAlert interface supports both synchronous gating and asynchronous interrupts without creating circular dependencies."
+    ],
+    "recommended_revision": "No revision to DP required. DP4 is well-suited to Vehicle containment. However, consider clarifying the DP to explicitly state that the master cycle sequencer and subordinate controllers are Vehicle-resident, and that external systems (Teleoperation, Safety Services) interact via well-defined interfaces (Tasking, SafetyAlert) rather than directly manipulating internal phase logic. This reinforces architectural boundaries and reduces coupling."
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The FR acceptance criterion (p95 cycle time ≤ CT_target) is directly measurable via the Telemetry interface exporting 'actual vs. planned duration metrics' and 'phase completion status'. The Vehicle IM boundary owns the hierarchical sequencer and timing gates that enforce phase ordering, making cycle time performance traceable to this module. Feedback loops enable real-time duration tracking against plan, supporting both in-flight diagnostics and post-execution validation.",
+      "allocation_clarity": "Clear. The FR requirement maps unambiguously to DP4 (hierarchical control with timing gates), which is allocated to the Vehicle IM. The containment score of 0.92 for Vehicle confirms strong fit. External interfaces (Tasking in, Telemetry out, SafetyAlert inout) establish clean boundaries: Vehicle executes; Teleoperation/mission planning directs; Safety Services constrains; monitoring consumes telemetry. No ambiguity in ownership or responsibility."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Subordinate phase controllers may diffuse across multiple physical subsystems (propulsion, steering, payload handling). If these subsystems are independently owned modules, the master sequencer's coordination logic could scatter across Vehicle Control Module, Propulsion Controller, and Steering Controller. Mitigation: Establish a Vehicle Control Module as the primary IM owner, with subordinate controllers as internal sub-modules or external peers communicating via well-defined phase-state messages.",
+        "SafetyAlert interface supports both synchronous gating and asynchronous interrupts. If Safety Services injects dynamic phase-sequencing constraints, the master sequencer logic may become coupled to safety rule evaluation. Risk: Safety constraint logic diffuses into Vehicle. Mitigation: Ensure SafetyAlert only conveys constraint inputs (e.g., 'phase X forbidden until condition Y'), not control directives. Vehicle interprets constraints and adjusts sequencing internally.",
+        "Network Link coupling for remote teleoperation feedback loops introduces latency and synchronization complexity. If timing gates depend on round-trip network feedback, real-time guarantees may degrade. Risk: Timing logic becomes distributed across Vehicle and remote teleoperation system. Mitigation: Establish latency budgets and ensure master sequencer uses local sensor feedback for phase transitions; Network Link is for monitoring/diagnostics only, not real-time control."
+      ],
+      "containment_notes": "Excellent containment of DP4 within Vehicle IM. The hierarchical control architecture is intrinsically a vehicle-level execution concern: it governs real-time phase sequencing, enforces timing constraints, and coordinates actuators. Placing it in Vehicle ensures cohesion and minimizes diffusion. The four alternative modules (Safety Services, Teleoperation, NGHE Solution) all score poorly (0.25–0.4 containment), confirming Vehicle is the correct owner. Minor risk: if Vehicle is too coarse-grained and subordinate controllers are physically distributed, refine IM boundary to 'Vehicle Control Module' as the primary sequencer owner. Current IM definition assumes Vehicle is sufficiently cohesive; if internal subsystem boundaries are unclear, this assumption should be validated during detailed design."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP4 directly addresses the FR requirement to execute the load→travel→dump cycle within CT_target. The hierarchical control architecture with master cycle sequencer, phase ordering logic, and timing gates is the logical mechanism to enforce phase sequencing and meet cycle time targets. The DP includes feedback loops for actual vs. planned duration, enabling closed-loop control to track and correct deviations. The DP is solution-neutral (does not prescribe specific algorithms or hardware) and is sufficiently detailed to guide IM allocation. Acceptance criterion (p95 ≤ CT_target) is measurable via Telemetry interface outputs. No logical gaps or contradictions between FR and DP."
+    },
+    "recommended_revisions": [
+      "Clarify DP4 to explicitly state: 'The master cycle sequencer and subordinate phase controllers are Vehicle-resident and execute in real time. External systems (Teleoperation, Safety Services, NGHE Solution) interact via well-defined interfaces (Tasking, SafetyAlert, Telemetry, Network Link) and do not directly manipulate internal phase logic.' This reinforces architectural boundaries and reduces coupling risk.",
+      "Define latency budgets for SafetyAlert and Network Link interfaces. Specify whether timing gates depend on synchronous feedback from external systems or use local sensor feedback only. If external feedback is required, establish maximum acceptable round-trip latency to ensure p95 cycle time target remains achievable.",
+      "If subordinate phase controllers are distributed across multiple physical subsystems (propulsion, steering, payload), refine the IM boundary to 'Vehicle Control Module' as the primary sequencer owner, with subordinate controllers as internal sub-modules or external peers. Document the internal architecture and inter-controller communication protocol to prevent diffusion of sequencing logic.",
+      "Specify the format and semantics of SafetyAlert constraint inputs. Ensure Safety Services conveys constraint conditions (e.g., 'phase X forbidden until condition Y') rather than control directives, preserving Vehicle's autonomy in sequencing decisions.",
+      "Add a verification plan that traces p95 cycle time measurements back to DP4 components: master sequencer timing gates, subordinate controller execution times, and feedback loop latencies. Ensure Telemetry interface exports sufficient granularity (per-phase duration, gate transition times) to support root-cause analysis of cycle time deviations."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "Gate results confirm FR4, DP4, and Vehicle IM are logically sound and well-aligned (all gates pass). However, the recommended_revisions and diffusion_risks expose critical architectural dependencies that cannot be resolved at the current level of abstraction. Specifically: (1) subordinate phase controllers may scatter across multiple physical subsystems (propulsion, steering, payload), requiring explicit sub-FR decomposition to establish ownership and interface contracts; (2) SafetyAlert coupling introduces real-time constraint propagation that demands clarification of how safety rules flow into sequencing logic; (3) Network Link latency budgets and feedback loop topology must be derived as sub-requirements to ensure p95 cycle time targets remain achievable under remote teleoperation scenarios. High safety criticality amplifies the need for explicit sub-level FRs to govern phase-level safety constraints and inter-controller synchronization. Decomposing now prevents diffusion and establishes traceable safety requirements.",
+    "next_level_sub_frs": [
+      "FR4.1: Enforce load phase execution (load material into vehicle) with timing constraint ≤ T_load and safety gate (no load until vehicle is stationary and payload bay is empty).",
+      "FR4.2: Enforce travel phase execution (navigate from load site to dump site) with timing constraint ≤ T_travel and safety gate (no travel until load is secured and vehicle is in safe state).",
+      "FR4.3: Enforce dump phase execution (unload material at dump site) with timing constraint ≤ T_dump and safety gate (no dump until vehicle is stationary and dump site is clear).",
+      "FR4.4: Coordinate phase transitions via master cycle sequencer with real-time ordering logic: load → travel → dump → return to load site, enforcing strict phase ordering and preventing concurrent phase execution.",
+      "FR4.5: Integrate SafetyAlert constraint inputs (from Safety Services) into phase sequencing logic, ensuring safety rules block or delay phase transitions without overriding Vehicle's sequencing autonomy.",
+      "FR4.6: Provide phase-level telemetry (per-phase start/end timestamps, gate transition times, actual vs. planned duration per phase) to Telemetry interface for cycle time tracking and diagnostics.",
+      "FR4.7: Establish latency budget for SafetyAlert and Network Link feedback loops, ensuring round-trip latency does not degrade p95 cycle time target; define which phase transitions depend on local sensor feedback vs. external feedback.",
+      "FR4.8: Synchronize subordinate phase controllers (propulsion, steering, payload handling) via Vehicle Control Module using phase-state messages, preventing diffusion of sequencing logic across independent subsystem modules."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "DP4 is logically correct but insufficiently detailed to guide safe decomposition. Revise DP4 to explicitly state: (1) Vehicle Control Module is the primary sequencer owner; (2) subordinate phase controllers (load, travel, dump) are internal sub-modules or external peers communicating via phase-state messages; (3) SafetyAlert inputs are constraint conditions only, not control directives; (4) timing gates use local sensor feedback for real-time transitions; (5) Network Link is for monitoring/diagnostics, not real-time control. This revision clarifies architectural boundaries and reduces coupling risk before sub-level decomposition."
+    },
+    "record": {
+      "assumptions": [
+        "Vehicle Control Module can be established as a cohesive primary sequencer owner, with subordinate phase controllers (propulsion, steering, payload) as internal sub-modules or external peers.",
+        "SafetyAlert interface can be constrained to convey constraint conditions (e.g., 'phase X forbidden until condition Y') rather than control directives, preserving Vehicle's sequencing autonomy.",
+        "Local sensor feedback (e.g., load-secured sensors, vehicle-stationary sensors, dump-site-clear sensors) is available and sufficiently reliable to drive phase transitions without external round-trip feedback.",
+        "Network Link latency is acceptable for monitoring and diagnostics but not for real-time phase control; round-trip latency budgets can be established to ensure p95 cycle time targets remain achievable.",
+        "Subordinate phase controllers can communicate via well-defined phase-state messages (e.g., 'LOAD_COMPLETE', 'TRAVEL_COMPLETE', 'DUMP_COMPLETE') without diffusing sequencing logic across subsystems."
+      ],
+      "open_risks": [
+        "Diffusion of phase sequencing logic across propulsion, steering, and payload handling subsystems if subordinate controller boundaries are not explicitly defined and owned.",
+        "SafetyAlert coupling: if Safety Services injects dynamic phase-sequencing constraints, Vehicle sequencing logic may become tightly coupled to safety rule evaluation, complicating verification and maintenance.",
+        "Network Link latency: if remote teleoperation feedback loops are required for phase transitions, real-time guarantees may degrade; latency budgets must be established and validated.",
+        "Phase-level safety constraints: load, travel, and dump phases each have distinct safety gates (e.g., 'no load until vehicle is stationary'). These must be explicitly modeled as sub-FRs to ensure safety requirements are traceable and verifiable.",
+        "Inter-controller synchronization: if subordinate controllers are distributed across multiple physical subsystems, synchronization complexity increases; phase-state message protocol must be robust to network delays and controller failures."
+      ],
+      "evidence_needed": [
+        "Detailed Vehicle Control Module architecture diagram showing primary sequencer ownership, subordinate phase controller boundaries, and inter-controller communication protocol.",
+        "SafetyAlert interface specification: format and semantics of constraint inputs; examples of constraint conditions (e.g., 'phase X forbidden until condition Y'); confirmation that Safety Services does not issue control directives.",
+        "Latency budget analysis: round-trip latency for SafetyAlert and Network Link interfaces; specification of which phase transitions depend on local sensor feedback vs. external feedback; validation that p95 cycle time target remains achievable under worst-case latency scenarios.",
+        "Phase-level safety requirements: explicit safety gates for load, travel, and dump phases; mapping of safety gates to sensor inputs and phase transition logic; verification plan for safety constraint enforcement.",
+        "Phase-state message protocol specification: message format, semantics, and timing; examples of phase transitions (load → travel, travel → dump, dump → return); robustness analysis for network delays and controller failures.",
+        "Verification plan tracing p95 cycle time measurements back to DP4 components: master sequencer timing gates, subordinate controller execution times, feedback loop latencies, and per-phase duration telemetry."
+      ]
+    }
+  }
+}

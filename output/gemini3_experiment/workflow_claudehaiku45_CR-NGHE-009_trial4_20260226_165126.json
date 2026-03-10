@@ -1,0 +1,176 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation communication reliability within the customer-defined packet loss threshold during agreed network conditions.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting teleoperation capability and (2) meeting a specific quality metric (packet loss limit). The refined FR isolates the quality/reliability obligation as a single atomic requirement, expressed in the problem domain (what reliability must be achieved) without prescribing how (e.g., redundancy, error correction, network selection). The phrase 'communication quality' is replaced with the measurable, customer-defined metric 'packet loss threshold' to eliminate ambiguity. 'Agreed network conditions' acknowledges that performance is context-dependent and negotiated with the customer, making the FR testable and bounded.",
+    "verification_idea": "Conduct teleoperation trials under agreed network conditions (e.g., specified bandwidth, latency, interference profiles). Measure end-to-end packet loss over a representative mission duration. Compare observed packet loss against the customer-defined threshold (e.g., ≤1%). Document network conditions, test duration, packet count, and loss count. Pass/fail based on whether observed loss ≤ threshold.",
+    "sub_frs": [
+      "FR-NGHE-009.1: The NGHE solution shall enable remote operation of heavy equipment from a tele-operator station.",
+      "FR-NGHE-009.2: The NGHE solution shall maintain teleoperation command and feedback data transmission with packet loss not exceeding the customer-defined limit under agreed network conditions."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Implement adaptive packet redundancy and selective retransmission based on real-time network quality metrics (latency, jitter, loss rate) to maintain effective throughput within acceptable operator response time.",
+      "DP2: Establish a dual-path communication architecture with independent network routes and automatic failover to ensure continuous command/feedback flow during transient network degradation.",
+      "DP3: Deploy application-level forward error correction (FEC) encoding with configurable redundancy ratio, tuned to customer-defined packet loss threshold and network SLA parameters.",
+      "DP4: Implement a buffering and prioritization strategy that segregates critical control commands from non-critical telemetry, ensuring safety-critical packets meet latency and delivery guarantees.",
+      "DP5: Establish a closed-loop acknowledgment and timeout-driven retransmission protocol with exponential backoff, calibrated to network round-trip time and customer-defined loss tolerance."
+    ],
+    "selected_dp": "DP4 (Buffering & Prioritization) + DP3 (Application-level FEC) in combination: Segregate critical teleoperation commands (high priority, strict delivery guarantee) from ancillary telemetry (lower priority, best-effort). Apply adaptive FEC to critical path based on measured network loss; use selective retransmission for non-critical data. This dual-layer approach decouples safety-critical reliability from general throughput optimization and allows independent tuning to customer thresholds.",
+    "coupling_check": {
+      "assessment": "Fail",
+      "potential_sources": [
+        "DP3 and DP5 are tightly coupled: both attempt loss recovery but at different layers (FEC vs. retransmission). Risk of redundant overhead if both are active simultaneously.",
+        "DP4 depends on accurate classification of 'critical' vs. 'non-critical' packets, which couples to operational policy and worksite safety plan (external constraint). Misclassification undermines reliability.",
+        "DP2 (dual-path failover) introduces network-level coupling if not cleanly abstracted; can conflict with DP3/DP5 if failover triggers unnecessary FEC/retransmission cascades.",
+        "All DPs assume real-time network metrics are available; coupling to a monitoring/telemetry subsystem not explicitly addressed in this FR."
+      ],
+      "notes": "Selected combination (DP4+DP3) exhibits unresolved coupling with external constraints (worksite safety policy, network SLA definition) and hidden dependencies on monitoring subsystem. Assessment changed from 'Pass with caveats' to 'Fail' to reflect that caveats constitute unacceptable coupling that must be resolved before proceeding."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Customer-defined packet loss threshold (≤1%) is achievable under agreed network conditions without requiring 100% redundancy, implying some loss is tolerable in non-critical channels.",
+      "ASSUMPTION: 'Agreed network conditions' are formally specified (e.g., latency range, jitter bounds, baseline loss rate) and remain stable during operation; if conditions degrade beyond agreement, FR may not be satisfiable.",
+      "RISK: Operator response time tolerance is not explicitly stated in FR. If FEC/retransmission introduces latency that exceeds operator tolerance, reliability gain is negated by usability loss.",
+      "RISK: Packet prioritization requires clear demarcation of critical vs. non-critical commands. Ambiguity or misclassification could lead to loss of safety-critical packets.",
+      "RISK: Adaptive FEC tuning requires continuous network monitoring; if monitoring subsystem fails or lags, FEC parameters may become misaligned with actual network state.",
+      "RISK: Worksite safety plan may impose constraints (e.g., maximum latency, mandatory failover behavior) that conflict with selected DP; no explicit linkage to safety plan in current FR."
+    ],
+    "recommended_revision": "FR should be refined to explicitly state: (1) Operator response time tolerance (e.g., 'command-to-feedback latency ≤ X ms'); (2) Definition of 'critical' vs. 'non-critical' packets in the context of worksite safety plan; (3) Network SLA parameters (baseline latency, jitter, loss rate under 'agreed conditions'); (4) Failover and recovery behavior expectations. Additionally, introduce a secondary FR for network monitoring/telemetry to support adaptive DP tuning. Consider decomposing into two sub-FRs: 'Maintain critical command delivery reliability ≤1% loss' and 'Maintain telemetry throughput within operator situational awareness requirements,' each with independent DP and IM boundaries."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Encapsulates command prioritization, adaptive FEC application, selective retransmission logic, and network loss measurement for teleoperation traffic. Owns the dual-layer reliability strategy that segregates critical commands from ancillary telemetry and applies differentiated QoS policies."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives operator commands and teleoperation requests; Teleoperation module prioritizes these internally and applies FEC/retransmission policies before transmission."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Outputs vehicle state and sensor data; Teleoperation module applies selective retransmission and best-effort FEC to non-critical telemetry streams."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Bidirectional interface for actual packet transmission/reception; Teleoperation module measures network loss, adapts FEC parameters, and manages buffering at this boundary."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Signals Safety Services if critical command delivery fails or network conditions degrade beyond safe thresholds; enables safety-critical escalation."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 9,
+        "diffusion_score": 1,
+        "notes": "Excellent fit. Teleoperation is the natural owner of command prioritization, FEC application, and network adaptation logic. The dual-layer strategy (critical vs. ancillary) directly aligns with teleoperation's responsibility to manage operator-to-vehicle communication reliability. Buffering, prioritization, and adaptive FEC are core to this module's domain. Minimal diffusion: only SafetyAlert escalation crosses boundary when thresholds are breached."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 4,
+        "diffusion_score": 8,
+        "notes": "Poor fit. Safety Services should monitor and enforce safety invariants, not own the implementation of FEC and prioritization logic. Placing DP4+DP3 here would require Safety Services to directly manage network buffering and adaptive algorithms, which is outside its domain. High diffusion: command prioritization and FEC tuning would leak into Teleoperation anyway, creating bidirectional coupling and split ownership."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 2,
+        "diffusion_score": 9,
+        "notes": "Very poor fit. Vehicle module owns vehicle state, actuators, and onboard processing. Teleoperation command prioritization and network-level FEC are upstream concerns that should not reside in the vehicle. Placing DP4+DP3 here inverts the communication architecture and creates severe diffusion: Teleoperation would still need to manage its own buffering and prioritization, leading to duplication and inconsistency."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 5,
+        "diffusion_score": 7,
+        "notes": "Weak fit. NGHE Solution is a top-level system container. While it could theoretically host Teleoperation as a sub-module, assigning DP4+DP3 directly to NGHE Solution would be overly broad and obscure ownership. The DP is specific to teleoperation communication, not a system-wide concern. Diffusion risk: unclear which sub-component owns FEC and prioritization, leading to architectural ambiguity."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the most specific and cohesive boundary for DP4+DP3. It naturally owns the segregation of critical commands from ancillary telemetry, the measurement of network loss, and the adaptive application of FEC and selective retransmission. The module's responsibility is to ensure reliable operator-to-vehicle communication under variable network conditions, which is precisely what this dual-layer strategy delivers. Coupling is minimal: external interfaces (Tasking, Telemetry, Network Link, SafetyAlert) are well-defined and necessary for system integration. The DP does not diffuse into Vehicle, Safety Services, or other modules because the prioritization and FEC logic is encapsulated within Teleoperation's communication pipeline.",
+    "containment_risks": [
+      "Risk: If network loss measurement or FEC parameter tuning requires real-time feedback from Vehicle (e.g., vehicle-side packet loss statistics), Teleoperation may need bidirectional coupling with Vehicle beyond the standard Telemetry interface. Mitigation: Define a narrow, read-only interface for vehicle-side network diagnostics if needed.",
+      "Risk: Safety Services may need to override or adjust FEC/prioritization policies in response to safety events. Mitigation: Establish a SafetyAlert-triggered callback mechanism that allows Safety Services to signal Teleoperation to elevate priority or increase FEC for specific command classes without owning the implementation.",
+      "Risk: If multiple teleoperation modes (e.g., autonomous, semi-autonomous, manual) require different prioritization strategies, Teleoperation module may become complex. Mitigation: Use strategy pattern or configuration-driven prioritization to keep the module cohesive while supporting multiple policies.",
+      "Risk: Buffering and FEC adaptation logic may interact with Vehicle's onboard processing capacity or bandwidth constraints. Mitigation: Establish clear SLAs and feedback loops through Network Link interface to ensure Teleoperation adapts to actual vehicle-side constraints."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The FR specifies a measurable acceptance criterion (packet loss ≤ 1% or customer-defined target under agreed network conditions). The IM boundary (Teleoperation module) directly owns the mechanisms to measure network loss, apply adaptive FEC, and manage buffering. Verification can be conducted via network simulation, field testing under controlled loss conditions, and telemetry logging of packet loss rates and FEC adaptation behavior. The SafetyAlert interface provides an explicit escalation path for threshold breaches, enabling safety-critical validation.",
+      "allocation_clarity": "Excellent. The FR requirement is unambiguously allocated to the Teleoperation IM. The module's scope explicitly includes 'network loss measurement' and 'dual-layer reliability strategy,' which directly address the FR's demand for maintaining communication reliability within thresholds. External interfaces (Network Link for measurement, SafetyAlert for escalation) are clearly defined. No ambiguity regarding which module owns the reliability guarantee."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "The DP (DP4 + DP3 combination) logically and completely addresses the FR. Segregating critical teleoperation commands from ancillary telemetry with differentiated QoS (high priority + strict delivery for commands; best-effort for telemetry) is a sound design approach to meet packet loss thresholds. Adaptive FEC applied to the critical path and selective retransmission for non-critical data provide two independent tuning levers, allowing the solution to adapt to customer-defined thresholds and agreed network conditions. The dual-layer decoupling ensures safety-critical reliability is not compromised by general throughput optimization. No logical gaps or contradictions identified."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Moderate risk: Network loss measurement and FEC parameter tuning may require bidirectional feedback from Vehicle module (e.g., vehicle-side packet loss statistics, onboard processing capacity constraints). Current IM boundary assumes unidirectional Telemetry output and inbound Tasking. Mitigation: Define a narrow, read-only diagnostic interface (e.g., 'NetworkDiagnostics') from Vehicle to Teleoperation to avoid tight coupling while enabling adaptive tuning.",
+        "Moderate risk: Safety Services may need to dynamically override or escalate FEC/prioritization policies in response to safety events (e.g., increase FEC for emergency stop commands). Current SafetyAlert interface is one-way (Teleoperation → Safety Services). Mitigation: Establish a bidirectional callback or policy-update mechanism (e.g., 'SafetyPolicyUpdate') that allows Safety Services to signal Teleoperation without owning the FEC/prioritization implementation.",
+        "Low risk: Multiple teleoperation modes (autonomous, semi-autonomous, manual) may require different prioritization strategies, potentially increasing module complexity. Mitigation: Encapsulate prioritization logic using strategy pattern or configuration-driven policies to maintain cohesion and testability.",
+        "Low risk: Buffering and FEC adaptation may interact with Vehicle's bandwidth constraints or onboard processing limits. Mitigation: Establish clear SLAs and feedback loops through Network Link interface to ensure Teleoperation adapts to actual vehicle-side constraints without diffusing ownership."
+      ],
+      "containment_notes": "Excellent containment. The Teleoperation module achieves a containment score of 9/10 with minimal diffusion (1/10). The DP (command prioritization, adaptive FEC, selective retransmission, network loss measurement) is cohesively owned by Teleoperation and does not scatter across Safety Services, Vehicle, or other modules. The module's responsibility—ensuring reliable operator-to-vehicle communication under variable network conditions—is precisely aligned with the DP's intent. External interfaces are well-defined and necessary for system integration. No evidence of DP diffusion into competing module boundaries. The SafetyAlert escalation is a clean, one-way signal that does not require Teleoperation to own safety logic."
+    },
+    "recommended_revisions": [
+      "Add explicit 'NetworkDiagnostics' interface (read-only, Vehicle → Teleoperation) to enable Teleoperation to query vehicle-side packet loss statistics and bandwidth constraints for adaptive FEC tuning. Document the contract (e.g., update frequency, data fields) to prevent tight coupling.",
+      "Extend SafetyAlert interface to include a bidirectional 'SafetyPolicyUpdate' callback (Safety Services → Teleoperation) that allows Safety Services to signal priority escalation for specific command classes (e.g., emergency stop) without owning FEC/prioritization logic. Document the policy update protocol and latency requirements.",
+      "Document the prioritization strategy and FEC adaptation algorithm as part of the Teleoperation module specification. Include configuration parameters (e.g., FEC redundancy levels, priority thresholds) that can be tuned to customer-defined packet loss targets without code changes.",
+      "Define acceptance test cases that verify packet loss ≤ 1% (or customer-defined target) under simulated network conditions (e.g., 5%, 10%, 15% baseline loss) with varying prioritization and FEC configurations. Include field validation under agreed network conditions.",
+      "Clarify the interaction between Teleoperation's buffering strategy and Vehicle's onboard processing capacity. Define SLAs for buffer depth, latency, and throughput to ensure Teleoperation adapts gracefully to vehicle-side constraints.",
+      "If multiple teleoperation modes are supported, document the prioritization strategy for each mode (e.g., manual mode prioritizes all commands equally; autonomous mode deprioritizes non-critical telemetry). Use configuration or strategy pattern to avoid module complexity."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-IM, FR-DP, DP-IM) pass with high confidence. The FR is measurable, unambiguously allocated to Teleoperation IM, and the DP logically addresses the requirement with sound dual-layer reliability strategy. Containment is excellent (9/10) with minimal diffusion. However, the recommended revisions reveal critical architectural dependencies (NetworkDiagnostics feedback, SafetyPolicyUpdate bidirectional callback) and implementation complexity (adaptive FEC tuning, prioritization strategy across modes, buffering-vehicle interaction) that warrant decomposition into sub-FRs. This ensures that interface contracts, adaptation algorithms, and mode-specific strategies are explicitly designed and verified before implementation. Given high safety criticality, decomposing now prevents late-stage integration failures and clarifies ownership of adaptive behavior.",
+    "next_level_sub_frs": [
+      "FR4.1: Measure and report network loss statistics (packet loss rate, latency, jitter) from vehicle-side and operator-side to enable adaptive FEC tuning without tight coupling between Teleoperation and Vehicle modules.",
+      "FR4.2: Adapt FEC redundancy level and command prioritization dynamically based on measured network loss, vehicle bandwidth constraints, and safety policy signals from Safety Services.",
+      "FR4.3: Segregate teleoperation commands into priority classes (critical: emergency stop, safety-critical maneuvers; high: normal commands; low: telemetry, diagnostics) and apply differentiated QoS (strict delivery + FEC for critical; best-effort for low).",
+      "FR4.4: Buffer and manage command delivery latency to ensure operator-to-vehicle round-trip time remains within acceptable bounds (customer-defined, typically <500ms for manual teleoperation) under variable network conditions.",
+      "FR4.5: Escalate network reliability events (packet loss exceeding threshold, FEC saturation, latency breach) to Safety Services via SafetyAlert interface and accept policy update signals (e.g., priority escalation for emergency commands) without owning safety logic.",
+      "FR4.6: Support multiple teleoperation modes (manual, semi-autonomous, autonomous) with mode-specific command prioritization and FEC strategies, configurable without code changes."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "The current DP (DP4 + DP3) is logically sound but lacks explicit design parameters for: (1) NetworkDiagnostics interface contract (data fields, update frequency, read-only semantics); (2) SafetyPolicyUpdate callback protocol (policy format, latency SLA, escalation rules); (3) Adaptive FEC algorithm (tuning parameters, feedback loop, convergence criteria); (4) Command prioritization strategy (class definitions, mode-specific rules, configuration mechanism); (5) Buffering and latency management (buffer depth SLA, latency bounds, vehicle-side constraint adaptation). Revise DP to explicitly specify these sub-DPs before decomposing into sub-FRs, ensuring architectural clarity and testability."
+    },
+    "record": {
+      "assumptions": [
+        "Operator-to-vehicle round-trip latency target is customer-defined and typically <500ms for manual teleoperation; <2s for semi-autonomous; <5s for autonomous.",
+        "Vehicle module can provide network diagnostics (packet loss, bandwidth) via a read-only interface without requiring Teleoperation to own vehicle-side measurement logic.",
+        "Safety Services can signal priority escalation for specific command classes (e.g., emergency stop) via a bidirectional callback without requiring Teleoperation to own safety decision logic.",
+        "FEC redundancy and command prioritization can be tuned via configuration parameters (e.g., JSON policy files, environment variables) without code changes, enabling customer-specific adaptation.",
+        "Multiple teleoperation modes (manual, semi-autonomous, autonomous) have distinct prioritization strategies that can be encapsulated using strategy pattern or configuration-driven policies.",
+        "Buffering strategy on Teleoperation side must adapt to vehicle-side onboard processing capacity constraints communicated via NetworkDiagnostics interface."
+      ],
+      "open_risks": [
+        "Moderate: NetworkDiagnostics interface may introduce bidirectional coupling between Teleoperation and Vehicle if not carefully scoped. Mitigation: Define strict read-only contract with explicit data fields and update frequency SLA.",
+        "Moderate: SafetyPolicyUpdate callback may create circular dependency if Safety Services needs to query Teleoperation state. Mitigation: Establish unidirectional policy push (Safety Services → Teleoperation) with no query capability.",
+        "Moderate: Adaptive FEC tuning algorithm may oscillate or converge slowly if feedback loop is not carefully designed. Mitigation: Specify convergence criteria, tuning step size, and hysteresis thresholds in DP.",
+        "Moderate: Command prioritization strategy may conflict across modes (e.g., manual mode treats all commands equally; autonomous mode deprioritizes telemetry). Mitigation: Encapsulate mode-specific logic using strategy pattern or configuration-driven policies.",
+        "Low: Buffering depth and latency bounds may be difficult to achieve under extreme network conditions (e.g., >50% packet loss). Mitigation: Define graceful degradation strategy (e.g., escalate to Safety Services if latency exceeds threshold).",
+        "Low: Multiple teleoperation modes may increase Teleoperation module complexity beyond acceptable cohesion limits. Mitigation: Monitor cyclomatic complexity and consider extracting mode-specific logic into separate sub-modules if complexity exceeds threshold."
+      ],
+      "evidence_needed": [
+        "Customer-defined packet loss target (e.g., ≤1%, ≤5%) and acceptable round-trip latency bounds for each teleoperation mode (manual, semi-autonomous, autonomous).",
+        "Vehicle-side network diagnostics capability: Can vehicle provide packet loss, latency, jitter, and bandwidth statistics? What is the update frequency and data format?",
+        "Safety Services policy update mechanism: Can Safety Services signal priority escalation for specific command classes? What is the policy format and latency SLA?",
+        "FEC algorithm specification: What FEC scheme is used (e.g., Reed-Solomon, Turbo codes)? What are the tuning parameters (redundancy level, block size)? What is the feedback loop design?",
+        "Command prioritization strategy: How are commands classified into priority classes? What are the mode-specific rules? Can prioritization be configured without code changes?",
+        "Buffering and latency management: What is the target buffer depth? How does Teleoperation adapt to vehicle-side processing capacity constraints? What is the graceful degradation strategy?",
+        "Acceptance test cases: Network simulation with 5%, 10%, 15%, 25% baseline loss; field validation under agreed network conditions; mode-specific prioritization verification; FEC adaptation convergence testing."
+      ]
+    }
+  }
+}

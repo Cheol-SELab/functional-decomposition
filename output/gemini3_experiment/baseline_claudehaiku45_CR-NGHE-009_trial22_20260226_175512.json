@@ -1,0 +1,166 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation communication packet loss at or below the customer-defined threshold (acceptance criterion: ≤1% under agreed network conditions) to ensure safe and effective remote equipment operation.",
+    "rationale": "CR-NGHE-009 addresses a critical quality-of-service requirement for teleoperation. Packet loss directly impacts command latency, feedback fidelity, and operator situational awareness—all safety-critical factors in remote heavy equipment control. Refinement clarifies that the requirement is conditional on 'agreed network conditions' (a contractual boundary) and that the threshold is customer-defined (a parameterized acceptance criterion). High safety criticality demands explicit traceability to both command integrity (Tasking interface) and safety monitoring (SafetyAlert interface).",
+    "verification_idea": "Conduct network stress testing under agreed conditions (bandwidth, latency, interference profiles) with instrumented teleoperation sessions. Measure end-to-end packet loss on both uplink (Tasking) and downlink (Telemetry, SafetyAlert) paths. Validate that loss remains ≤ customer threshold across representative duty cycles and failure modes (e.g., signal degradation, congestion).",
+    "sub_frs": [
+      "FR-NGHE-009.1: The teleoperation system shall detect and report packet loss in real-time to the operator and safety services.",
+      "FR-NGHE-009.2: The teleoperation system shall implement redundancy or error correction to minimize packet loss impact on critical commands (e.g., emergency stop).",
+      "FR-NGHE-009.3: The teleoperation system shall gracefully degrade or alert when packet loss exceeds the customer-defined threshold."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Implement adaptive bitrate encoding and forward error correction (FEC) on the Network Link to reduce effective packet loss seen by application layer.",
+      "DP-B: Deploy dual-path redundant communication channels (primary and backup) with automatic failover to maintain packet loss below threshold.",
+      "DP-C: Implement application-level acknowledgment and retransmission protocol for critical teleoperation commands (Tasking) with timeout-based recovery.",
+      "DP-D: Combine network-layer FEC (DP-A) with application-level selective retransmission (DP-C) and real-time loss monitoring to meet threshold under agreed conditions."
+    ],
+    "selected_dp": "DP-D: Implement a multi-layer packet loss mitigation strategy combining network-layer forward error correction (FEC) on the Network Link, application-level selective retransmission for critical Tasking commands, and real-time packet loss monitoring with operator/safety alert escalation.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "DP-D couples the Teleoperation module (application logic) with Network Link (transport layer) and SafetyAlert interface (loss reporting). This is acceptable because packet loss is inherently a cross-layer concern; however, the coupling must be managed via well-defined interfaces (Tasking, Telemetry, SafetyAlert, Network Link) to avoid tight architectural binding.",
+        "Risk: If FEC parameters or retransmission timeouts are hardcoded in Teleoperation, changes to network conditions will require code modification. Mitigation: parameterize FEC and timeout settings via configuration, not code."
+      ],
+      "notes": "DP-D is not decoupled (which would be infeasible for a QoS requirement), but it is modular: each layer (FEC, retransmission, monitoring) can be independently tuned and tested. The design respects the FR -> DP -> IM hierarchy by keeping the DP solution-agnostic to specific module boundaries."
+    },
+    "assumptions_risks": [
+      "Assumption: The 'agreed network conditions' are formally specified by the customer (e.g., max latency, typical bandwidth, interference profile). Risk: If conditions are vague, acceptance testing will be ambiguous. Mitigation: require signed network SLA before design completion.",
+      "Assumption: FEC overhead (bandwidth increase) is acceptable within the agreed network capacity. Risk: If network is bandwidth-constrained, FEC may worsen congestion. Mitigation: conduct capacity analysis; consider adaptive FEC that scales with available bandwidth.",
+      "Assumption: Critical commands (e.g., emergency stop) can be identified and prioritized for retransmission. Risk: If command taxonomy is unclear, some safety-critical commands may not receive retransmission protection. Mitigation: define command criticality matrix in safety analysis.",
+      "Assumption: Operator and Safety Manager can act on real-time loss alerts. Risk: If alerts are too frequent or unclear, they may be ignored (alert fatigue). Mitigation: design alert thresholds and messaging in consultation with stakeholders."
+    ],
+    "recommended_revision": "Refine DP-D to explicitly specify: (1) FEC algorithm and overhead budget (e.g., Reed-Solomon with 10% overhead), (2) retransmission timeout and max retry count for critical commands, (3) loss threshold for operator alert vs. safety shutdown, (4) monitoring granularity (per-packet, per-session, per-command). These parameters should be configurable and traceable to customer acceptance criteria."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "The Teleoperation module owns the end-to-end packet loss mitigation strategy, including: (1) application-level command/response protocol with selective retransmission for critical Tasking, (2) real-time packet loss monitoring and reporting via SafetyAlert, (3) coordination with Network Link for FEC configuration and status. The module does NOT own the physical network transport (owned by Network Link) but owns the application-layer logic that interprets and responds to network conditions."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives operator commands from Vehicle or tele-operator. Teleoperation applies selective retransmission and acknowledgment protocol to ensure critical commands (e.g., emergency stop, motion control) are reliably delivered despite packet loss. Includes command criticality tagging."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Sends vehicle state (position, velocity, sensor readings) to tele-operator and Safety Services. Teleoperation monitors packet loss on this downlink and adjusts transmission frequency or quality if loss exceeds threshold. Includes loss metadata in telemetry stream."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Sends packet loss alerts and degradation warnings to Safety Services and operator. Escalates from warning (loss 0.5–1%) to critical (loss >1%) to trigger operator intervention or automatic shutdown. Includes loss statistics and recommended actions."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Teleoperation coordinates with Network Link to configure FEC parameters, query link status (latency, bandwidth, loss estimate), and receive loss notifications. Network Link owns the physical transport; Teleoperation owns the application-layer response strategy."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.95,
+        "diffusion_score": 0.05,
+        "notes": "Teleoperation is the natural owner of packet loss mitigation logic because it directly controls command/response protocols, retransmission policies, and loss monitoring. The module has high cohesion (all loss-mitigation logic is co-located) and low diffusion (minimal dependencies on other modules beyond well-defined interfaces). Minor diffusion: dependency on Network Link for FEC status and on SafetyAlert for alert delivery, but these are external interfaces, not internal coupling."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.15,
+        "diffusion_score": 0.85,
+        "notes": "Vehicle is responsible for vehicle-level control and state management, not communication QoS. Assigning packet loss mitigation to Vehicle would scatter teleoperation logic across multiple modules (Vehicle, Teleoperation, Network Link), violating cohesion. Not recommended."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Safety Services owns safety policy enforcement and alert escalation, not communication protocol design. While Safety Services consumes SafetyAlert (loss alerts), it should not own the logic that generates those alerts. Assigning packet loss mitigation to Safety Services would blur the boundary between communication QoS and safety policy. Not recommended."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.1,
+        "diffusion_score": 0.9,
+        "notes": "NGHE Solution is the top-level system container, not a functional module. Assigning packet loss mitigation to NGHE Solution would bypass the architectural hierarchy and prevent clear ownership. Not recommended."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "Teleoperation module contains all packet loss mitigation logic (FEC coordination, retransmission protocol, loss monitoring) and owns the interfaces (Tasking, Telemetry, SafetyAlert, Network Link) required to implement DP-D. The module has high cohesion and low diffusion, making it the optimal architectural home for this requirement.",
+    "containment_risks": [
+      "Risk: If Teleoperation module becomes too large (e.g., >10K LOC), it may need further decomposition into sub-modules (e.g., CommandRetransmission, LossMonitoring, FECCoordinator). Mitigation: plan for sub-module decomposition in next design iteration if complexity grows.",
+      "Risk: If Network Link interface is poorly specified, Teleoperation may have to make assumptions about FEC behavior, leading to integration issues. Mitigation: require detailed Network Link API specification (FEC configuration, status queries, loss notifications) before Teleoperation implementation.",
+      "Risk: If SafetyAlert interface is overloaded with loss alerts, it may create alert fatigue or delay critical safety signals. Mitigation: define alert priority levels and rate-limiting policies in SafetyAlert specification."
+    ],
+    "recommended_revision": "Clarify the boundary between Teleoperation and Network Link: Teleoperation owns application-layer loss mitigation (retransmission, monitoring, alerting); Network Link owns transport-layer FEC and link status reporting. Define a clear API contract (e.g., FEC configuration parameters, loss estimation method, status query format) to prevent coupling creep. Consider adding a sub-module (e.g., 'PacketLossMonitor') within Teleoperation if monitoring logic becomes complex."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-D (multi-layer packet loss mitigation) directly addresses FR-NGHE-009 (maintain packet loss ≤ customer threshold). The DP is solution-complete: it specifies FEC (network layer), retransmission (application layer), and monitoring (cross-layer), covering all mechanisms needed to meet the acceptance criterion. The DP is not over-constrained (it allows flexibility in FEC algorithm, timeout values, etc.) and is testable (packet loss can be measured end-to-end). No decoupling issues: packet loss is inherently a cross-layer concern, and DP-D respects that reality."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Teleoperation module must coordinate with Network Link (FEC configuration) and SafetyAlert (loss reporting). This is acceptable because these are external interfaces, not internal coupling. However, if Teleoperation tries to directly manipulate Network Link internals (e.g., FEC codec parameters) without a formal API, diffusion will increase. Mitigation: enforce API-based communication via Network Link interface.",
+        "If loss monitoring logic is duplicated across Teleoperation and Safety Services (e.g., both computing loss statistics), diffusion will increase. Mitigation: centralize loss monitoring in Teleoperation; Safety Services consumes SafetyAlert output only."
+      ],
+      "containment_notes": "Teleoperation is the clear owner of DP-D. The module has high cohesion (all loss-mitigation logic is co-located) and low diffusion (dependencies are via well-defined external interfaces). The module boundary is clean: Teleoperation owns the application-layer protocol and monitoring; Network Link owns the transport layer; Safety Services owns the policy response. No architectural conflicts detected."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "FR-NGHE-009 is verifiable via network stress testing: inject packet loss at various rates (0%, 0.5%, 1%, 2%) and measure end-to-end loss on Tasking (uplink) and Telemetry/SafetyAlert (downlink). Verify that loss remains ≤ customer threshold under agreed conditions. Teleoperation module provides instrumentation (loss counters, alert logs) to support verification. Feasibility is high.",
+      "allocation_clarity": "The allocation of FR-NGHE-009 to Teleoperation module is clear and unambiguous. The module owns all mechanisms (FEC, retransmission, monitoring) required to meet the requirement. Sub-FRs (FR-NGHE-009.1, 009.2, 009.3) are also clearly allocated to Teleoperation. No allocation conflicts or gaps detected."
+    },
+    "recommended_revisions": [
+      "Formalize the 'agreed network conditions' as a signed customer SLA before design completion. Include specific values for max latency, typical bandwidth, interference profile, and acceptable packet loss threshold. This will enable objective acceptance testing.",
+      "Define the command criticality matrix: which Tasking commands are safety-critical and require retransmission protection? This will guide the selective retransmission policy in Teleoperation.",
+      "Specify the Network Link API contract: FEC configuration parameters, loss estimation method, status query format. This will prevent integration issues between Teleoperation and Network Link.",
+      "Define alert thresholds and messaging for SafetyAlert: at what loss rate should operator be warned? At what rate should automatic shutdown be triggered? This will guide the loss monitoring logic in Teleoperation."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-NGHE-009 is not atomic; it decomposes into three sub-FRs (loss detection, redundancy/error correction, graceful degradation). The refined FR and selected DP are sound, and the IM assignment (Teleoperation) is well-justified. However, the requirement is complex enough to warrant further decomposition to ensure all aspects are addressed. Specifically, sub-FRs 009.1 (detection), 009.2 (mitigation), and 009.3 (degradation) should each be refined into their own FR-DP-IM cycles to ensure complete coverage and clear ownership. Additionally, several assumptions and open risks (network SLA, command criticality matrix, Network Link API, alert thresholds) must be resolved before implementation can proceed. Recommend ZIGZAG_DOWN to decompose sub-FRs and resolve open items.",
+    "next_level_sub_frs": [
+      "FR-NGHE-009.1: The teleoperation system shall detect and report packet loss in real-time to the operator and safety services. (Decompose into: loss measurement, loss reporting, alert escalation)",
+      "FR-NGHE-009.2: The teleoperation system shall implement redundancy or error correction to minimize packet loss impact on critical commands. (Decompose into: FEC coordination, selective retransmission, command prioritization)",
+      "FR-NGHE-009.3: The teleoperation system shall gracefully degrade or alert when packet loss exceeds the customer-defined threshold. (Decompose into: threshold monitoring, operator alerting, automatic shutdown logic)"
+    ],
+    "revise": {
+      "target": "FR",
+      "why": "The refined FR is sound, but the sub-FRs should be explicitly decomposed and refined in the next level. Additionally, the FR should reference the 'agreed network conditions' and 'customer-defined threshold' as formal acceptance criteria (not just narrative). Recommend adding a traceability matrix linking FR-NGHE-009 to customer SLA and safety requirements."
+    },
+    "record": {
+      "assumptions": [
+        "The 'agreed network conditions' (bandwidth, latency, interference) are formally specified by the customer in a signed SLA.",
+        "The customer-defined packet loss threshold (acceptance criterion) is ≤1% or a customer-specified value, and is measurable end-to-end.",
+        "FEC overhead (bandwidth increase) is acceptable within the agreed network capacity.",
+        "Critical commands (e.g., emergency stop) can be identified and prioritized for retransmission protection.",
+        "Operator and Safety Manager can act on real-time loss alerts without alert fatigue.",
+        "Network Link module provides a formal API for FEC configuration and loss status queries.",
+        "SafetyAlert interface can accommodate loss alerts without overloading safety-critical signals."
+      ],
+      "open_risks": [
+        "Risk: Customer SLA is not formally specified. Impact: Acceptance testing will be ambiguous. Mitigation: require signed SLA before design completion.",
+        "Risk: Command criticality matrix is not defined. Impact: Some safety-critical commands may not receive retransmission protection. Mitigation: conduct safety analysis to identify critical commands.",
+        "Risk: Network Link API is not specified. Impact: Teleoperation may have to make assumptions about FEC behavior, leading to integration issues. Mitigation: require detailed Network Link API specification.",
+        "Risk: Alert thresholds are not defined. Impact: Operator may be overwhelmed with alerts or miss critical warnings. Mitigation: define alert thresholds and messaging in consultation with stakeholders.",
+        "Risk: FEC parameters (algorithm, overhead) are not tuned for agreed network conditions. Impact: Packet loss may exceed threshold. Mitigation: conduct network simulation and parameter tuning before implementation.",
+        "Risk: Teleoperation module becomes too large if all loss-mitigation logic is co-located. Impact: Code complexity and maintenance burden increase. Mitigation: plan for sub-module decomposition if complexity grows."
+      ],
+      "evidence_needed": [
+        "Customer SLA specifying agreed network conditions and packet loss threshold.",
+        "Command criticality matrix identifying safety-critical Tasking commands.",
+        "Network Link API specification (FEC configuration, loss estimation, status queries).",
+        "SafetyAlert interface specification (alert priority levels, rate-limiting policies).",
+        "Network simulation results validating that DP-D meets packet loss threshold under agreed conditions.",
+        "Teleoperation module design document specifying FEC algorithm, retransmission timeout, loss monitoring granularity, and alert thresholds.",
+        "Test plan for packet loss verification (stress testing, failure mode analysis).",
+        "Safety analysis linking packet loss to safety-critical functions (e.g., emergency stop reliability)."
+      ]
+    }
+  }
+}

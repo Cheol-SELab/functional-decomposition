@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from .llm import LLMClient
+from .prompts import DOMAIN_CONTEXT
 
 
 @dataclass(frozen=True)
@@ -77,6 +78,9 @@ class DecompositionWorkflow:
 
     def _validate_step1_output(self, s1: Dict[str, Any]) -> List[str]:
         errors: List[str] = []
+        if not isinstance(s1, dict):
+            errors.append(f"step1 output must be a dict, got {type(s1).__name__}")
+            return errors
         if not isinstance(s1.get("refined_fr"), str) or not s1.get("refined_fr").strip():
             errors.append("refined_fr must be a non-empty string")
         if not isinstance(s1.get("rationale"), str):
@@ -282,7 +286,7 @@ class DecompositionWorkflow:
         s3_bad: Dict[str, Any],
         errors: List[str],
     ) -> Dict[str, Any]:
-        system = "ROLE: Architecture-to-implementation assistant."
+        system = "ROLE: Architecture-to-implementation assistant.\n\n" + DOMAIN_CONTEXT
         user = (
             "TASK: Repair the IM assignment JSON so it obeys the constraints.\n"
             "RULES:\n"
@@ -306,7 +310,7 @@ class DecompositionWorkflow:
         )
 
     def step1_refine_fr(self, inputs: DecompositionInputs) -> Dict[str, Any]:
-        system = "ROLE: Systems engineer assistant."
+        system = "ROLE: Systems engineer assistant.\n\n" + DOMAIN_CONTEXT
         user = (
             "TASK: Refine the candidate FR to be atomic and solution-neutral.\n"
             "RULES:\n"
@@ -340,7 +344,7 @@ class DecompositionWorkflow:
         return s1
 
     def step2_select_dp(self, *, refined_fr: str, constraints_assumptions: List[str]) -> Dict[str, Any]:
-        system = "ROLE: Architect assistant."
+        system = "ROLE: Architect assistant.\n\n" + DOMAIN_CONTEXT
         user = (
             "TASK: Propose candidate DPs and evaluate FR<->DP mapping quality.\n"
             "RULES:\n"
@@ -376,7 +380,7 @@ class DecompositionWorkflow:
         return s2
 
     def step3_assign_im(self, *, selected_dp: str, available_modules: List[str], known_interfaces: List[str]) -> Dict[str, Any]:
-        system = "ROLE: Architecture-to-implementation assistant."
+        system = "ROLE: Architecture-to-implementation assistant.\n\n" + DOMAIN_CONTEXT
         user = (
             "TASK: Propose a module boundary (IM) that contains the selected DP.\n"
             "RULES:\n"
@@ -422,17 +426,18 @@ class DecompositionWorkflow:
             )
         return s3
 
-    def step4_gate_review(self, *, fr: str, dp: str, im: Dict[str, Any]) -> Dict[str, Any]:
-        system = "ROLE: Gate reviewer."
+    def step4_gate_review(self, *, fr: str, dp: str, im: Dict[str, Any], constraints: List[str]) -> Dict[str, Any]:
+        system = "ROLE: Gate reviewer.\n\n" + DOMAIN_CONTEXT
         user = (
             "TASK: Evaluate the mapping quality at the current level.\n"
             "RULES:\n"
             "- Ground verifiability in the provided constraints/acceptance criteria where possible.\n"
-            "- If a DP appears scattered across multiple responsibilities or interfaces, flag as diffusion risk (DP↔IM bridge).\n"
+            "- If a DP appears scattered across multiple responsibilities or interfaces, flag as diffusion risk (DP<->IM bridge).\n"
             "INPUT:\n"
             f"- FR: {fr}\n"
             f"- DP: {dp}\n"
             f"- IM boundary + interfaces: {im}\n"
+            f"- Constraints/acceptance criteria: {', '.join(constraints) if constraints else '<none>'}\n"
             "OUTPUT FORMAT (JSON):\n"
             "{\n"
             '  "fr_dp_gate": {"pass": true, "reason": "..."},\n'
@@ -459,7 +464,7 @@ class DecompositionWorkflow:
         return s4
 
     def step5_decision(self, *, gate_results: Dict[str, Any], risk_tailoring_factors: List[str]) -> Dict[str, Any]:
-        system = "ROLE: Decomposition controller."
+        system = "ROLE: Decomposition controller.\n\n" + DOMAIN_CONTEXT
         user = (
             "TASK: Decide whether to stop or derive next-level sub-FRs.\n"
             "INPUT:\n"
@@ -515,7 +520,7 @@ class DecompositionWorkflow:
         )
         run.assigned_im = s3
 
-        s4 = self.step4_gate_review(fr=refined_fr, dp=selected_dp, im=s3)
+        s4 = self.step4_gate_review(fr=refined_fr, dp=selected_dp, im=s3, constraints=inputs.constraints)
         run.gate_review = s4
 
         s5 = self.step5_decision(gate_results=s4, risk_tailoring_factors=inputs.risk_tailoring_factors)

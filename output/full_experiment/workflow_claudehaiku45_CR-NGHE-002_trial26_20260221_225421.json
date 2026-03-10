@@ -1,0 +1,170 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall enable execution of the load→travel→dump cycle within the customer-defined cycle time target.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting/enabling the cycle execution capability, and (2) achieving a measured KPI (p95 ≤ CT_target). The refined FR focuses on the functional requirement—enabling the cycle to be executed within the time envelope—which is solution-neutral and testable. The KPI acceptance criterion (p95 ≤ CT_target under duty cycle and site conditions) is a verification/acceptance gate, not a functional requirement itself. This separation allows design parameters to address cycle execution capability independently of measurement and statistical validation.",
+    "verification_idea": "Measure end-to-end cycle time (load initiation to dump completion) across repeated cycles under the agreed duty cycle and site conditions. Confirm p95 cycle time ≤ CT_target. Verify that no design bottleneck (mechanical, hydraulic, control, or operator interface) prevents the cycle from completing within the target window.",
+    "sub_frs": [
+      "FR-NGHE-002.1: The NGHE solution shall enable the load phase to complete within the allocated time budget.",
+      "FR-NGHE-002.2: The NGHE solution shall enable the travel phase to complete within the allocated time budget.",
+      "FR-NGHE-002.3: The NGHE solution shall enable the dump phase to complete within the allocated time budget."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Decompose the load→travel→dump cycle into sequential sub-operations (load, travel, dump) with independent timing budgets that sum to CT_target, and allocate execution control to a supervisory coordinator that sequences and monitors each phase.",
+      "DP2: Implement a state-machine-based cycle controller that transitions through discrete operational states (idle, loading, traveling, dumping, returning) with deterministic timing constraints per state, ensuring p95 compliance through worst-case path analysis.",
+      "DP3: Design a parallel-capable execution architecture where load, travel, and dump operations are modeled as independent concurrent tasks with synchronization barriers, allowing overlap where physically feasible (e.g., travel during partial load) to reduce total cycle time.",
+      "DP4: Establish a real-time task scheduler with priority-based preemption and deadline enforcement, allocating each cycle phase as a time-bounded task with jitter budgets, and monitor actual execution against p95 thresholds with adaptive throttling.",
+      "DP5: Decompose cycle execution into a hierarchical control loop: outer loop manages cycle sequencing and safety interlocks; inner loops handle sub-operation timing (e.g., load rate, travel speed, dump rate) with closed-loop feedback to maintain schedule adherence."
+    ],
+    "selected_dp": "DP2: Implement a state-machine-based cycle controller that transitions through discrete operational states (idle, loading, traveling, dumping, returning) with deterministic timing constraints per state, ensuring p95 compliance through worst-case path analysis.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "State transitions must be guarded by physical/operational preconditions (e.g., load fully secured before travel), creating implicit coupling to load-securing subsystem and travel-readiness checks.",
+        "Worst-case path analysis depends on accurate characterization of sub-operation durations, which couples to sensor accuracy and environmental variability (site conditions, material properties).",
+        "p95 measurement and validation couples to telemetry/logging infrastructure and acceptance test procedures.",
+        "State machine timing assumes deterministic execution environment; non-deterministic delays (e.g., OS scheduling jitter, network latency in remote control scenarios) could violate p95 if not budgeted."
+      ],
+      "notes": "DP2 is selected because it provides clear, analyzable timing semantics and explicit state visibility for safety and diagnostics. Coupling is manageable: preconditions are localized to state guards, and environmental variability is addressed through worst-case budgeting and p95 acceptance criteria (not p100). The design is solution-neutral regarding actuation, sensing, or communication technologies."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Sub-operation durations (load time, travel time, dump time) are measurable and repeatable under the agreed duty cycle and site conditions. RISK: Variability in material properties, ground conditions, or operator behavior could exceed budgeted margins; mitigation: conduct site-specific characterization and include contingency in CT_target allocation.",
+      "ASSUMPTION: State transitions are atomic or sufficiently fast that transition overhead is negligible relative to CT_target. RISK: If transition logic is complex (e.g., multi-step safety interlocks), transition time could accumulate; mitigation: profile transition paths and allocate explicit timing budget.",
+      "ASSUMPTION: Telemetry and p95 measurement infrastructure is available and accurate. RISK: Measurement error or incomplete logging could mask actual p95 violations; mitigation: define measurement protocol and validation procedure as part of acceptance criteria.",
+      "ASSUMPTION: Worst-case path analysis is feasible and conservative. RISK: Unidentified edge cases or rare environmental conditions could cause p95 exceedance post-deployment; mitigation: include operational monitoring and feedback loop to detect and address violations.",
+      "ASSUMPTION: State machine can be implemented with sufficient determinism in the target execution environment (embedded controller, real-time OS, or cloud-based orchestrator). RISK: Non-deterministic delays could violate p95; mitigation: specify execution environment constraints and validate timing under realistic load.",
+      "ASSUMPTION: Safety interlocks and operational policies do not introduce hidden sequential dependencies that extend cycle time. RISK: Overly conservative safety logic could make CT_target unachievable; mitigation: collaborate with safety engineering to optimize interlock logic without compromising safety."
+    ],
+    "recommended_revision": "Refine DP2 to explicitly separate timing concerns: (1) Define a timing budget allocation table that maps each state to a maximum duration and justifies the allocation based on physical/operational constraints. (2) Specify the worst-case path through the state machine (e.g., longest load time + longest travel time + longest dump time) and confirm it is ≤ CT_target with margin. (3) Define measurement and validation protocol for p95 acceptance, including sample size, environmental conditions, and acceptable variance. (4) Identify and document all state guards and preconditions that couple to other subsystems (load securing, travel readiness, dump completion detection), and ensure those subsystems are designed to meet their timing requirements. (5) Specify the execution environment (controller type, OS, real-time guarantees) and validate that state machine implementation can achieve required determinism. This revision transforms DP2 from a logical concept into an analyzable, implementable design with clear traceability to FR and acceptance criteria."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "Encapsulates the state-machine-based cycle controller as the primary locus of operational state management, timing enforcement, and deterministic transitions across idle, loading, traveling, dumping, and returning states. The Vehicle module owns the state machine logic, timing constraints, and worst-case path analysis for p95 compliance."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives task directives (e.g., load, travel to destination, dump) that trigger state transitions and provide operational parameters."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Emits current operational state, timing metrics, state transition events, and p95 compliance status for monitoring and diagnostics."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "Receives safety constraints that may interrupt or modify state transitions; emits safety-critical state change notifications."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Provides communication substrate for remote state queries and emergency state override commands from Teleoperation or Safety Services."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent containment. The state machine, timing logic, and deterministic transitions are core Vehicle responsibilities. State transitions are triggered by external Tasking and SafetyAlert inputs but the state machine logic itself remains cohesive within Vehicle. Minor diffusion: p95 compliance monitoring may require telemetry export and external timing analysis, but the state machine engine is fully contained."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor containment. Teleoperation is a user-facing interface layer, not a control logic owner. The state machine and timing constraints are vehicle-level concerns, not teleoperation concerns. Placing the cycle controller here would scatter operational logic across the system and violate separation of concerns."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Weak containment. Safety Services should enforce safety constraints and monitor compliance, not own the primary state machine. The cycle controller is a Vehicle operational concern; Safety Services should validate and interrupt it, not contain it. High diffusion: core timing and state logic would leak into Vehicle anyway."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.25,
+        "diffusion_score": 0.75,
+        "notes": "Very poor containment. NGHE Solution is a top-level system aggregator, not a module for operational control logic. Placing the cycle controller here would create a monolithic, non-decomposable system and prevent reuse of the state machine across multiple vehicles or operational contexts."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module is the natural owner of the state-machine-based cycle controller because: (1) operational states (idle, loading, traveling, dumping, returning) are intrinsic to vehicle behavior; (2) timing constraints and deterministic transitions are vehicle-level concerns; (3) worst-case path analysis for p95 compliance is a vehicle performance property; (4) external interfaces (Tasking, SafetyAlert, Telemetry, Network Link) provide clean input/output boundaries without requiring the state machine to diffuse into other modules.",
+    "containment_risks": [
+      "Risk: If p95 compliance monitoring requires real-time external timing analysis or adaptive state timing adjustments, those analytics may need to reside in Safety Services or a dedicated monitoring module, creating a secondary coupling. Mitigation: Define p95 analysis as a Vehicle-internal worst-case analysis at design time, with Telemetry exports for external validation only.",
+      "Risk: If Teleoperation needs to override or manually control state transitions (e.g., emergency stop, manual state stepping), the state machine logic may need to expose fine-grained control interfaces that blur Vehicle/Teleoperation boundaries. Mitigation: Define override semantics as SafetyAlert inputs (e.g., 'halt' command) rather than direct state manipulation.",
+      "Risk: If multiple vehicle types or operational modes require different state machines, the Vehicle module may become a polymorphic container. Mitigation: Use strategy or template patterns within Vehicle to parameterize the state machine without exporting it."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The FR acceptance criterion (p95 ≤ CT_target) is measurable and directly traceable to the Vehicle module's state machine timing constraints. Telemetry interface exports state transition events and timing metrics, enabling external validation of p95 compliance under duty cycle and site conditions. Worst-case path analysis within Vehicle provides design-time assurance; runtime telemetry provides operational verification.",
+      "allocation_clarity": "Clear. The Vehicle module owns the state machine logic, timing enforcement, and deterministic transitions. External interfaces (Tasking, SafetyAlert, Telemetry, Network Link) provide clean input/output boundaries. The FR requirement maps unambiguously to Vehicle's core responsibility for operational state management and cycle timing."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "The DP (state-machine-based cycle controller with deterministic timing constraints and worst-case path analysis) directly addresses the FR (enable load→travel→dump cycle within CT_target). The DP specifies a concrete solution approach (discrete states, p95 compliance via worst-case analysis) that is both implementable and verifiable against the acceptance criterion. The mapping is sound and non-ambiguous."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Risk: p95 compliance monitoring. If real-time adaptive timing adjustments or external analytics are required to maintain p95 compliance during operation, timing logic may diffuse into Safety Services or a dedicated monitoring module. Mitigation: Enforce p95 analysis as Vehicle-internal design-time worst-case analysis; Telemetry exports only for external validation, not control feedback.",
+        "Risk: Teleoperation override semantics. If Teleoperation requires fine-grained manual state control (e.g., step-through, manual state transitions), the state machine interface may blur Vehicle/Teleoperation boundaries. Mitigation: Restrict Teleoperation to high-level override commands (e.g., 'halt', 'resume') routed through SafetyAlert; do not expose direct state manipulation.",
+        "Risk: Multi-vehicle or multi-mode polymorphism. If the NGHE solution must support multiple vehicle types or operational modes with different state machines, the Vehicle module may become a polymorphic container, risking diffusion of state machine variants across submodules. Mitigation: Use strategy or template patterns within Vehicle to parameterize the state machine; keep all variants within Vehicle ownership."
+      ],
+      "containment_notes": "Excellent containment (0.92 score). The Vehicle module is the natural and correct owner of the state-machine-based cycle controller. Operational states (idle, loading, traveling, dumping, returning) are intrinsic to vehicle behavior; timing constraints and deterministic transitions are vehicle-level concerns; worst-case path analysis for p95 compliance is a vehicle performance property. External interfaces provide clean input/output boundaries without requiring the state machine to diffuse into Teleoperation, Safety Services, or NGHE Solution. Minor diffusion risk exists only if p95 monitoring or override semantics are not carefully scoped; recommended mitigations are straightforward and implementable."
+    },
+    "recommended_revisions": [
+      "Clarify p95 compliance analysis scope: Define whether p95 analysis is performed at design time (worst-case path analysis within Vehicle) or at runtime (adaptive timing adjustments). If design-time only, document the duty cycle and site conditions assumptions used for worst-case analysis. If runtime adaptive, specify which module (Vehicle, Safety Services, or external monitor) owns the adaptive logic and how it feeds back to the state machine.",
+      "Define Teleoperation override semantics: Specify whether Teleoperation can directly manipulate state transitions or only issue high-level commands (e.g., 'halt', 'resume'). If high-level commands only, route them through SafetyAlert to maintain Vehicle/Teleoperation boundary clarity. Document the override command set and state machine response semantics.",
+      "Document state machine parameterization strategy: If multiple vehicle types or operational modes are anticipated, specify the parameterization mechanism (e.g., strategy pattern, template, configuration file) and confirm that all variants remain within Vehicle ownership. Avoid exporting state machine logic to submodules or external configuration services.",
+      "Specify Telemetry export granularity: Define which timing metrics and state transition events are exported via Telemetry (e.g., state entry/exit timestamps, transition durations, p95 percentile estimates). Ensure exported data is sufficient for external p95 validation without requiring Vehicle to expose internal timing state or accept external timing feedback.",
+      "Validate SafetyAlert interrupt semantics: Confirm that SafetyAlert inputs (e.g., 'halt', 'resume', safety constraint modifications) are handled as state machine inputs, not as direct state overrides. Document the state machine's response to each SafetyAlert command (e.g., halt → transition to idle, resume → resume from idle to previous operational state)."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-IM, FR-DP, DP-IM) pass with high confidence and excellent containment (0.92 score). The state-machine-based cycle controller is well-scoped to the Vehicle module with clean external interfaces. However, the recommended_revisions identify five critical clarifications that must be resolved before decomposition proceeds. These are not design flaws but rather specification gaps that directly impact sub-FR derivation: (1) p95 compliance analysis scope (design-time vs. runtime adaptive), (2) Teleoperation override semantics (direct state manipulation vs. high-level commands), (3) state machine parameterization for multi-vehicle support, (4) Telemetry export granularity, and (5) SafetyAlert interrupt handling. Given high safety criticality, these clarifications must be locked in at the current level before decomposing into sub-FRs. A REVISE_CURRENT_LEVEL step is warranted to address these gaps, followed by ZIGZAG_DOWN to derive sub-FRs with full clarity on scope and interface semantics.",
+    "next_level_sub_frs": [
+      "FR-Vehicle-1: Manage operational state transitions (idle ↔ loading ↔ traveling ↔ dumping ↔ returning) with deterministic timing and worst-case path analysis to ensure p95 cycle time ≤ CT_target under specified duty cycle and site conditions.",
+      "FR-Vehicle-2: Accept and process SafetyAlert inputs (halt, resume, constraint modifications) as state machine inputs, ensuring safe state transitions and constraint enforcement without direct state override.",
+      "FR-Vehicle-3: Accept and process Teleoperation override commands (high-level halt/resume) routed through SafetyAlert, maintaining Vehicle/Teleoperation boundary clarity.",
+      "FR-Vehicle-4: Export state transition events and timing metrics (state entry/exit timestamps, transition durations, p95 percentile estimates) via Telemetry interface for external validation and monitoring without exposing internal timing state or accepting external timing feedback.",
+      "FR-Vehicle-5: Support parameterized state machine variants (if required for multiple vehicle types or operational modes) using strategy or template patterns, keeping all variants within Vehicle ownership."
+    ],
+    "revise": {
+      "target": "FR|DP",
+      "why": "Before decomposing, the following clarifications must be added to the current-level FR and DP specifications to eliminate ambiguity and guide sub-FR derivation: (1) Explicitly state that p95 compliance analysis is performed at design time via worst-case path analysis within Vehicle, with documented assumptions on duty cycle and site conditions. If runtime adaptive timing is required, specify which module owns the adaptive logic and how it feeds back to the state machine. (2) Define Teleoperation override semantics: restrict Teleoperation to high-level commands (halt, resume) routed through SafetyAlert; prohibit direct state manipulation. Document the override command set and state machine response semantics. (3) If multi-vehicle or multi-mode support is anticipated, specify the parameterization mechanism (strategy pattern, template, configuration) and confirm all variants remain within Vehicle ownership. (4) Define Telemetry export granularity: specify which timing metrics and state transition events are exported, ensuring sufficiency for external p95 validation without exposing internal timing state or accepting external feedback. (5) Validate SafetyAlert interrupt semantics: confirm SafetyAlert inputs are handled as state machine inputs (not direct state overrides) and document the state machine's response to each command (e.g., halt → idle, resume → resume from idle to previous operational state). These clarifications are essential for high-safety-criticality systems and will directly inform sub-FR derivation."
+    },
+    "record": {
+      "assumptions": [
+        "p95 compliance is achieved via design-time worst-case path analysis within Vehicle, not runtime adaptive timing adjustments.",
+        "Teleoperation override commands are restricted to high-level halt/resume semantics routed through SafetyAlert, not direct state manipulation.",
+        "State machine variants (if any) for multiple vehicle types or operational modes are parameterized within Vehicle using strategy or template patterns, not diffused to external modules.",
+        "Telemetry export provides sufficient timing metrics for external p95 validation without requiring Vehicle to expose internal timing state or accept external timing feedback.",
+        "SafetyAlert inputs are processed as state machine inputs with well-defined response semantics, not as direct state overrides.",
+        "Duty cycle and site conditions used for worst-case p95 analysis are documented and remain stable across operational deployment."
+      ],
+      "open_risks": [
+        "Risk: p95 compliance monitoring diffusion. If runtime adaptive timing adjustments are required to maintain p95 compliance during operation, timing logic may diffuse into Safety Services or a dedicated monitoring module. Mitigation: Enforce p95 analysis as Vehicle-internal design-time worst-case analysis; Telemetry exports only for external validation, not control feedback.",
+        "Risk: Teleoperation override semantics blur. If Teleoperation requires fine-grained manual state control (e.g., step-through, manual state transitions), the state machine interface may blur Vehicle/Teleoperation boundaries. Mitigation: Restrict Teleoperation to high-level override commands (halt, resume) routed through SafetyAlert; do not expose direct state manipulation.",
+        "Risk: Multi-vehicle polymorphism diffusion. If the NGHE solution must support multiple vehicle types or operational modes with different state machines, the Vehicle module may become a polymorphic container, risking diffusion of state machine variants across submodules. Mitigation: Use strategy or template patterns within Vehicle to parameterize the state machine; keep all variants within Vehicle ownership.",
+        "Risk: SafetyAlert interrupt semantics ambiguity. If SafetyAlert inputs are not clearly defined as state machine inputs with deterministic response semantics, interrupt handling may become ad-hoc and diffuse across multiple modules. Mitigation: Document SafetyAlert command set and state machine response semantics explicitly; validate interrupt handling in sub-FR derivation."
+      ],
+      "evidence_needed": [
+        "Design-time worst-case path analysis for p95 compliance: document the state machine paths, timing constraints, duty cycle assumptions, and site conditions used to verify p95 ≤ CT_target.",
+        "Teleoperation override command specification: define the set of high-level commands (halt, resume, etc.), their routing through SafetyAlert, and the state machine's response semantics for each command.",
+        "State machine parameterization design (if multi-vehicle support is required): specify the strategy or template pattern used to parameterize state machine variants and confirm all variants remain within Vehicle ownership.",
+        "Telemetry export specification: define the granularity of state transition events and timing metrics exported (e.g., state entry/exit timestamps, transition durations, p95 percentile estimates) and confirm sufficiency for external p95 validation.",
+        "SafetyAlert interrupt handling specification: document the SafetyAlert command set, state machine input mapping, and response semantics for each command (e.g., halt → idle, resume → resume from idle to previous operational state).",
+        "Validation test plan for sub-FRs: define test cases for state transitions, SafetyAlert interrupt handling, Teleoperation override commands, and Telemetry export to verify sub-FR compliance and integration."
+      ]
+    }
+  }
+}

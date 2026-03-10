@@ -1,0 +1,167 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current equipment state, environmental conditions, and operational events with a p95 latency not exceeding the customer-defined target (baseline 1.0 s) across all supported update scenarios.",
+    "rationale": "CR-NGHE-007 requires clarification of scope (what constitutes 'worksite model'), measurement basis (p95 latency across which scenarios), and customer-specific acceptance criteria. The refined FR explicitly bounds the latency requirement to a statistical percentile and acknowledges customer tailoring, critical for high-safety-criticality systems where deterministic guarantees matter.",
+    "verification_idea": "Instrument worksite model update pipeline with end-to-end latency telemetry; measure p95 latency across representative scenarios (equipment state change, sensor event, tele-operator command, safety alert); compare against customer acceptance criteria; validate under nominal and degraded network conditions.",
+    "sub_frs": [
+      "FR-NGHE-007.1: Capture and transmit equipment state changes (position, orientation, operational mode) with minimal local processing latency.",
+      "FR-NGHE-007.2: Receive and integrate transmitted state updates into the worksite model with bounded processing and storage latency.",
+      "FR-NGHE-007.3: Distribute updated worksite model to authorized consumers (Site Manager, Tele-operator, Safety Services) within latency budget.",
+      "FR-NGHE-007.4: Prioritize safety-critical updates (SafetyAlert events) to meet stricter latency targets than routine telemetry."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized worksite model server with synchronous update-on-change protocol; all state changes pushed to central repository; clients poll or subscribe for updates.",
+      "DP-B: Distributed edge-cached worksite model with eventual consistency; equipment publishes state to local edge node; edge node propagates to central and to subscribers with bounded propagation delay.",
+      "DP-C: Hybrid hierarchical model: safety-critical updates routed through Safety Services with priority queuing; routine telemetry through standard Telemetry interface with best-effort latency.",
+      "DP-D: Real-time publish-subscribe middleware (e.g., DDS, MQTT with QoS) with topic-based filtering and latency-aware scheduling; equipment publishes to topics; worksite model subscribers receive with guaranteed delivery and bounded latency for priority topics."
+    ],
+    "selected_dp": "DP-C: Hybrid hierarchical model with safety-critical prioritization through Safety Services and routine telemetry via Telemetry interface, combined with real-time middleware (DP-D characteristics) to enforce latency SLAs.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between safety-critical path (SafetyAlert) and routine telemetry path (Telemetry) if not cleanly separated at interface level; risk of congestion on shared network link.",
+        "Coupling between worksite model update logic and consumer-specific formatting; mitigated by standardized model schema and interface contracts.",
+        "Coupling between latency SLA enforcement and network reliability; requires explicit fallback and retry logic."
+      ],
+      "notes": "DP-C decouples safety-critical and routine updates via distinct interfaces (SafetyAlert vs. Telemetry), reducing coupling. Real-time middleware (DP-D) provides scheduling isolation. Residual coupling is acceptable if interface contracts are enforced and network link capacity is provisioned for peak load."
+    },
+    "assumptions_risks": [
+      "Assumption: Network link (Network Link interface) has sufficient bandwidth and latency characteristics to support p95 ≤ 1.0 s end-to-end; risk if network is congested or unreliable.",
+      "Assumption: Safety Services module can process and forward SafetyAlert updates within sub-100 ms; risk if Safety Services is overloaded.",
+      "Assumption: Worksite model schema is stable and versioned; risk of incompatibility if schema evolves without coordination.",
+      "Assumption: Tele-operator and Site Manager clients can tolerate occasional updates arriving out-of-order if latency is met; risk if strict ordering is required.",
+      "Risk: Hybrid routing (safety vs. routine) adds complexity; potential for logic errors in prioritization or fallback."
+    ],
+    "recommended_revision": "Refine DP-C to explicitly specify: (1) SafetyAlert updates bypass routine telemetry queue and use dedicated priority channel; (2) Telemetry updates are batched and sent at configurable intervals (e.g., 100 ms) to amortize latency; (3) fallback mechanism if Safety Services is unavailable (e.g., direct routing to Telemetry interface); (4) latency budget allocation: equipment capture (50 ms), network transit (300 ms), Safety Services processing (100 ms), model update (200 ms), distribution (350 ms) = 1000 ms p95."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Teleoperation module owns the worksite model update pipeline, including reception of state updates via Telemetry and SafetyAlert interfaces, integration into the worksite model, and distribution to authorized consumers (Site Manager, Tele-operator). Teleoperation acts as the central hub for model consistency and latency enforcement."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Equipment and Vehicle publish state changes (position, orientation, operational mode, sensor readings) to Teleoperation via Telemetry interface; Teleoperation receives and queues updates for integration."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "in",
+        "details": "Safety Services publishes safety-critical events (e.g., collision risk, operator override, emergency stop) to Teleoperation via SafetyAlert interface; Teleoperation prioritizes these updates and integrates them into worksite model with strict latency enforcement."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Teleoperation distributes updated worksite model snapshots or deltas to Tele-operator and Site Manager via Tasking interface (or a derived model-update interface); enables real-time situational awareness."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Teleoperation relies on Network Link for all inter-module communication (Telemetry, SafetyAlert, Tasking); latency budget is constrained by network characteristics."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.95,
+        "diffusion_score": 0.05,
+        "notes": "Teleoperation is the natural owner of worksite model update logic, as it already manages tele-operation state and situational awareness. Containment is high because model updates are core to tele-operation functionality. Diffusion risk is low (5%) due to potential need for Safety Services to validate safety-critical updates before integration, but this can be handled via interface contract."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.7,
+        "diffusion_score": 0.3,
+        "notes": "Safety Services could own safety-critical update path (SafetyAlert), but routine telemetry integration would be diffused to Teleoperation, creating split ownership and coordination overhead. Containment is moderate because Safety Services is responsible for safety validation, not model consistency."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Vehicle module is a data source (publishes Telemetry), not a consumer or integrator of worksite model updates. Assigning model update logic to Vehicle would create high diffusion (model logic scattered across Vehicle and Teleoperation) and violate separation of concerns."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.6,
+        "diffusion_score": 0.4,
+        "notes": "NGHE Solution is the system-level container, but assigning worksite model update logic here would bypass Teleoperation's role and create diffusion across multiple modules. Containment is moderate only if NGHE Solution is treated as a logical orchestrator; in practice, Teleoperation is the appropriate owner."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "Teleoperation module is the optimal owner of worksite model update logic because: (1) it already manages tele-operation state and situational awareness; (2) it is the natural consumer of Telemetry and SafetyAlert inputs; (3) it is the primary distributor of model updates to Tele-operator and Site Manager; (4) containment score is 0.95, indicating minimal diffusion risk.",
+    "containment_risks": [
+      "Risk: If Safety Services requires deep inspection of worksite model state to validate safety-critical updates, Teleoperation and Safety Services may become tightly coupled; mitigation: define clear interface contract for SafetyAlert validation (e.g., Safety Services validates event, Teleoperation integrates).",
+      "Risk: If Vehicle module needs to subscribe to worksite model updates for local decision-making (e.g., autonomous collision avoidance), Teleoperation becomes a bottleneck; mitigation: allow Vehicle to subscribe to Telemetry or SafetyAlert directly, with Teleoperation as optional consumer.",
+      "Risk: If multiple tele-operation sessions or Site Managers require independent worksite model views, Teleoperation may need to replicate model state; mitigation: design Teleoperation to support multi-consumer distribution via Tasking interface."
+    ],
+    "recommended_revision": "Confirm that Teleoperation module has capacity and design to handle worksite model update logic without degrading tele-operation responsiveness. Define explicit interface contracts: (1) Telemetry interface specifies update frequency, schema, and latency SLA; (2) SafetyAlert interface specifies priority, validation requirements, and fallback behavior; (3) Tasking interface specifies model update distribution format and frequency. Consider introducing a dedicated 'Worksite Model Service' sub-module within Teleoperation if model logic becomes complex."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "Selected DP-C (hybrid hierarchical model with safety-critical prioritization) directly addresses the refined FR requirement for p95 ≤ 1.0 s latency by: (1) separating safety-critical and routine update paths to prevent congestion; (2) allocating latency budget across capture, network, processing, and distribution stages; (3) enabling real-time middleware to enforce SLAs. DP-C is feasible, testable, and aligns with high-safety-criticality constraint."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Diffusion risk (5%) if Safety Services validation logic is not cleanly separated from Teleoperation model integration; mitigation: enforce interface contract and unit test boundaries.",
+        "Diffusion risk if Vehicle module needs to subscribe to worksite model updates; mitigation: allow Vehicle to consume Telemetry or SafetyAlert directly without requiring Teleoperation as intermediary.",
+        "Diffusion risk if Site Manager or Tele-operator clients implement custom model update logic; mitigation: provide standardized Tasking interface and model schema."
+      ],
+      "containment_notes": "Teleoperation module (containment score 0.95) is the appropriate owner of worksite model update logic. External interfaces (Telemetry, SafetyAlert, Tasking, Network Link) are all known and available. No new modules or interfaces need to be invented. Ownership is clear and diffusion is minimal."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible via instrumentation of Teleoperation module to measure end-to-end latency from Telemetry/SafetyAlert input to Tasking output. Test scenarios can be defined for routine telemetry, safety-critical updates, and mixed workloads. Acceptance criteria (p95 ≤ 1.0 s) can be validated in lab and field environments.",
+      "allocation_clarity": "Allocation is clear: Teleoperation owns worksite model update logic and is responsible for meeting p95 ≤ 1.0 s latency. Sub-FRs (FR-NGHE-007.1 through 007.4) can be allocated to Vehicle (capture), Network Link (transit), Safety Services (validation), and Teleoperation (integration and distribution). Latency budget is explicit and traceable."
+    },
+    "recommended_revisions": [
+      "Refine DP-C to include explicit latency budget allocation and fallback mechanisms for Safety Services unavailability.",
+      "Define interface contracts for Telemetry, SafetyAlert, and Tasking to specify schema, frequency, and latency SLAs.",
+      "Confirm Teleoperation module capacity and design to support worksite model update logic without degrading tele-operation responsiveness.",
+      "Plan for verification strategy: instrumentation, test scenarios, acceptance criteria, and field validation."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The refined FR-NGHE-007 is decomposable into four sub-FRs (capture, reception, integration, distribution) that require further design detail. DP-C is sound and feasible, but implementation details (latency budget allocation, fallback logic, interface contracts) need to be refined at the next level. Teleoperation is the clear owner (IM), but sub-module design and interface specifications require decomposition. Proceeding to next level will clarify implementation risks and enable detailed design.",
+    "next_level_sub_frs": [
+      "FR-NGHE-007.1: Capture and transmit equipment state changes (position, orientation, operational mode) with minimal local processing latency (target: ≤ 50 ms).",
+      "FR-NGHE-007.2: Receive and integrate transmitted state updates into the worksite model with bounded processing and storage latency (target: ≤ 200 ms).",
+      "FR-NGHE-007.3: Distribute updated worksite model to authorized consumers (Site Manager, Tele-operator, Safety Services) within latency budget (target: ≤ 350 ms).",
+      "FR-NGHE-007.4: Prioritize safety-critical updates (SafetyAlert events) to meet stricter latency targets than routine telemetry (target: ≤ 500 ms end-to-end)."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "DP-C requires refinement to specify: (1) explicit latency budget allocation across stages; (2) priority queuing and scheduling logic for SafetyAlert vs. Telemetry; (3) fallback mechanism if Safety Services is unavailable; (4) batching strategy for routine telemetry to amortize latency. These details will inform sub-module design and interface specifications."
+    },
+    "record": {
+      "assumptions": [
+        "Network Link has sufficient bandwidth and latency characteristics to support p95 ≤ 1.0 s end-to-end.",
+        "Safety Services can process and forward SafetyAlert updates within sub-100 ms.",
+        "Worksite model schema is stable and versioned.",
+        "Tele-operator and Site Manager clients can tolerate occasional updates arriving out-of-order if latency is met.",
+        "Teleoperation module has capacity to handle worksite model update logic without degrading tele-operation responsiveness."
+      ],
+      "open_risks": [
+        "Network congestion or unreliability could violate latency SLA; requires network provisioning and monitoring.",
+        "Safety Services overload could delay SafetyAlert processing; requires capacity planning and fallback logic.",
+        "Hybrid routing (safety vs. routine) adds complexity; potential for logic errors in prioritization or fallback.",
+        "Worksite model schema evolution could cause incompatibility; requires versioning and migration strategy.",
+        "Teleoperation module may become a bottleneck if multiple consumers require independent model views; requires scalability design."
+      ],
+      "evidence_needed": [
+        "Network latency and bandwidth measurements under nominal and degraded conditions.",
+        "Safety Services processing latency and capacity specifications.",
+        "Worksite model schema definition and versioning strategy.",
+        "Teleoperation module design and capacity analysis.",
+        "Latency budget allocation and validation plan.",
+        "Interface contract specifications for Telemetry, SafetyAlert, and Tasking.",
+        "Test scenarios and acceptance criteria for p95 ≤ 1.0 s latency."
+      ]
+    }
+  }
+}

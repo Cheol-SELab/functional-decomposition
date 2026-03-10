@@ -1,0 +1,164 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current equipment state, environmental conditions, and operational events with a p95 latency not exceeding the customer-defined target (baseline 1.0 s) across all supported update scenarios.",
+    "rationale": "CR-NGHE-007 requires clarification of scope (what constitutes 'worksite model'), measurement basis (p95 latency metric), and boundary conditions (supported scenarios). High safety criticality demands explicit traceability to safety-critical update types (e.g., collision alerts, position corrections). Refined FR anchors to measurable acceptance criterion and acknowledges customer tailoring.",
+    "verification_idea": "Instrument telemetry pipeline and worksite model ingestion with end-to-end latency probes. Measure p95 latency across representative scenarios: equipment position updates, sensor fusion events, safety alerts, and multi-vehicle coordination. Validate against customer-negotiated target in operational environment.",
+    "sub_frs": [
+      "FR-007.1: Acquire equipment telemetry (position, orientation, sensor data) at source with minimal capture latency.",
+      "FR-007.2: Transmit telemetry over network link with bounded transport latency.",
+      "FR-007.3: Ingest and fuse telemetry into worksite model representation.",
+      "FR-007.4: Distribute updated worksite model to authorized consumers (operator, tele-operator, safety services) within latency budget.",
+      "FR-007.5: Prioritize safety-critical updates (collision risk, emergency stop) to meet stricter latency bounds."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized worksite model server with real-time telemetry ingestion pipeline; all updates flow through single model instance with publish-subscribe distribution.",
+      "DP-B: Distributed edge-local model replicas synchronized via eventual-consistency protocol; each consumer maintains local model with asynchronous updates.",
+      "DP-C: Hybrid tiered model: safety-critical updates routed through low-latency deterministic path; non-critical updates via eventual-consistency background sync.",
+      "DP-D: Hardware-accelerated telemetry processing (FPGA/GPU) for fusion and model update; software orchestration layer manages distribution."
+    ],
+    "selected_dp": "DP-C: Hybrid tiered model with safety-critical fast-path and eventual-consistency background sync. Safety-critical updates (collision alerts, emergency stop, position corrections) route through deterministic low-latency pipeline with strict p95 bounds. Non-critical updates (equipment diagnostics, productivity metrics) use asynchronous eventual-consistency sync to reduce overall system load and latency variance.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between safety-critical path and background sync: risk of priority inversion if background sync blocks critical updates. Mitigation: separate thread pools and queue priorities.",
+        "Coupling between model schema evolution and consumer subscriptions: schema changes may require coordinated updates across distributed replicas. Mitigation: versioned model schema with backward compatibility.",
+        "Coupling between network link capacity and update frequency: high-frequency telemetry may saturate link. Mitigation: adaptive sampling and compression based on network state."
+      ],
+      "notes": "DP-C decouples latency-critical and throughput-critical concerns, reducing coupling compared to DP-A (single bottleneck) and DP-B (eventual consistency for all updates). Requires careful queue management and priority scheduling to avoid coupling between paths."
+    },
+    "assumptions_risks": [
+      "Assumption: Network link (Telemetry interface) can sustain safety-critical update rate without congestion. Risk: If network is saturated, even prioritized updates may exceed latency target. Mitigation: network capacity planning and adaptive telemetry filtering.",
+      "Assumption: Worksite model schema is stable or versioned. Risk: Schema evolution may require coordinated updates across distributed replicas, introducing latency. Mitigation: schema versioning and gradual rollout.",
+      "Assumption: Safety-critical update types are well-defined and stable. Risk: Misclassification of updates as non-critical may violate safety requirements. Mitigation: safety analysis and explicit classification in telemetry protocol.",
+      "Assumption: Consumer applications can tolerate eventual consistency for non-critical updates. Risk: Stale data may degrade operator situational awareness. Mitigation: explicit staleness bounds and UI indicators.",
+      "Assumption: Deterministic low-latency path is feasible within hardware/OS constraints. Risk: Real-time guarantees may not be achievable on commodity hardware. Mitigation: real-time OS or hardware acceleration for critical path."
+    ],
+    "recommended_revision": "Refine DP-C to explicitly specify: (1) classification criteria for safety-critical vs. non-critical updates; (2) latency budget allocation across acquisition, transport, ingestion, and distribution; (3) queue management and priority scheduling strategy; (4) network link capacity and adaptive telemetry filtering rules; (5) eventual-consistency staleness bounds for non-critical updates."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "End-to-end worksite model update pipeline: telemetry acquisition from Vehicle, transport over Network Link, ingestion and fusion in central model service, and distribution to Teleoperation and Safety Services consumers. Includes both safety-critical fast-path and eventual-consistency background sync."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Inbound telemetry stream from Vehicle (equipment position, orientation, sensor data, state). Safety-critical updates tagged with priority. Supports adaptive sampling and compression."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Bidirectional network transport for telemetry ingress and model distribution egress. Capacity-constrained; supports QoS prioritization for safety-critical updates."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Outbound tasking commands to Vehicle based on updated worksite model (e.g., collision avoidance, path corrections). Latency-sensitive for safety-critical scenarios."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Outbound safety alerts to Safety Services based on model updates (e.g., collision risk, emergency stop). Must meet strict latency bounds."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "Worksite model update is a core NGHE Solution responsibility. Telemetry ingestion, model fusion, and distribution are naturally contained within the solution boundary. Minimal diffusion: only external interfaces are Telemetry (in), Network Link (inout), Tasking (out), SafetyAlert (out)."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Vehicle is a source of telemetry, not the owner of worksite model update logic. Assigning to Vehicle would scatter model ingestion and fusion logic across vehicle firmware, creating high diffusion and coupling."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 15,
+        "diffusion_score": 85,
+        "notes": "Teleoperation is a consumer of the updated worksite model, not the owner. Assigning to Teleoperation would couple model update logic to tele-operator UI, creating high diffusion and tight coupling."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 25,
+        "diffusion_score": 75,
+        "notes": "Safety Services consumes safety-critical updates but does not own the worksite model update pipeline. Assigning to Safety Services would scatter telemetry ingestion and model fusion logic, creating high diffusion."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "Worksite model update pipeline (telemetry ingestion, fusion, distribution) is a core NGHE Solution responsibility. The pipeline integrates data from Vehicle, transports via Network Link, and distributes to Teleoperation and Safety Services. Containment within NGHE Solution minimizes diffusion and maintains clear ownership of latency-critical logic.",
+    "containment_risks": [
+      "Risk: NGHE Solution module boundary may be too coarse-grained, hiding internal architectural complexity (e.g., separate fast-path and background-sync services). Mitigation: decompose NGHE Solution into sub-modules (e.g., Telemetry Ingestion Service, Model Fusion Service, Distribution Service) at next decomposition level.",
+      "Risk: Network Link capacity constraints may force trade-offs between telemetry frequency and latency. Mitigation: explicit network capacity planning and adaptive telemetry filtering rules in DP.",
+      "Risk: Eventual-consistency background sync may introduce unbounded staleness for non-critical updates. Mitigation: explicit staleness bounds and monitoring in implementation."
+    ],
+    "recommended_revision": "Confirm NGHE Solution as IM boundary. At next decomposition level, refine internal architecture: (1) Telemetry Ingestion Service (acquires and buffers telemetry); (2) Model Fusion Service (fuses telemetry into worksite model); (3) Distribution Service (publishes updates to consumers); (4) Priority Queue Manager (routes safety-critical updates via fast-path). Each sub-module should have explicit latency budget and interface contracts."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid tiered model) directly addresses FR-007 latency requirement by separating safety-critical fast-path (strict p95 bounds) from eventual-consistency background sync (relaxed bounds). DP-C is traceable to refined FR sub-FRs (FR-007.1 through FR-007.5) and supports customer-defined latency targets. No independence violations detected: safety-critical and non-critical update paths are decoupled."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Risk: DP-C requires coordination between fast-path and background-sync services. If these services are distributed across multiple IM boundaries (e.g., Vehicle, Teleoperation, Safety Services), diffusion will be high. Mitigation: contain both paths within NGHE Solution IM boundary.",
+        "Risk: Network Link capacity constraints may force adaptive telemetry filtering, which couples DP-C to network state. Mitigation: explicit network capacity planning and adaptive filtering rules in NGHE Solution."
+      ],
+      "containment_notes": "NGHE Solution IM boundary contains the full DP-C implementation: telemetry ingestion, model fusion, priority queue management, and distribution. External interfaces (Telemetry, Network Link, Tasking, SafetyAlert) are well-defined and minimal. Containment score 95 indicates strong fit."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Latency verification is feasible via instrumentation of telemetry pipeline (end-to-end latency probes at acquisition, transport, ingestion, and distribution stages). p95 latency can be measured in operational environment against customer-defined target. Safety-critical update classification enables separate verification of fast-path latency bounds.",
+      "allocation_clarity": "FR-007 is allocated to NGHE Solution IM boundary with clear ownership. Sub-FRs (FR-007.1 through FR-007.5) can be further allocated to internal sub-modules (Telemetry Ingestion, Model Fusion, Distribution) at next decomposition level. Latency budget allocation across stages is explicit in DP-C."
+    },
+    "recommended_revisions": [
+      "Refine DP-C to specify latency budget allocation: e.g., telemetry acquisition ≤ 100 ms, network transport ≤ 300 ms, model ingestion ≤ 400 ms, distribution ≤ 200 ms (total p95 ≤ 1.0 s). Validate budget against hardware/network constraints.",
+      "Define safety-critical update classification criteria in DP-C: e.g., collision alerts, emergency stop, position corrections are safety-critical; diagnostics, productivity metrics are non-critical.",
+      "Specify network link capacity planning and adaptive telemetry filtering rules in DP-C to handle congestion scenarios.",
+      "At next decomposition level, decompose NGHE Solution into sub-modules with explicit latency contracts and interface specifications."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-007 is not atomic and requires further decomposition. Refined FR identifies five sub-FRs (FR-007.1 through FR-007.5) that address distinct stages of the worksite model update pipeline: telemetry acquisition, transport, ingestion, distribution, and safety-critical prioritization. DP-C (hybrid tiered model) is sound and traceable to FR-007, but implementation requires decomposition of NGHE Solution into sub-modules with explicit latency budgets and interface contracts. Proceed to next decomposition level to refine sub-FRs and allocate to internal sub-modules.",
+    "next_level_sub_frs": [
+      "FR-007.1: Acquire equipment telemetry (position, orientation, sensor data) at source with minimal capture latency (target ≤ 100 ms p95).",
+      "FR-007.2: Transmit telemetry over network link with bounded transport latency (target ≤ 300 ms p95) and adaptive filtering under congestion.",
+      "FR-007.3: Ingest and fuse telemetry into worksite model representation with minimal processing latency (target ≤ 400 ms p95).",
+      "FR-007.4: Distribute updated worksite model to authorized consumers (operator, tele-operator, safety services) within latency budget (target ≤ 200 ms p95).",
+      "FR-007.5: Prioritize safety-critical updates (collision risk, emergency stop) to meet stricter latency bounds (target ≤ 500 ms p95 for safety-critical path)."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Network link (Telemetry interface) can sustain safety-critical update rate without congestion.",
+        "Worksite model schema is stable or versioned to support distributed replicas.",
+        "Safety-critical update types are well-defined and stable.",
+        "Consumer applications can tolerate eventual consistency for non-critical updates.",
+        "Deterministic low-latency path is feasible within hardware/OS constraints (real-time OS or hardware acceleration).",
+        "Customer-defined latency target is achievable within system constraints (network capacity, processing power, hardware capabilities)."
+      ],
+      "open_risks": [
+        "Network link capacity may be insufficient to sustain telemetry frequency required for p95 latency target. Mitigation: network capacity planning and adaptive telemetry filtering.",
+        "Real-time guarantees for safety-critical fast-path may not be achievable on commodity hardware. Mitigation: real-time OS or hardware acceleration.",
+        "Schema evolution may introduce latency spikes in distributed model replicas. Mitigation: schema versioning and gradual rollout.",
+        "Eventual-consistency background sync may introduce unbounded staleness for non-critical updates. Mitigation: explicit staleness bounds and monitoring.",
+        "Safety-critical update misclassification may violate safety requirements. Mitigation: safety analysis and explicit classification in telemetry protocol."
+      ],
+      "evidence_needed": [
+        "Network capacity analysis: sustained telemetry rate (messages/sec) and link bandwidth (Mbps) required to meet latency target.",
+        "Hardware/OS capability assessment: real-time scheduling, interrupt latency, and processing power available for fast-path.",
+        "Safety analysis: classification of safety-critical vs. non-critical updates and latency bounds for each category.",
+        "Prototype or simulation: end-to-end latency measurement across acquisition, transport, ingestion, and distribution stages.",
+        "Customer negotiation: confirmation of latency target (baseline 1.0 s p95) and supported update scenarios."
+      ]
+    }
+  }
+}

@@ -1,0 +1,165 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall achieve end-to-end teleoperation communication latency with p95 ≤ 150 ms under agreed network conditions to enable safe and effective remote equipment operation.",
+    "rationale": "The original FR is outcome-focused but lacks specificity on measurement points, network conditions, and safety context. Refinement clarifies that latency is measured end-to-end (sensor-to-actuator), establishes the statistical percentile (p95) as the acceptance criterion, and anchors the requirement to safety-critical remote operation. This prevents ambiguity in what 'compatible with safe remote operation' means.",
+    "verification_idea": "Measure round-trip latency from operator input (tele-operator console) through network to equipment response (vehicle actuator movement) under representative network conditions (bandwidth, jitter, packet loss). Collect 1000+ samples across operational scenarios and verify p95 ≤ 150 ms. Validate against safety analysis to confirm latency margin is adequate for operator reaction time and fail-safe behavior.",
+    "sub_frs": [
+      "FR-NGHE-008.1: The teleoperation system shall acquire sensor data (position, orientation, video, diagnostics) from the vehicle and transmit to the tele-operator console with latency ≤ 75 ms (p95).",
+      "FR-NGHE-008.2: The teleoperation system shall receive operator commands from the tele-operator console and transmit to the vehicle with latency ≤ 75 ms (p95).",
+      "FR-NGHE-008.3: The teleoperation system shall implement network-agnostic buffering and jitter compensation to maintain latency bounds across variable network conditions.",
+      "FR-NGHE-008.4: The teleoperation system shall detect and report latency violations or network degradation to the safety services for operator alerting and fail-safe action."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Implement a dedicated low-latency teleoperation stack with edge computing (local gateway at site) to minimize network hops; use UDP-based protocol with adaptive bitrate encoding and predictive buffering.",
+      "DP-B: Deploy a cloud-based teleoperation service with global content delivery network (CDN) and edge nodes; use TCP with aggressive timeout tuning and client-side latency prediction.",
+      "DP-C: Hybrid architecture: local edge gateway (DP-A) for primary teleoperation path; cloud service (DP-B) as fallback and for non-latency-critical telemetry; implement automatic failover logic.",
+      "DP-D: Implement a mesh network topology with vehicle-to-vehicle relay capability to reduce dependency on centralized infrastructure; use custom protocol optimized for low-latency mesh routing."
+    ],
+    "selected_dp": "DP-C: Hybrid architecture with local edge gateway for primary teleoperation (UDP-based, adaptive encoding, predictive buffering) and cloud fallback for resilience; automatic failover triggered by latency threshold breach or network unavailability.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "DP-C couples teleoperation latency to network infrastructure availability (site gateway deployment) and to safety services (failover decision logic). These are acceptable couplings because: (1) site gateway is a standard deployment assumption for NGHE; (2) safety services must be aware of teleoperation mode transitions for operator alerting.",
+        "DP-C does not couple to vehicle mechanical design, operator training, or worksite layout—these remain independent.",
+        "Potential weak coupling: failover logic must coordinate with Safety Services to ensure operator is notified before mode switch; this is managed via SafetyAlert interface."
+      ],
+      "notes": "DP-C is preferred over DP-A (local-only) because it provides resilience; preferred over DP-B (cloud-only) because it meets latency requirement without relying on external network conditions; preferred over DP-D (mesh) because mesh adds complexity and vehicle-to-vehicle relay is not a stated requirement. DP-C balances latency, reliability, and architectural simplicity."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Site gateway (edge compute node) is deployed at each worksite with sufficient compute capacity and local network connectivity to vehicle.",
+      "ASSUMPTION: Network conditions between site gateway and tele-operator console are characterized (bandwidth, jitter, packet loss) and meet minimum thresholds for cloud fallback.",
+      "RISK: If site gateway is unavailable or misconfigured, system falls back to cloud path, which may exceed 150 ms latency under poor network conditions. Mitigation: implement latency monitoring and operator alerting; define fallback operational procedures (e.g., reduced autonomy mode).",
+      "RISK: Failover logic introduces state management complexity; incorrect failover timing could cause operator confusion or safety hazard. Mitigation: implement deterministic failover criteria (e.g., 3 consecutive latency violations > 150 ms) and explicit operator notification.",
+      "RISK: Adaptive bitrate encoding may introduce additional latency if video codec selection is not optimized. Mitigation: pre-tune codec parameters for target latency budget; validate in integration testing."
+    ],
+    "recommended_revision": "Refine DP-C to explicitly specify: (1) latency budget allocation (75 ms local path, 75 ms cloud fallback); (2) failover trigger criteria (e.g., p95 latency > 150 ms for 10 seconds); (3) operator notification mechanism (visual/audio alert via SafetyAlert interface); (4) fallback operational mode (e.g., reduced speed, operator confirmation required for critical actions)."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Encapsulates all teleoperation-specific logic: sensor data acquisition and transmission (uplink), operator command reception and transmission (downlink), network protocol handling (UDP/TCP switching), adaptive encoding/decoding, jitter buffering, latency monitoring, and failover decision logic. Includes both edge gateway (local) and cloud service (fallback) components. Does NOT include vehicle actuator control (owned by Vehicle module) or safety alerting (owned by Safety Services module)."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Teleoperation module receives sensor data (vehicle position, orientation, video feed, diagnostics, operational state) from Vehicle module. Latency budget: ≤ 10 ms from sensor to Teleoperation input."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Teleoperation module transmits operator commands (movement, tool control, mode changes) to Vehicle module. Latency budget: ≤ 10 ms from Teleoperation output to vehicle actuator input."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Teleoperation module reports latency violations, network degradation, and failover events to Safety Services module. Enables operator alerting and fail-safe action (e.g., reduced autonomy, emergency stop)."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Teleoperation module uses Network Link to communicate with tele-operator console and site gateway. Includes both primary (local UDP) and fallback (cloud TCP) paths. Network Link abstracts underlying infrastructure (WiFi, cellular, satellite)."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "Teleoperation module is the natural owner of all latency-critical teleoperation logic. Containment is high because: (1) all uplink/downlink protocol handling is localized; (2) adaptive encoding and jitter buffering are teleoperation-specific; (3) failover logic is encapsulated. Diffusion risk (5%) is minimal: only SafetyAlert interface crosses boundary for operator alerting, which is necessary and well-defined."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 15,
+        "diffusion_score": 85,
+        "notes": "Vehicle module should NOT own teleoperation latency logic. While Vehicle owns sensor acquisition and actuator control, the teleoperation protocol, encoding, buffering, and failover logic are not vehicle-specific and would be duplicated across multiple vehicle types. Assigning to Vehicle would create high diffusion (85%) because teleoperation logic would leak into vehicle firmware, making it difficult to update or reuse across platforms."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Safety Services should NOT own teleoperation latency logic. Safety Services owns operator alerting, fail-safe actions, and safety policy enforcement, but not the underlying teleoperation protocol. Assigning latency logic to Safety Services would blur the boundary between safety monitoring (Safety Services responsibility) and teleoperation implementation (Teleoperation responsibility), creating high diffusion."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 10,
+        "diffusion_score": 90,
+        "notes": "NGHE Solution is the top-level system container and should not own detailed teleoperation logic. Assigning to NGHE Solution would prevent proper encapsulation and make the system architecture opaque. This is a system-level module, not an implementation module."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the correct owner of FR-NGHE-008 and its sub-FRs because: (1) it encapsulates all teleoperation-specific design decisions (protocol, encoding, buffering, failover); (2) it minimizes diffusion by centralizing latency-critical logic in one place; (3) it maintains clear interfaces with Vehicle (Telemetry/Tasking) and Safety Services (SafetyAlert); (4) it allows independent evolution of teleoperation technology without affecting vehicle or safety logic.",
+    "containment_risks": [
+      "RISK: Teleoperation module depends on Vehicle module to provide low-latency sensor data (Telemetry interface). If Vehicle module introduces latency (e.g., slow sensor polling), Teleoperation cannot meet p95 ≤ 150 ms. MITIGATION: Define Telemetry interface SLA (≤ 10 ms latency) and validate in integration testing.",
+      "RISK: Teleoperation module depends on Network Link to provide low-latency communication. If network infrastructure is poor (high jitter, packet loss), failover to cloud path may still exceed 150 ms. MITIGATION: Implement latency monitoring and operator alerting; define fallback operational procedures.",
+      "RISK: Failover logic in Teleoperation module must coordinate with Safety Services to ensure operator is notified before mode switch. If coordination is poor, operator may not understand why teleoperation behavior changed. MITIGATION: Define SafetyAlert interface contract clearly; implement deterministic failover criteria; validate in human-in-the-loop testing.",
+      "RISK: Teleoperation module may be implemented as a monolithic service, making it difficult to scale or update. MITIGATION: Design Teleoperation as a modular service with clear internal boundaries (edge gateway, cloud service, protocol handler, encoder, failover logic); use containerization for deployment flexibility."
+    ],
+    "recommended_revision": "Refine IM assignment to specify: (1) Teleoperation module internal structure (edge gateway component, cloud service component, protocol handler, encoder/decoder, jitter buffer, latency monitor, failover controller); (2) Telemetry interface SLA (≤ 10 ms latency from sensor to Teleoperation input); (3) Tasking interface SLA (≤ 10 ms latency from Teleoperation output to actuator); (4) SafetyAlert contract (failover events, latency violations, network degradation); (5) Network Link abstraction (support for multiple transport protocols: UDP, TCP, custom mesh protocol)."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid architecture with local edge gateway and cloud fallback) directly addresses FR-NGHE-008 (teleoperation latency ≤ 150 ms p95). The DP specifies: (1) primary path (local UDP) targets 75 ms latency; (2) fallback path (cloud TCP) targets 75 ms latency; (3) adaptive encoding and jitter buffering reduce latency variance; (4) failover logic ensures system stays within latency budget. DP-C is feasible, testable, and aligns with safety criticality (high). No decoupling issues identified."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Teleoperation module owns all teleoperation-specific logic, minimizing diffusion. However, Teleoperation depends on Vehicle (Telemetry) and Safety Services (SafetyAlert) interfaces. These dependencies are necessary and well-defined, not diffusion risks.",
+        "Potential diffusion: if failover logic is not cleanly separated from protocol handling, it could leak into Vehicle or Safety Services modules. MITIGATION: implement failover logic as a distinct component within Teleoperation module with clear SafetyAlert interface."
+      ],
+      "containment_notes": "Teleoperation module achieves high containment (95%) because all latency-critical logic is localized. The module owns: (1) sensor data uplink (Telemetry input); (2) operator command downlink (Tasking output); (3) network protocol handling (Network Link); (4) adaptive encoding/decoding; (5) jitter buffering; (6) latency monitoring; (7) failover decision logic. External interfaces are minimal and well-defined (Telemetry in, Tasking out, SafetyAlert out, Network Link inout). No logic is duplicated across modules."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "FR-NGHE-008 is verifiable via latency measurement testing. Verification approach: (1) deploy Teleoperation module in test environment with representative network conditions; (2) measure round-trip latency from operator input to vehicle response; (3) collect 1000+ samples across operational scenarios; (4) verify p95 ≤ 150 ms. Verification is feasible because latency is a measurable, objective metric. Acceptance criteria are clear (p95 ≤ 150 ms under agreed network conditions).",
+      "allocation_clarity": "FR-NGHE-008 is clearly allocated to Teleoperation module. Sub-FRs are allocated as follows: FR-NGHE-008.1 (sensor uplink) → Teleoperation module (owns Telemetry input and uplink protocol); FR-NGHE-008.2 (command downlink) → Teleoperation module (owns Tasking output and downlink protocol); FR-NGHE-008.3 (jitter compensation) → Teleoperation module (owns jitter buffer and adaptive encoding); FR-NGHE-008.4 (latency monitoring) → Teleoperation module (owns latency monitor and SafetyAlert interface). Allocation is clear and non-overlapping."
+    },
+    "recommended_revisions": [
+      "Refine Telemetry interface SLA to specify maximum latency from sensor acquisition to Teleoperation module input (recommend ≤ 10 ms). This ensures Vehicle module does not introduce latency that would consume Teleoperation module's latency budget.",
+      "Refine Tasking interface SLA to specify maximum latency from Teleoperation module output to vehicle actuator response (recommend ≤ 10 ms). This ensures Vehicle module does not introduce latency that would consume Teleoperation module's latency budget.",
+      "Refine SafetyAlert interface contract to specify: (1) failover event notification (trigger, timestamp, new mode); (2) latency violation notification (p95 latency, threshold, duration); (3) network degradation notification (packet loss, jitter, bandwidth). This enables Safety Services to implement appropriate operator alerting and fail-safe actions.",
+      "Refine Network Link abstraction to specify: (1) supported transport protocols (UDP, TCP, custom mesh); (2) latency characteristics for each protocol (e.g., UDP ≤ 75 ms, TCP ≤ 75 ms under fallback conditions); (3) failover trigger criteria (e.g., 3 consecutive latency violations > 150 ms). This ensures Teleoperation module can make informed failover decisions."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-NGHE-008 has been refined into four atomic sub-FRs (FR-NGHE-008.1 through FR-NGHE-008.4) that require further decomposition. Each sub-FR addresses a distinct aspect of teleoperation latency: (1) sensor uplink latency; (2) command downlink latency; (3) jitter compensation; (4) latency monitoring and reporting. These sub-FRs are not yet atomic and require design parameter selection and implementation module assignment at the next level. DP-C (hybrid architecture) and IM assignment (Teleoperation module) are sound and ready for next-level decomposition. No revisions to current level are needed.",
+    "next_level_sub_frs": [
+      "FR-NGHE-008.1: The teleoperation system shall acquire sensor data (position, orientation, video, diagnostics) from the vehicle and transmit to the tele-operator console with latency ≤ 75 ms (p95).",
+      "FR-NGHE-008.2: The teleoperation system shall receive operator commands from the tele-operator console and transmit to the vehicle with latency ≤ 75 ms (p95).",
+      "FR-NGHE-008.3: The teleoperation system shall implement network-agnostic buffering and jitter compensation to maintain latency bounds across variable network conditions.",
+      "FR-NGHE-008.4: The teleoperation system shall detect and report latency violations or network degradation to the safety services for operator alerting and fail-safe action."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Site gateway (edge compute node) is deployed at each worksite with sufficient compute capacity and local network connectivity to vehicle.",
+        "Network conditions between site gateway and tele-operator console are characterized and meet minimum thresholds for cloud fallback (e.g., ≥ 1 Mbps bandwidth, ≤ 50 ms latency, ≤ 5% packet loss).",
+        "Vehicle module provides sensor data (Telemetry) with latency ≤ 10 ms from sensor acquisition to Teleoperation module input.",
+        "Vehicle module accepts operator commands (Tasking) with latency ≤ 10 ms from Teleoperation module output to actuator response.",
+        "Safety Services module monitors SafetyAlert interface and implements operator alerting and fail-safe actions (e.g., reduced autonomy, emergency stop) when latency violations or network degradation is reported.",
+        "Tele-operator console is co-located with site gateway or connected via low-latency network (≤ 50 ms round-trip latency).",
+        "Operator reaction time is ≥ 150 ms, so 150 ms system latency is acceptable for safe remote operation (to be validated by safety analysis)."
+      ],
+      "open_risks": [
+        "RISK: Site gateway availability and reliability. If site gateway fails, system falls back to cloud path, which may exceed 150 ms latency. MITIGATION: implement redundant site gateways; define fallback operational procedures.",
+        "RISK: Network conditions may vary significantly across worksites (e.g., remote sites with poor connectivity). Cloud fallback may not meet 150 ms latency in all scenarios. MITIGATION: implement latency monitoring and operator alerting; define fallback operational procedures (e.g., reduced autonomy mode); conduct network characterization at each worksite.",
+        "RISK: Failover logic introduces state management complexity. Incorrect failover timing could cause operator confusion or safety hazard. MITIGATION: implement deterministic failover criteria; validate in human-in-the-loop testing.",
+        "RISK: Adaptive bitrate encoding may introduce additional latency if codec selection is not optimized. MITIGATION: pre-tune codec parameters for target latency budget; validate in integration testing.",
+        "RISK: Teleoperation module depends on Vehicle module to provide low-latency sensor data. If Vehicle module introduces latency, Teleoperation cannot meet p95 ≤ 150 ms. MITIGATION: define Telemetry interface SLA (≤ 10 ms latency); validate in integration testing."
+      ],
+      "evidence_needed": [
+        "Network characterization data for representative worksites (bandwidth, latency, jitter, packet loss).",
+        "Safety analysis confirming that 150 ms system latency is acceptable for safe remote operation (operator reaction time, fail-safe behavior).",
+        "Latency measurement data from prototype or simulation (round-trip latency from operator input to vehicle response under representative network conditions).",
+        "Failover logic validation (deterministic failover criteria, operator notification, fallback operational procedures).",
+        "Integration testing results (Telemetry interface latency, Tasking interface latency, SafetyAlert interface functionality).",
+        "Human-in-the-loop testing results (operator usability, situational awareness, safety during failover events)."
+      ]
+    }
+  }
+}

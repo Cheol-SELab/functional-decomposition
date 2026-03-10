@@ -1,0 +1,161 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation link availability ≥ 0.999 (99.9%) over the agreed evaluation period, measured as the ratio of time the bidirectional command-and-telemetry link is operational to total evaluation time.",
+    "rationale": "CR-NGHE-010 addresses a critical operational requirement: remote equipment control depends on reliable communication. The refined FR quantifies the acceptance criterion (≥0.999 availability), specifies the measurement scope (bidirectional link), and defines the evaluation window. This is essential for safety-critical teleoperation where link loss can lead to equipment immobilization or unsafe states.",
+    "verification_idea": "Continuous monitoring of link state transitions (up/down) during the evaluation period; calculation of cumulative uptime / total period; comparison against 0.999 threshold. Verification requires instrumentation of the communication path and logging of all link state changes.",
+    "sub_frs": [
+      "FR-NGHE-010.1: The teleoperation system shall detect link loss within [X] milliseconds.",
+      "FR-NGHE-010.2: The teleoperation system shall implement redundancy or failover mechanisms to minimize link downtime.",
+      "FR-NGHE-010.3: The teleoperation system shall log and report link availability metrics for post-evaluation analysis.",
+      "FR-NGHE-010.4: The vehicle shall enter a safe state upon link loss and remain safe until link restoration."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Implement dual independent communication channels (primary + backup) with automatic failover; monitor link health continuously; log state transitions.",
+      "DP-B: Implement single high-reliability communication channel with error correction and retransmission; add watchdog timer for link loss detection.",
+      "DP-C: Implement multi-path routing with load balancing across heterogeneous networks (cellular, satellite, mesh); dynamic path selection based on quality metrics.",
+      "DP-D: Implement redundant ground stations and vehicle-side modems with automatic switchover; centralized link state monitoring and failover orchestration."
+    ],
+    "selected_dp": "DP-A: Implement dual independent communication channels (primary + backup) with automatic failover; monitor link health continuously; log state transitions.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between link availability and vehicle safe-state behavior (FR-NGHE-010.4) is managed via SafetyAlert interface and Safety Services module.",
+        "Coupling between teleoperation link and Tasking interface is decoupled by buffering and timeout mechanisms.",
+        "Coupling between redundancy implementation and network infrastructure is managed via Network Link interface abstraction."
+      ],
+      "notes": "DP-A is decoupled from specific network technologies (cellular, satellite, etc.) by abstracting the communication layer. Failover logic is independent of application-level teleoperation commands. Monitoring and logging are orthogonal to command execution."
+    },
+    "assumptions_risks": [
+      "Assumption: Two independent communication channels can be provisioned at the site (e.g., cellular + satellite, or dual cellular carriers).",
+      "Assumption: Automatic failover can be implemented with sub-second latency without introducing command loss or duplication.",
+      "Risk: If both channels fail simultaneously, availability target cannot be met; mitigation requires site-level network redundancy planning.",
+      "Risk: Failover logic complexity may introduce bugs; mitigation requires rigorous testing of all failure modes.",
+      "Risk: Cost of dual channels may exceed customer budget; mitigation requires trade-study with DP-B (single high-reliability channel)."
+    ],
+    "recommended_revision": "Clarify with customer whether dual channels must be geographically diverse (e.g., different network providers) or can be co-located (e.g., dual modems on same carrier). This affects cost and achievable availability."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "The Teleoperation module owns the implementation of dual communication channels, failover logic, link health monitoring, and state logging. It interfaces with the Vehicle module for safe-state commands and with external network infrastructure via the Network Link interface."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives operator commands (movement, tool control, etc.) from the tele-operator; Teleoperation module buffers and queues commands, discarding stale commands if link is down."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Transmits vehicle state (position, sensor readings, link status) back to the tele-operator; Teleoperation module aggregates telemetry from Vehicle module and encodes for transmission."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "Receives safety-critical alerts from Safety Services (e.g., imminent collision); transmits link-loss alerts to Safety Services to trigger safe-state behavior on Vehicle."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Abstracts the underlying communication channels (primary and backup); Teleoperation module manages failover between channels and monitors link quality metrics."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.95,
+        "diffusion_score": 0.05,
+        "notes": "Teleoperation module is the natural owner of dual-channel failover logic, link monitoring, and state logging. All DP-A components (redundancy, failover, monitoring) are cohesive and belong in this module. Minor diffusion: link-loss safe-state behavior is owned by Vehicle/Safety Services, not Teleoperation."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.15,
+        "diffusion_score": 0.85,
+        "notes": "Vehicle module owns the vehicle hardware and safe-state logic, but does not own the communication infrastructure or failover orchestration. Assigning DP-A to Vehicle would scatter communication logic across modules and violate separation of concerns."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Safety Services owns safety-critical decision logic (e.g., when to trigger safe state), but does not own communication channels or failover mechanisms. Assigning DP-A to Safety Services would conflate safety policy with communication infrastructure."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.1,
+        "diffusion_score": 0.9,
+        "notes": "NGHE Solution is the top-level system container; assigning DP-A here would bypass the Teleoperation module and prevent proper encapsulation of communication logic."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the optimal owner of DP-A because it encapsulates all communication-related logic (dual channels, failover, monitoring, logging) and provides clean interfaces to Vehicle and Safety Services via SafetyAlert and Tasking/Telemetry. This minimizes diffusion and maximizes cohesion.",
+    "containment_risks": [
+      "Risk: If Vehicle module is responsible for link-loss safe-state behavior, there is a dependency between Teleoperation (link detection) and Vehicle (safe-state execution). This is managed via the SafetyAlert interface, but timing and sequencing must be carefully validated.",
+      "Risk: If network infrastructure is not abstracted via the Network Link interface, Teleoperation module may become tightly coupled to specific carrier/technology choices, reducing portability.",
+      "Risk: Dual-channel failover logic may require real-time guarantees (sub-second switchover) that conflict with software-only implementation; mitigation requires hardware-assisted failover or careful latency budgeting."
+    ],
+    "recommended_revision": "Ensure that the Network Link interface is defined with clear semantics for channel selection, quality metrics, and failover triggers. This will allow Teleoperation module to remain agnostic to the underlying network technology and support future migration to different carriers or technologies."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-A (dual channels + failover + monitoring) directly addresses FR-NGHE-010 (achieve ≥0.999 availability). The DP is specific enough to guide implementation (dual channels, failover logic, monitoring) and general enough to allow technology choices (cellular, satellite, etc.). No coupling or contradiction detected."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Minor diffusion: Vehicle module owns safe-state behavior triggered by link loss; Teleoperation module owns link detection. This is acceptable because the SafetyAlert interface provides a clean handoff, but integration testing is required to validate timing and sequencing.",
+        "Minor diffusion: Network Link interface abstracts the underlying communication channels; Teleoperation module depends on this abstraction. If the abstraction is incomplete or leaky, Teleoperation may become coupled to specific network technologies."
+      ],
+      "containment_notes": "Teleoperation module achieves 0.95 containment score for DP-A. All dual-channel, failover, and monitoring logic is cohesive and belongs in this module. The 0.05 diffusion is acceptable and managed via well-defined interfaces (SafetyAlert, Network Link)."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "FR-NGHE-010 is verifiable via continuous monitoring of link state transitions and calculation of availability metrics. Teleoperation module can instrument the dual channels and log all state changes. Verification requires a test environment with simulated link failures and a measurement period of sufficient duration (e.g., 30 days) to achieve statistical confidence in the 0.999 target.",
+      "allocation_clarity": "FR-NGHE-010 is clearly allocated to the Teleoperation module. Sub-FRs (link loss detection, failover, safe-state behavior, logging) are allocated to Teleoperation and Vehicle/Safety Services as appropriate. Interfaces (Tasking, Telemetry, SafetyAlert, Network Link) are clearly defined."
+    },
+    "recommended_revisions": [
+      "Refine the Network Link interface specification to include channel selection semantics, quality metrics (signal strength, latency, packet loss), and failover trigger thresholds.",
+      "Define the SafetyAlert interface protocol for link-loss notifications, including timing requirements (e.g., Vehicle must enter safe state within X ms of link loss detection).",
+      "Specify the logging format and retention policy for link availability metrics to support post-evaluation analysis and root-cause analysis of any availability shortfalls."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-NGHE-010 is not atomic; it decomposes into four sub-FRs (link loss detection, failover, safe-state behavior, logging). Each sub-FR requires further refinement and DP selection. The selected DP-A is sound and well-allocated to the Teleoperation module, but implementation details (failover latency, channel selection logic, monitoring thresholds) must be driven by the sub-FRs. Proceeding to the next decomposition level is necessary to guide detailed design and implementation.",
+    "next_level_sub_frs": [
+      "FR-NGHE-010.1: The teleoperation system shall detect link loss within [X] milliseconds.",
+      "FR-NGHE-010.2: The teleoperation system shall implement redundancy or failover mechanisms to minimize link downtime.",
+      "FR-NGHE-010.3: The teleoperation system shall log and report link availability metrics for post-evaluation analysis.",
+      "FR-NGHE-010.4: The vehicle shall enter a safe state upon link loss and remain safe until link restoration."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Two independent communication channels can be provisioned at the site.",
+        "Automatic failover can be implemented with sub-second latency.",
+        "Network Link interface provides sufficient abstraction to support multiple carrier/technology choices.",
+        "Vehicle module can implement safe-state behavior triggered by SafetyAlert from Teleoperation module.",
+        "Evaluation period is of sufficient duration (e.g., 30 days) to achieve statistical confidence in availability metrics."
+      ],
+      "open_risks": [
+        "Simultaneous failure of both communication channels; mitigation requires site-level network redundancy planning and customer acceptance of residual risk.",
+        "Failover logic complexity may introduce bugs; mitigation requires rigorous testing of all failure modes and formal verification if feasible.",
+        "Cost of dual channels may exceed customer budget; mitigation requires trade-study with single high-reliability channel alternative.",
+        "Timing and sequencing between link loss detection (Teleoperation) and safe-state execution (Vehicle) must be validated; integration testing is required.",
+        "Network Link interface abstraction may be incomplete or leaky, causing Teleoperation module to become coupled to specific network technologies."
+      ],
+      "evidence_needed": [
+        "Customer confirmation of dual-channel availability and cost constraints.",
+        "Network infrastructure assessment at the site (available carriers, coverage, latency).",
+        "Failover latency budget and safe-state timing requirements from Safety Manager.",
+        "Detailed specification of Network Link interface and SafetyAlert protocol.",
+        "Test plan for link failure scenarios and availability measurement methodology.",
+        "Post-evaluation analysis of link availability metrics and root-cause analysis of any shortfalls."
+      ]
+    }
+  }
+}

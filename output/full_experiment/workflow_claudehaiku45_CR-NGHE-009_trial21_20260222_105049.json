@@ -1,0 +1,169 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation communication integrity within customer-defined packet loss limits during agreed network conditions.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting teleoperation as a capability, and (2) meeting a specific quality metric (packet loss). The refined FR isolates the quality/performance obligation while remaining solution-neutral by avoiding prescriptive terms like 'support' (which implies mechanism) and instead focusing on the outcome: maintaining integrity within defined thresholds. This allows DPs to range from redundant communication channels, error correction, buffering strategies, or network optimization—all valid solutions to the same functional problem.",
+    "verification_idea": "Conduct teleoperation sessions under agreed network conditions (e.g., 4G/5G coverage, latency profiles, interference scenarios) and measure end-to-end packet loss rate. Confirm measured packet loss ≤ customer-defined target (e.g., ≤1%). Log packet arrival/loss statistics and correlate with operator task performance (e.g., command latency, control responsiveness).",
+    "sub_frs": [
+      "FR-NGHE-009.1: The NGHE solution shall transmit teleoperation commands from remote operator to equipment with measurable packet delivery rate.",
+      "FR-NGHE-009.2: The NGHE solution shall transmit telemetry and sensor feedback from equipment to remote operator with measurable packet delivery rate.",
+      "FR-NGHE-009.3: The NGHE solution shall detect and report communication degradation (packet loss, latency anomalies) to the operator and safety system in real-time."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Implement adaptive packet redundancy and selective retransmission based on real-time loss detection and customer-configurable thresholds",
+      "DP2: Employ forward error correction (FEC) encoding with configurable redundancy levels tied to measured network conditions",
+      "DP3: Establish dual independent communication paths with automatic failover and load balancing to reduce single-path loss impact",
+      "DP4: Deploy jitter buffering and packet reordering logic with timeout-based loss detection and customer-tunable recovery windows",
+      "DP5: Implement quality-of-service (QoS) negotiation and prioritization at the logical communication layer, independent of underlying transport",
+      "DP6: Combine lightweight heartbeat monitoring with exponential backoff retry logic and customer-defined loss budgets per command class"
+    ],
+    "selected_dp": "DP1 + DP5 (hybrid): Implement adaptive packet redundancy with real-time loss detection and customer-configurable thresholds, coupled with logical QoS negotiation and prioritization. This allows the system to dynamically adjust redundancy based on observed network conditions while respecting customer-defined packet loss limits and operational policies.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "DP1 and DP5 are logically orthogonal: DP1 addresses loss recovery (redundancy/retransmission), DP5 addresses traffic prioritization (QoS). Both operate at the communication logic layer and do not create circular dependencies.",
+        "Risk of tight coupling to transport layer if QoS implementation assumes specific protocol features (e.g., DSCP marking). Mitigation: define QoS as abstract priority levels, map to transport at IM layer only.",
+        "DP1 requires real-time loss metrics; DP5 requires traffic classification. Both depend on a shared telemetry/monitoring capability, but this is a healthy dependency (single source of truth for network state)."
+      ],
+      "notes": "The hybrid DP avoids over-specification (e.g., mandating dual paths or FEC) while remaining flexible to customer constraints. Decoupling is maintained by keeping redundancy logic independent of prioritization logic; they coordinate via shared network state observables, not direct control coupling."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Customer-defined packet loss target (≤1% or alternative) is measurable and stable during agreed network conditions. RISK: If network conditions are highly variable or measurement is unreliable, adaptive thresholds may oscillate or fail to converge.",
+      "ASSUMPTION: Teleoperation commands tolerate bounded latency introduced by redundancy/retransmission. RISK: If latency budget is very tight (<100ms round-trip), aggressive retransmission may violate safety-critical timing. Mitigation: define latency constraints explicitly in FR refinement.",
+      "ASSUMPTION: Customer operational policies permit dynamic adjustment of redundancy levels. RISK: If policies mandate fixed redundancy, DP1 loses adaptivity benefit. Mitigation: clarify whether policies are static or allow runtime tuning.",
+      "ASSUMPTION: Worksite safety plan does not require deterministic packet delivery guarantees (e.g., hard real-time). RISK: If safety-critical commands require 100% delivery certainty, DP1 alone is insufficient; may require DP3 (dual paths) or DP2 (FEC) as mandatory fallback.",
+      "ASSUMPTION: Loss detection mechanism (e.g., sequence numbers, ACKs) does not introduce unacceptable overhead. RISK: On bandwidth-constrained links, monitoring overhead may reduce effective throughput. Mitigation: size monitoring payload relative to command payload."
+    ],
+    "recommended_revision": "Refine FR to explicitly state: (1) Latency tolerance for teleoperation commands (e.g., max round-trip delay for safe operation); (2) Whether packet loss target is a hard requirement or a best-effort goal; (3) Whether safety-critical commands require deterministic delivery (100%) or probabilistic (≤1% loss acceptable); (4) Whether customer policies permit runtime adaptation of redundancy or mandate static configuration. These clarifications will determine whether DP1+DP5 is sufficient or whether DP3 (dual paths) or DP2 (FEC) must be added as mandatory components. Additionally, define 'agreed network conditions' quantitatively (e.g., baseline loss rate, jitter range, bandwidth floor) to enable testability of the DP."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Adaptive packet redundancy, real-time loss detection, QoS negotiation, and customer-configurable thresholds for teleoperated control channels"
+    },
+    "external_interfaces": [
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Receives observed packet loss metrics and network condition telemetry; outputs redundancy configuration and QoS parameters to network layer"
+      },
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Ingests real-time network performance data (latency, jitter, loss rate) to inform adaptive redundancy decisions"
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Outputs adjusted control commands with applied redundancy and prioritization based on negotiated QoS policy"
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Signals when network conditions degrade beyond customer-configured thresholds, triggering safety-aware fallback behavior"
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit: adaptive redundancy and QoS negotiation are core to reliable teleoperated control. Loss detection and threshold logic are native to this domain. Minimal diffusion: only exports negotiated QoS state to Network Link and safety signals to SafetyAlert."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor fit: Vehicle module owns vehicle state and actuation, not network protocol adaptation. Redundancy logic would be misplaced; would require tight coupling to network layer and customer config, creating high diffusion."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Weak fit: Safety Services owns safety policies and alerts, not adaptive network control. While threshold violations trigger safety responses, the core DP (redundancy + QoS negotiation) is not a safety service responsibility. Would diffuse across Teleoperation and Network Link."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.25,
+        "diffusion_score": 0.75,
+        "notes": "Very poor fit: NGHE Solution is a top-level system container, not an implementation module. Placing adaptive redundancy here would scatter logic across multiple child modules and obscure ownership. High diffusion and low cohesion."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the natural owner of adaptive packet redundancy and QoS negotiation because: (1) teleoperated control is the primary consumer of these mechanisms; (2) loss detection and threshold logic directly support command reliability and latency guarantees required for remote operation; (3) customer-configurable thresholds align with operational policies for teleoperation; (4) the module already interfaces with Network Link (for command transmission) and Telemetry (for feedback), making it the logical point of adaptation.",
+    "containment_risks": [
+      "Risk: Network Link interface may not expose sufficient granularity of loss metrics or QoS state for real-time adaptation. Mitigation: define explicit telemetry schema for packet loss, latency, and jitter in Network Link contract.",
+      "Risk: Customer configuration of thresholds may require a separate configuration service or policy engine not yet modeled. Mitigation: clarify whether threshold configuration is static (loaded at startup) or dynamic (updated via Tasking or a new Config interface).",
+      "Risk: Safety Services may need to override or constrain QoS negotiation in safety-critical scenarios. Mitigation: establish clear precedence rules: SafetyAlert can veto QoS relaxation if it violates safety margins.",
+      "Risk: Vehicle module may have its own network requirements (e.g., sensor telemetry, diagnostics) that conflict with Teleoperation's redundancy policy. Mitigation: separate Teleoperation QoS from Vehicle telemetry QoS; use distinct logical channels or priority classes."
+    ],
+    "recommended_revision": "No revision to DP required. The hybrid DP (DP1 + DP5) is well-scoped and logically cohesive. However, clarify the DP to explicitly separate concerns: (1) Adaptive Redundancy Logic: detect loss, adjust packet duplication/FEC based on observed conditions. (2) QoS Negotiation: negotiate priority and latency guarantees with network layer. (3) Threshold Enforcement: compare observed metrics against customer-defined limits and trigger SafetyAlert when violated. All three belong in Teleoperation; the DP is sound."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP (hybrid DP1 + DP5) directly addresses FR: adaptive packet redundancy with real-time loss detection and customer-configurable thresholds logically solves the requirement to maintain teleoperation communication integrity within packet loss limits. The DP is solution-neutral (does not prescribe implementation technology) and measurable against the acceptance criterion (packet loss ≤ 1% or customer-defined target). Coupling of redundancy adaptation with QoS negotiation is justified: both respond to observed network conditions and feed into the same control loop."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Network Link interface contract must explicitly expose packet loss metrics (rate, burst patterns), latency, and jitter at sufficient granularity and update frequency for real-time adaptive decisions. If Network Link only reports aggregate statistics or delayed telemetry, Teleoperation cannot react in time; risk of logic leakage into Network Link module.",
+        "Customer threshold configuration mechanism is underspecified: unclear whether thresholds are static (loaded at startup) or dynamic (updated via Tasking or new Config interface). If dynamic, Teleoperation must own a configuration state machine; if static, configuration ownership must be clarified (likely a separate Configuration or Policy module). Ambiguity risks diffusion across module boundaries.",
+        "Safety Services veto authority over QoS negotiation is stated but not formalized. If SafetyAlert can override Teleoperation's QoS decisions, the precedence rules and rollback logic must be explicit in the DP or a separate Safety-QoS arbitration DP. Risk: safety constraints leak into Teleoperation without clear ownership of conflict resolution.",
+        "Vehicle module may have competing network requirements (sensor telemetry, diagnostics, firmware updates) that conflict with Teleoperation's redundancy and QoS policy. If both modules contend for network bandwidth or priority, Teleoperation's adaptive logic may be ineffective. Risk: Teleoperation logic diffuses into Vehicle module or vice versa if shared network resource management is not explicitly owned elsewhere (e.g., Network Link or a Resource Arbitration module)."
+      ],
+      "containment_notes": "Teleoperation module is the correct owner (containment score 0.92, diffusion score 0.08). Adaptive redundancy and QoS negotiation are native to teleoperated control domain; loss detection and threshold logic directly support command reliability and latency guarantees. Module interfaces are well-defined: Telemetry (inbound network metrics), Network Link (outbound redundancy config and QoS params), Tasking (outbound adjusted commands), SafetyAlert (outbound threshold violation signals). Minimal diffusion: only exports negotiated state and safety signals. Recommended separation of concerns within Teleoperation: (1) Adaptive Redundancy Logic (detect loss, adjust duplication/FEC), (2) QoS Negotiation (negotiate priority and latency with Network Link), (3) Threshold Enforcement (compare metrics against customer limits, trigger SafetyAlert). All three are cohesive and belong in Teleoperation; no scattering across other modules."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Acceptance criterion (packet loss ≤ 1% or customer-defined target) is measurable and testable within Teleoperation module scope. Verification requires: (1) instrumentation of Telemetry interface to capture observed packet loss rate under agreed network conditions, (2) test harness to simulate network loss and validate adaptive redundancy response, (3) configuration test to confirm customer-defined thresholds are enforced. Feasibility is high: all required signals (loss metrics, redundancy state, threshold violations) are owned by Teleoperation and exported via defined interfaces. No external module dependencies block verification.",
+      "allocation_clarity": "FR is clearly allocated to Teleoperation IM via DP (hybrid DP1 + DP5). Allocation is unambiguous: Teleoperation owns adaptive redundancy, loss detection, QoS negotiation, and threshold enforcement. Interfaces to Telemetry, Network Link, Tasking, and SafetyAlert are explicit and directional. Ownership boundaries are clear. However, allocation clarity depends on resolution of three underspecified concerns: (1) Network Link contract must guarantee sufficient metric granularity and update frequency, (2) customer threshold configuration mechanism (static vs. dynamic) must be clarified, (3) Safety Services veto authority and conflict resolution rules must be formalized. Recommend documenting these as interface contracts or separate DPs before detailed design."
+    },
+    "recommended_revisions": [
+      "Refine Network Link interface contract: specify minimum telemetry schema (packet loss rate, latency percentiles, jitter) and update frequency (e.g., per-second or per-100-packets) required for real-time adaptive redundancy decisions. Include acceptance criteria for metric accuracy and latency.",
+      "Clarify customer threshold configuration mechanism: define whether thresholds are static (loaded at startup from configuration file or database) or dynamic (updated via Tasking or a new Config interface). If dynamic, specify the update protocol, validation rules, and rollback behavior. Assign ownership: if static, clarify which module owns the configuration store; if dynamic, confirm Teleoperation owns the state machine.",
+      "Formalize Safety Services veto authority: define explicit precedence rules for SafetyAlert overriding QoS negotiation. Specify: (1) which QoS parameters can be constrained by safety (e.g., minimum redundancy level), (2) rollback behavior when safety constraint is triggered, (3) notification to customer/operator when safety override occurs. Consider a separate DP for Safety-QoS arbitration if precedence logic is complex.",
+      "Separate Teleoperation QoS from Vehicle telemetry QoS: if Vehicle module has competing network requirements, establish distinct logical channels or priority classes in Network Link. Clarify whether Teleoperation's adaptive redundancy applies only to command channels or also to Vehicle telemetry. Assign ownership of network resource arbitration (likely Network Link or a new Resource Arbitration module).",
+      "No revision to DP required. The hybrid DP (DP1 + DP5) is logically sound and well-scoped. Recommended revisions address interface contracts and configuration mechanisms, not the core DP logic."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass with high confidence (containment 0.92, diffusion 0.08). The hybrid DP (DP1 + DP5) is logically sound and well-scoped to the Teleoperation module. However, the DP-IM gate identifies four critical diffusion risks and underspecified interface contracts that must be resolved before proceeding to detailed design. Rather than revise the current FR-DP-IM triple (which is architecturally correct), decompose the FR into sub-FRs that explicitly address the four interface and configuration concerns flagged as risks. This approach: (1) maintains the integrity of the parent DP, (2) creates explicit ownership and verification points for each interface contract, (3) reduces ambiguity in configuration mechanism and safety arbitration, (4) aligns with high safety criticality by formalizing safety-QoS precedence. Sub-FRs will map to DPs that specify interface contracts, configuration protocols, and safety arbitration rules—all within or adjacent to Teleoperation's scope.",
+    "next_level_sub_frs": [
+      "FR-1.1: Telemetry interface shall expose packet loss metrics (rate, burst patterns), latency percentiles, and jitter at sufficient granularity (per-second or per-100-packets) and update frequency to enable real-time adaptive redundancy decisions in Teleoperation.",
+      "FR-1.2: Customer-defined packet loss thresholds shall be configurable and enforced by Teleoperation, with explicit ownership of the configuration mechanism (static load-time vs. dynamic runtime update) and validation rules.",
+      "FR-1.3: Safety Services shall have formalized veto authority over QoS negotiation parameters, with explicit precedence rules, rollback behavior, and operator notification when safety constraints override Teleoperation's adaptive decisions.",
+      "FR-1.4: Teleoperation command channels and Vehicle telemetry channels shall have logically separated QoS policies and network resource allocation, with clear ownership of arbitration logic (Network Link or dedicated Resource Arbitration module)."
+    ],
+    "revise": {
+      "target": null,
+      "why": "No revision to current FR-DP-IM triple is required. The DP is logically sound and correctly allocated to Teleoperation. Recommended revisions in the gate output address interface contracts and configuration mechanisms, which are best captured as sub-level FRs and their corresponding DPs. Revising the parent DP would obscure the architectural clarity already achieved."
+    },
+    "record": {
+      "assumptions": [
+        "Network Link module can be extended to expose packet loss metrics at the required granularity and update frequency without architectural redesign.",
+        "Customer threshold configuration mechanism can be owned by Teleoperation (if dynamic) or by a separate Configuration module (if static), with clear interface contracts.",
+        "Safety Services module exists and can formalize veto authority over QoS parameters via explicit precedence rules and a defined arbitration protocol.",
+        "Vehicle module's network requirements are separable from Teleoperation's command channels, either logically (priority classes) or physically (distinct network links).",
+        "High safety criticality justifies explicit formalization of safety-QoS arbitration; informal coordination is insufficient."
+      ],
+      "open_risks": [
+        "Network Link interface contract may not be achievable at required metric granularity or update frequency if underlying network stack does not support fine-grained telemetry. Risk: Teleoperation adaptive logic becomes ineffective or logic leaks into Network Link module.",
+        "Customer threshold configuration mechanism (static vs. dynamic) is a design choice that affects Teleoperation's internal state machine complexity and interface contracts. Ambiguity risks diffusion of configuration logic across module boundaries.",
+        "Safety-QoS arbitration precedence rules may be complex (e.g., safety constraints on minimum redundancy level, maximum latency, priority escalation). Risk: conflict resolution logic leaks into Teleoperation or Safety Services without clear ownership.",
+        "Vehicle module's competing network requirements may force shared resource arbitration that is not currently owned by any module. Risk: Teleoperation's adaptive redundancy becomes ineffective if bandwidth is preempted by Vehicle telemetry or diagnostics.",
+        "High safety criticality increases verification burden: safety-QoS arbitration must be formally verified, not just tested. Risk: verification feasibility may be lower than estimated if formal methods are required."
+      ],
+      "evidence_needed": [
+        "Network Link interface specification: minimum telemetry schema (packet loss rate, latency percentiles, jitter), update frequency (e.g., per-second), metric accuracy tolerance, and latency of metric delivery to Teleoperation.",
+        "Configuration mechanism design: decision on static vs. dynamic thresholds, protocol for threshold updates (if dynamic), validation rules, rollback behavior, and ownership assignment (Teleoperation or Configuration module).",
+        "Safety-QoS arbitration specification: explicit precedence rules (which QoS parameters can be constrained by safety), rollback behavior, operator notification protocol, and formal verification plan.",
+        "Network resource arbitration design: logical or physical separation of Teleoperation command channels from Vehicle telemetry channels, priority class definitions, and ownership of arbitration logic.",
+        "Test plan for sub-FRs: verification approach for each interface contract (e.g., instrumentation of Telemetry interface, simulation of dynamic threshold updates, formal verification of safety-QoS precedence rules)."
+      ]
+    }
+  }
+}

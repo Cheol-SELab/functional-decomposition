@@ -1,0 +1,170 @@
+{
+  "refined_fr": {
+    "refined_fr": "Enable measurement and reporting of material throughput in volumetric or mass units per unit time.",
+    "rationale": "The original FR conflates two distinct obligations: (1) the system's capability to measure/report throughput metrics, and (2) the achievement of a customer-defined target. The latter is a success criterion dependent on operational execution, not a system requirement. The refined FR isolates the system's functional obligation—providing visibility into throughput—which is solution-neutral and testable independent of whether a specific productivity target is met. The target itself belongs in acceptance criteria or KPI definitions, not in the FR.",
+    "verification_idea": "Demonstrate that the NGHE solution captures and reports material throughput (m³/h or ton/h) during representative operations. Verify data accuracy against independent measurement. Confirm reporting is accessible to Site Manager and Equipment Operator in real time or near-real time.",
+    "sub_frs": [
+      "Acquire volumetric or mass flow data from material handling subsystems during operation.",
+      "Calculate throughput rate (m³/h or ton/h) from acquired flow data.",
+      "Display or transmit throughput metrics to authorized stakeholders in real time or near-real time.",
+      "Log historical throughput data for post-operation analysis and reporting."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Continuous volumetric flow measurement via inline sensor with real-time signal conditioning and local data buffering",
+      "DP2: Periodic mass-based sampling with calibrated weighing and extrapolation to throughput rate over fixed intervals",
+      "DP3: Indirect throughput inference from operational parameters (e.g., motor speed, cycle time, material density) with lookup tables or empirical models",
+      "DP4: Hybrid dual-path measurement (volumetric + mass cross-check) with automated reconciliation logic to detect sensor drift or anomalies",
+      "DP5: Time-stamped event logging of material batches (count, mass, or volume per batch) with post-processing aggregation to compute throughput rates"
+    ],
+    "selected_dp": "DP4: Hybrid dual-path measurement (volumetric + mass cross-check) with automated reconciliation logic to detect sensor drift or anomalies",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Volumetric and mass measurement subsystems must share a common time reference and synchronization protocol to enable valid cross-checks; this introduces a weak temporal coupling that is acceptable if time-sync is treated as a shared utility.",
+        "Reconciliation logic depends on material density assumptions; if density varies significantly during operations, the cross-check may produce false anomaly flags. Mitigation: parameterize density or add density measurement as an optional input.",
+        "Data buffering and reporting subsystems must handle asynchronous arrival of volumetric and mass samples; this is a standard async-queue pattern and does not create problematic coupling if interfaces are well-defined."
+      ],
+      "notes": "DP4 is selected because it provides redundancy and self-validation, directly supporting the acceptance criterion (reported productivity ≥ target) by detecting and flagging measurement faults. The dual-path design decouples the volumetric measurement logic from the mass measurement logic; each can be implemented independently and swapped without affecting the other. Reconciliation is a thin orchestration layer. Coupling is minimal and manageable."
+    },
+    "assumptions_risks": [
+      "Assumption: Material density is either constant or can be reliably estimated/measured during operations. Risk: If density varies unpredictably, cross-check logic may fail or require real-time density input, increasing complexity.",
+      "Assumption: Both volumetric and mass sensors have comparable accuracy and response times. Risk: If one sensor is significantly slower or noisier, reconciliation may be unreliable; mitigation requires sensor selection discipline.",
+      "Assumption: Worksite safety plan permits installation of inline measurement devices without disrupting material flow or creating pinch/entanglement hazards. Risk: If safety constraints prohibit inline sensors, fallback to DP5 (batch event logging) may be necessary.",
+      "Assumption: Reported productivity is defined as a simple rate (units/time) and does not require real-time sub-second granularity. Risk: If sub-second precision is required, sensor latency and data synchronization become critical; current DP may need refinement.",
+      "Assumption: Evaluation period is long enough (hours to days) to average out transient measurement noise and sensor drift. Risk: If evaluation period is very short (minutes), noise may dominate and acceptance criterion may be difficult to meet reliably.",
+      "Assumption: Automated reconciliation logic can be validated and tuned offline before deployment. Risk: If tuning requires on-site iteration, deployment risk and schedule impact increase."
+    ],
+    "recommended_revision": "Refine DP4 to explicitly separate concerns: (1) Volumetric measurement subsystem (independent DP), (2) Mass measurement subsystem (independent DP), (3) Time-sync and data fusion utility (shared service), (4) Reconciliation and anomaly detection logic (independent DP). This decomposition clarifies module boundaries and allows each subsystem to be designed, tested, and maintained independently. Additionally, add a parameterized density model as an optional input to reconciliation logic to handle material density variation. Document the acceptable range of density variation and the fallback behavior if reconciliation fails (e.g., report volumetric throughput only, with a confidence flag). This revision strengthens the FR<->DP mapping by making assumptions explicit and providing clear paths for adaptation if constraints change."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Safety Services",
+      "scope": "Centralized module responsible for sensor validation, anomaly detection, measurement reconciliation, and safety-critical data integrity checks across all vehicle telemetry streams."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Receives raw volumetric and mass measurement data from Vehicle sensors; dual-path inputs for cross-validation."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Emits alerts when sensor drift, anomalies, or reconciliation failures are detected; triggers safety-critical responses."
+      },
+      {
+        "name": "Tasking",
+        "direction": "inout",
+        "details": "Receives measurement configuration/calibration commands; reports reconciliation status and sensor health state to mission planning."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Safety Services",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit: sensor validation, anomaly detection, and reconciliation are inherently safety-critical functions. Dual-path measurement logic and drift detection align with Safety Services' core responsibility for data integrity. Minimal diffusion: only exports alerts and status via standard interfaces."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.65,
+        "diffusion_score": 0.35,
+        "notes": "Moderate fit: Vehicle owns raw sensor hardware and initial data collection, but reconciliation logic and anomaly detection are cross-cutting concerns that should not be tightly coupled to vehicle-specific subsystems. High diffusion risk: logic would leak into multiple sensor drivers and require bidirectional feedback loops."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Poor fit: Teleoperation is operator-facing and mission-control oriented, not a data validation layer. Placing reconciliation logic here creates tight coupling between operator commands and sensor integrity checks, violating separation of concerns. High diffusion: would require extensive coupling to Vehicle and Safety Services."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor fit: NGHE Solution is a top-level system container, not a functional module. Placing DP4 here bypasses architectural layering and creates diffusion across all subsystems. No clear ownership or interface boundaries."
+      }
+    ],
+    "ownership_candidate": "Safety Services",
+    "containment_hypothesis": "DP4 (hybrid dual-path measurement with automated reconciliation and anomaly detection) is fundamentally a safety-critical data validation function. Safety Services is the natural owner because: (1) sensor drift and anomalies directly threaten mission safety; (2) reconciliation logic must operate independently of vehicle control loops; (3) SafetyAlert interface provides the required output channel for anomaly notifications; (4) Telemetry input provides dual-path sensor feeds; (5) Tasking interface enables calibration and configuration without coupling to vehicle hardware.",
+    "containment_risks": [
+      "Risk: If volumetric and mass sensors are physically distributed across Vehicle subsystems, Safety Services may require low-latency access to raw sensor streams, creating tight temporal coupling. Mitigation: Ensure Telemetry interface provides synchronized, timestamped dual-path data with minimal latency.",
+      "Risk: Reconciliation logic may require sensor-specific calibration parameters (e.g., sensor model, drift coefficients). If these are stored in Vehicle, Safety Services must query them via Tasking, adding indirect coupling. Mitigation: Safety Services should own a sensor calibration registry accessible via Tasking.",
+      "Risk: If anomaly thresholds or reconciliation algorithms must be tuned in real-time based on mission context, Teleoperation may need to adjust Safety Services behavior. Mitigation: Expose tuning parameters via Tasking interface with safety guardrails to prevent operator override of critical thresholds.",
+      "Risk: High-frequency reconciliation logic may create computational load. If Safety Services is not properly isolated, it could impact Vehicle control responsiveness. Mitigation: Implement asynchronous reconciliation with bounded latency guarantees."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "STRONG. Acceptance criteria require reported productivity ≥ productivity_target over evaluation period. Dual-path measurement (volumetric + mass) with automated reconciliation directly enables accurate throughput reporting. Safety Services ownership ensures data integrity checks are applied consistently before reporting. Verification is feasible via: (1) comparison of volumetric vs. mass-derived throughput during representative operations; (2) anomaly detection event logs; (3) sensor drift metrics over time; (4) reconciliation success/failure rates.",
+      "allocation_clarity": "CLEAR. Safety Services is the unambiguous owner (containment_score 0.92). IM boundary is well-defined with three explicit interfaces: Telemetry (dual-path sensor inputs), SafetyAlert (anomaly outputs), Tasking (calibration/config). Ownership avoids diffusion across Vehicle, Teleoperation, or NGHE Solution containers. Responsibility for measurement reconciliation and anomaly detection is localized."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP4 (hybrid dual-path measurement with automated reconciliation) directly satisfies FR (enable measurement and reporting of material throughput in volumetric or mass units per unit time). Dual-path approach provides cross-validation mechanism to detect sensor drift or anomalies, strengthening data quality for throughput reporting. Logic is sound and implementable within Safety Services module."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "TEMPORAL COUPLING RISK: If volumetric and mass sensors are physically distributed across Vehicle subsystems, Safety Services requires low-latency synchronized access to dual-path streams. Mitigation: Telemetry interface must guarantee synchronized, timestamped dual-path data with documented latency bounds (e.g., <100ms skew). Verify via interface specification.",
+        "CALIBRATION PARAMETER COUPLING RISK: Reconciliation logic depends on sensor-specific calibration coefficients (drift models, sensor offsets). If these reside in Vehicle, Safety Services must query via Tasking, creating indirect coupling and potential consistency gaps. Mitigation: Safety Services should own authoritative sensor calibration registry. Tasking interface should support atomic read/write of calibration tuples with versioning.",
+        "OPERATOR OVERRIDE RISK: Real-time mission context may require threshold tuning (e.g., acceptable reconciliation tolerance). If Teleoperation can adjust Safety Services thresholds via Tasking without guardrails, safety-critical logic may be compromised. Mitigation: Expose tuning parameters via Tasking with explicit safety bounds (min/max thresholds) enforced in Safety Services. Document which parameters are operator-adjustable vs. locked.",
+        "COMPUTATIONAL LOAD RISK: High-frequency reconciliation (e.g., per-sample or per-second) may create latency spikes in Safety Services, potentially impacting Vehicle control responsiveness if Safety Services shares compute resources. Mitigation: Implement asynchronous reconciliation with bounded latency SLA (e.g., reconciliation completes within 500ms of dual-path sample arrival). Isolate Safety Services compute from Vehicle control loop via separate thread/process/container."
+      ],
+      "containment_notes": "EXCELLENT CONTAINMENT. Safety Services (0.92 score) is the correct owner. Reconciliation and anomaly detection are inherently safety-critical data validation functions, not vehicle control or operator-facing logic. Placement in Safety Services avoids diffusion into Vehicle (0.65, high coupling risk), Teleoperation (0.4, poor separation of concerns), or NGHE Solution (0.35, no clear ownership). Three-interface model (Telemetry in, SafetyAlert out, Tasking inout) is clean and minimizes cross-cutting concerns. Risk mitigation strategies are implementable via interface contracts and internal Safety Services design."
+    },
+    "recommended_revisions": [
+      "INTERFACE SPECIFICATION: Formalize Telemetry interface contract to guarantee dual-path data synchronization. Specify: (1) maximum timestamp skew between volumetric and mass samples; (2) sample rate and buffering strategy; (3) data format (e.g., JSON, protobuf) and schema versioning.",
+      "CALIBRATION REGISTRY DESIGN: Define Safety Services' internal sensor calibration registry schema. Specify: (1) calibration parameter types (drift coefficients, offsets, sensor model identifiers); (2) versioning and audit trail; (3) Tasking interface operations (read, write, validate) with atomic guarantees.",
+      "RECONCILIATION ALGORITHM SPECIFICATION: Document the reconciliation logic in detail: (1) how volumetric and mass measurements are cross-checked (e.g., density-based conversion, tolerance bands); (2) drift detection method (e.g., moving average, Kalman filter); (3) anomaly classification (sensor fault, calibration drift, transient noise); (4) alert thresholds and safety guardrails.",
+      "LATENCY AND PERFORMANCE SLA: Define Safety Services' latency requirements: (1) maximum time from dual-path sample arrival to reconciliation completion; (2) maximum time from anomaly detection to SafetyAlert emission; (3) Tasking query response time for calibration reads/writes. Verify via integration testing.",
+      "OPERATOR TUNING GUARDRAILS: If Teleoperation can adjust reconciliation thresholds via Tasking, explicitly document: (1) which parameters are operator-adjustable (e.g., tolerance band width) vs. locked (e.g., sensor fault classification); (2) min/max bounds enforced by Safety Services; (3) audit logging of threshold changes.",
+      "ACCEPTANCE CRITERIA MAPPING: Explicitly link dual-path measurement accuracy to productivity_target acceptance criterion. Specify: (1) acceptable reconciliation failure rate during representative operations (e.g., <1% of samples); (2) maximum sensor drift before SafetyAlert triggers; (3) how reported throughput is computed from dual-path data (e.g., average, weighted, or conservative estimate)."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "Gate results confirm FR-DP-IM alignment is sound (all three gates pass). However, the DP-IM gate identifies four substantive diffusion and coupling risks that require decomposition into explicit sub-FRs to ensure safety-critical implementation details are captured at the appropriate architectural level. The risks are not showstoppers but demand explicit functional requirements for: (1) synchronized dual-path telemetry ingestion with latency bounds, (2) authoritative sensor calibration registry with atomic operations, (3) reconciliation algorithm with anomaly classification and safety guardrails, and (4) performance isolation and SLA enforcement. These are not implementation details—they are functional requirements that must be satisfied by Safety Services and its interfaces. Decomposing now ensures each risk is explicitly owned, verified, and traced to acceptance criteria. High safety criticality justifies this rigor.",
+    "next_level_sub_frs": [
+      "FR4.1: Ingest and synchronize dual-path sensor streams (volumetric and mass) with bounded timestamp skew and documented latency guarantees to enable cross-validation of throughput measurements.",
+      "FR4.2: Maintain authoritative sensor calibration registry with versioned, auditable calibration parameters (drift coefficients, offsets, sensor model identifiers) and provide atomic read/write operations via Tasking interface.",
+      "FR4.3: Detect and classify sensor anomalies (faults, calibration drift, transient noise) by comparing volumetric and mass measurements against tolerance bands and drift models, and emit SafetyAlert with anomaly type and severity.",
+      "FR4.4: Enforce reconciliation algorithm latency SLA (e.g., <500ms from dual-path sample arrival to completion) and isolate Safety Services compute from Vehicle control loop to prevent latency spikes in safety-critical control.",
+      "FR4.5: Expose operator-tunable reconciliation thresholds (e.g., tolerance band width) via Tasking interface with explicit min/max safety bounds enforced by Safety Services and audit logging of all threshold changes."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "DP4 (hybrid dual-path measurement with automated reconciliation) is logically sound but underspecified in three critical areas: (1) synchronization strategy for dual-path streams (currently implicit), (2) calibration parameter ownership and lifecycle (currently ambiguous between Vehicle and Safety Services), (3) reconciliation algorithm detail and anomaly classification logic (currently abstract). Revise DP4 to explicitly state: (a) Telemetry interface guarantees synchronized, timestamped dual-path data with <100ms skew; (b) Safety Services owns authoritative calibration registry with atomic Tasking operations; (c) reconciliation uses density-based cross-check with tolerance bands and drift detection (e.g., moving average or Kalman filter); (d) anomaly classification distinguishes sensor faults, calibration drift, and transient noise; (e) operator-tunable parameters are bounded and audited. This revision elevates DP4 from concept to implementable specification without changing the core logic."
+    },
+    "record": {
+      "assumptions": [
+        "Volumetric and mass sensors are physically distributed across Vehicle subsystems but accessible to Safety Services via Telemetry interface with guaranteed synchronization.",
+        "Safety Services has sufficient compute capacity to perform real-time reconciliation without impacting Vehicle control loop latency.",
+        "Sensor calibration parameters (drift models, offsets) can be centralized in Safety Services without creating unacceptable coupling to Vehicle subsystems.",
+        "Operator threshold tuning is a mission-context requirement, not a safety-critical override; guardrails can enforce acceptable bounds.",
+        "Reconciliation failure rate <1% is acceptable for productivity reporting; failures are logged and do not block throughput calculation (conservative estimate used instead).",
+        "Timestamp synchronization across dual-path sensors is achievable via Telemetry interface (e.g., NTP, hardware sync, or message-level timestamping)."
+      ],
+      "open_risks": [
+        "TEMPORAL COUPLING: If volumetric and mass sensors have inherent latency skew >100ms due to physical distribution or sensor response time, reconciliation tolerance bands must be widened, reducing anomaly detection sensitivity. Mitigation: Characterize sensor latency during Vehicle integration; adjust Telemetry interface SLA and reconciliation tolerance accordingly.",
+        "CALIBRATION CONSISTENCY: If Vehicle subsystems cache calibration parameters locally, Safety Services' authoritative registry may diverge from cached values, causing reconciliation errors. Mitigation: Implement versioning and cache invalidation protocol; Tasking interface must support atomic read-with-version to detect stale caches.",
+        "OPERATOR OVERRIDE SAFETY: If Teleoperation adjusts reconciliation thresholds without understanding safety implications, anomalies may be masked. Mitigation: Implement role-based access control (e.g., only safety-certified operators can adjust thresholds); log all changes with justification; require explicit confirmation for out-of-bounds tuning.",
+        "COMPUTATIONAL LOAD UNDER FAULT: If dual-path sensors fail asynchronously (e.g., mass sensor fails mid-operation), reconciliation logic must handle missing data gracefully without blocking Safety Services. Mitigation: Define fallback behavior (e.g., use volumetric-only measurement with reduced confidence, emit SafetyAlert, or halt throughput reporting); test under sensor failure scenarios.",
+        "ACCEPTANCE CRITERIA LINKAGE: Productivity_target acceptance criterion does not explicitly specify acceptable reconciliation failure rate or sensor drift tolerance. Mitigation: Revise acceptance criteria to include: (1) reconciliation success rate ≥99% during representative operations; (2) sensor drift detection latency <5 minutes; (3) reported throughput accuracy ±5% vs. ground truth."
+      ],
+      "evidence_needed": [
+        "Telemetry interface specification: dual-path data schema, synchronization mechanism, maximum timestamp skew, sample rate, buffering strategy, and latency SLA (e.g., <100ms).",
+        "Sensor characterization data: latency, drift rate, noise profile, and failure modes for volumetric and mass sensors under representative operating conditions.",
+        "Reconciliation algorithm specification: density-based cross-check formula, tolerance band calculation, drift detection method (e.g., moving average window size, Kalman filter parameters), and anomaly classification thresholds.",
+        "Safety Services compute resource allocation: CPU/memory budget, thread/process isolation strategy, and latency SLA verification plan (e.g., profiling under peak dual-path sample rate).",
+        "Calibration registry schema and Tasking interface contract: parameter types, versioning scheme, atomic read/write operations, and audit trail format.",
+        "Operator tuning guardrails specification: list of tunable vs. locked parameters, min/max bounds, enforcement mechanism, and audit logging format.",
+        "Integration test plan: dual-path synchronization verification, sensor failure scenarios, reconciliation latency measurement, and acceptance criteria validation against productivity_target."
+      ]
+    }
+  }
+}

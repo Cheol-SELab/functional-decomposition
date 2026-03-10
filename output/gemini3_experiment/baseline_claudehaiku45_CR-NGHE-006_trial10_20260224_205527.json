@@ -1,0 +1,170 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and work-zone boundaries, with sufficient fidelity to support autonomous path planning and operator situational awareness.",
+    "rationale": "The original FR was vague on fidelity requirements, update frequency, and scope of features. Refinement clarifies that the model must support both planning (path generation) and execution (real-time awareness), distinguishes static from dynamic content, and anchors acceptance to the stated constraint that the model be 'available to planning/execution functions.' High safety criticality demands explicit hazard representation.",
+    "verification_idea": "Acceptance test: (1) Terrain model accuracy within ±0.5 m RMS error over mapped area; (2) Obstacle detection latency <2 s for static features, <500 ms for dynamic hazards; (3) Model accessible via defined interface to planning and safety services; (4) Coverage of agreed site features per worksite safety plan.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire and fuse multi-sensor data (LiDAR, camera, radar) to detect terrain and obstacles.",
+      "CR-NGHE-006.2: Classify and label detected features (terrain, static obstacle, dynamic hazard, work-zone boundary).",
+      "CR-NGHE-006.3: Maintain and update a persistent 3D spatial model synchronized with vehicle pose.",
+      "CR-NGHE-006.4: Expose worksite model via standardized interface to planning and safety services.",
+      "CR-NGHE-006.5: Validate model completeness and consistency against worksite safety plan requirements."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Onboard multi-sensor perception stack (LiDAR + stereo camera + IMU) with local SLAM and occupancy grid; model stored in vehicle memory; pushed to cloud on network availability.",
+      "DP-B: Distributed perception: vehicle sensors feed to edge compute node (on-site server); centralized SLAM and model management; vehicle queries model via network.",
+      "DP-C: Hybrid: vehicle maintains local occupancy grid for real-time safety; tele-operator provides high-fidelity map via remote sensing (aerial LiDAR or photogrammetry); fusion at vehicle.",
+      "DP-D: Tele-operator-centric: remote operator manually constructs and updates map via telemetry feedback; vehicle uses operator-provided model for planning."
+    ],
+    "selected_dp": "DP-B: Distributed perception with edge compute and centralized model management. Vehicle sensors (LiDAR, stereo, IMU) stream to on-site edge server; edge server runs SLAM, maintains authoritative 3D model, and serves model queries from vehicle planning and safety services. Vehicle maintains local cache for latency-critical safety checks.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Network latency coupling: model freshness depends on network uptime; mitigated by local cache.",
+        "Sensor-to-model coupling: SLAM quality depends on sensor calibration and placement; managed via sensor fusion architecture.",
+        "Model-to-planning coupling: planning algorithm must handle model uncertainty; addressed via confidence layers in model representation."
+      ],
+      "notes": "DP-B decouples vehicle compute from model complexity, enabling scalability and centralized validation. Coupling is primarily through network and sensor interfaces, both manageable via redundancy and caching strategies."
+    },
+    "assumptions_risks": [
+      "Assumption: On-site edge compute infrastructure is available and reliable.",
+      "Assumption: Network bandwidth sufficient for sensor streaming (LiDAR ~10 Mbps, stereo ~5 Mbps).",
+      "Risk: Network outage degrades model freshness; mitigation: local cache + fallback to operator-provided model.",
+      "Risk: SLAM drift over extended operations; mitigation: loop closure detection and periodic re-localization.",
+      "Risk: Sensor calibration errors propagate to model; mitigation: automated calibration checks and manual verification."
+    ],
+    "recommended_revision": "Clarify network bandwidth and latency SLAs in system requirements. Define model update frequency (e.g., 1 Hz for dynamic hazards, 10 Hz for vehicle pose). Specify model representation format (e.g., voxel grid, point cloud, mesh) and confidence/uncertainty encoding."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "Onboard perception sensors (LiDAR, stereo camera, IMU), local SLAM module, occupancy grid cache, planning interface adapter, and network communication stack for model queries and telemetry streaming."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle streams raw sensor data (LiDAR point clouds, stereo frames, IMU readings) and local pose estimates to edge compute via Telemetry interface."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives model queries and planning directives (e.g., 'get terrain map for region X') via Tasking interface; returns model segments and confidence metrics."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "in",
+        "details": "Vehicle receives safety-critical model updates (e.g., new hazard detected, work-zone boundary changed) from Safety Services via SafetyAlert interface."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Vehicle maintains persistent network connection to edge compute for model synchronization, sensor streaming, and query responses."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 85,
+        "diffusion_score": 15,
+        "notes": "Vehicle naturally owns onboard sensors, local SLAM, and cache. Sensor acquisition and local processing are tightly coupled to vehicle hardware. Diffusion risk: model query logic may leak into planning module; mitigated by clean interface definition."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Teleoperation is operator-centric; worksite modeling is system-centric. Tele-operator may provide manual map updates, but primary model generation is autonomous. High diffusion risk if model logic spreads across operator interface."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 40,
+        "diffusion_score": 60,
+        "notes": "Safety Services validates model against safety plan and generates alerts. Model generation itself is not a safety service; safety validation is. Moderate containment for model validation logic, but primary model ownership should be Vehicle or edge compute (not available as IM candidate)."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 50,
+        "diffusion_score": 50,
+        "notes": "NGHE Solution is the system-level container. Worksite modeling is a system-level capability, but assigning to NGHE Solution without sub-module clarity risks diffusion across multiple components. Better to assign to Vehicle with clear interfaces."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "Vehicle owns onboard perception and local model caching. Edge compute (not available as IM candidate) would own centralized SLAM and authoritative model. Since edge compute is not in the available module list, we assign the Vehicle module as the primary owner of sensor acquisition, local processing, and model query interface. Safety Services is assigned responsibility for model validation against safety plan.",
+    "containment_risks": [
+      "Risk: Edge compute (SLAM server) is not represented in available IM candidates; this creates a gap in the architecture. Recommendation: add 'Edge Compute' or 'Mapping Server' as an available module.",
+      "Risk: Model query logic may be duplicated across Vehicle and planning modules if interface is not clearly defined. Mitigation: define Tasking interface schema explicitly.",
+      "Risk: Safety validation logic may diffuse into Vehicle if safety checks are not cleanly separated. Mitigation: Safety Services owns validation; Vehicle owns model generation and caching."
+    ],
+    "recommended_revision": "Extend available IM candidates to include 'Edge Compute' or 'Mapping Server' to explicitly represent the centralized SLAM and model management layer. Alternatively, clarify whether Vehicle module includes embedded edge compute capability. Define Tasking and SafetyAlert interface schemas (message formats, query semantics, response latency SLAs)."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-B (distributed perception with edge compute) directly addresses the refined FR: it generates a real-time worksite model via sensor fusion, maintains it persistently, and exposes it to planning/safety services. The DP is traceable to all sub-FRs (sensor acquisition, feature classification, model maintenance, interface exposure, validation). No logical gaps detected."
+    },
+    "dp_im_gate": {
+      "pass": false,
+      "diffusion_risks": [
+        "DP-B specifies edge compute as the authoritative model server, but 'Edge Compute' is not in the available IM candidates. Assigning to Vehicle alone creates architectural mismatch: Vehicle cannot be both sensor source and model authority without overloading its responsibilities.",
+        "Diffusion risk: model query logic, SLAM algorithm, and sensor fusion may spread across Vehicle, Safety Services, and Teleoperation if boundaries are not clarified.",
+        "Diffusion risk: model validation (Safety Services responsibility) may leak into Vehicle if safety checks are not cleanly separated via SafetyAlert interface."
+      ],
+      "containment_notes": "Vehicle is the best available candidate for sensor acquisition and local caching, but it is not a good fit for centralized model management. The DP assumes a distributed architecture with edge compute; the IM candidates do not include an edge compute module. This is a significant architectural gap."
+    },
+    "fr_im_gate": {
+      "pass": false,
+      "verification_feasibility": "Verification is feasible if Vehicle module is extended to include edge compute capability or if a new IM candidate is added. Current assignment to Vehicle alone makes it unclear how the centralized model is maintained and served.",
+      "allocation_clarity": "Allocation is unclear. Vehicle owns sensor acquisition and local cache, but who owns the authoritative model? Safety Services owns validation, but not generation. Teleoperation may provide manual updates, but is not the primary source. The DP-to-IM mapping is incomplete."
+    },
+    "recommended_revisions": [
+      "CRITICAL: Add 'Edge Compute' or 'Mapping Server' as an available IM candidate to represent the centralized SLAM and model management layer.",
+      "Clarify whether Vehicle module includes embedded edge compute or if it is a separate system component.",
+      "Define explicit ownership boundaries: Vehicle owns sensor acquisition and local cache; Edge Compute (or extended Vehicle) owns centralized model; Safety Services owns model validation.",
+      "Define Tasking and SafetyAlert interface schemas with explicit message formats, query semantics, and latency SLAs.",
+      "Specify model representation format (voxel grid, point cloud, mesh) and confidence/uncertainty encoding to enable verification."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The refined FR is sound and the selected DP is technically appropriate, but the IM assignment reveals a critical architectural gap: the available IM candidates do not include an edge compute or mapping server module, which is essential to the DP. Rather than force-fit the DP into an incomplete IM set, we recommend decomposing the sub-FRs (CR-NGHE-006.1 through 006.5) at the next level to clarify module boundaries and identify missing IM candidates. This allows us to refine the architecture before committing to implementation.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire and fuse multi-sensor data (LiDAR, camera, radar) to detect terrain and obstacles.",
+      "CR-NGHE-006.2: Classify and label detected features (terrain, static obstacle, dynamic hazard, work-zone boundary).",
+      "CR-NGHE-006.3: Maintain and update a persistent 3D spatial model synchronized with vehicle pose.",
+      "CR-NGHE-006.4: Expose worksite model via standardized interface to planning and safety services.",
+      "CR-NGHE-006.5: Validate model completeness and consistency against worksite safety plan requirements."
+    ],
+    "revise": {
+      "target": "IM",
+      "why": "The available IM candidates (NGHE Solution, Vehicle, Teleoperation, Safety Services) do not adequately represent the distributed architecture implied by DP-B. Edge compute / mapping server is missing. Recommend adding this module to the available IM set before proceeding with detailed design."
+    },
+    "record": {
+      "assumptions": [
+        "On-site edge compute infrastructure is available and reliable.",
+        "Network bandwidth sufficient for sensor streaming (LiDAR ~10 Mbps, stereo ~5 Mbps).",
+        "Worksite safety plan defines the set of features to be modeled.",
+        "Vehicle sensors are calibrated and synchronized.",
+        "SLAM algorithm can achieve <0.5 m RMS error over typical worksite areas."
+      ],
+      "open_risks": [
+        "Network outage degrades model freshness; local cache provides fallback but may become stale.",
+        "SLAM drift over extended operations; loop closure detection and re-localization required.",
+        "Sensor calibration errors propagate to model; automated checks and manual verification needed.",
+        "Edge compute infrastructure not represented in available IM candidates; architectural gap.",
+        "Model query latency may exceed planning requirements if network is congested; SLA definition needed."
+      ],
+      "evidence_needed": [
+        "Network bandwidth and latency measurements for sensor streaming.",
+        "SLAM algorithm performance data (drift rate, loop closure success rate) for target worksite conditions.",
+        "Sensor calibration procedures and error budgets.",
+        "Model representation format specification and confidence/uncertainty encoding scheme.",
+        "Tasking and SafetyAlert interface schema definitions.",
+        "Edge compute hardware specifications and availability.",
+        "Worksite safety plan detailing required features and model fidelity."
+      ]
+    }
+  }
+}

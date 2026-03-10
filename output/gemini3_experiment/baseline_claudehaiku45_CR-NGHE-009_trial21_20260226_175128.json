@@ -1,0 +1,159 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation communication packet loss at or below the customer-defined threshold (acceptance criterion: ≤1% under agreed network conditions) to ensure safe and effective remote equipment operation.",
+    "rationale": "CR-NGHE-009 addresses a critical quality-of-service requirement for teleoperation. Packet loss directly impacts command latency, feedback fidelity, and operator situational awareness—all safety-critical factors in remote heavy equipment control. Refinement clarifies that the requirement is conditional on 'agreed network conditions' and ties acceptance to a measurable, customer-negotiated target rather than a fixed value.",
+    "verification_idea": "Conduct packet loss measurement under simulated and live network conditions (WiFi, cellular, hybrid) matching customer deployment scenarios. Measure end-to-end loss across the teleoperation link (operator console → vehicle → operator console). Acceptance: measured packet loss ≤ customer-defined limit for ≥95% of test runs.",
+    "sub_frs": [
+      "FR-NGHE-009.1: The teleoperation system shall implement error detection and recovery mechanisms to minimize packet loss impact on command execution.",
+      "FR-NGHE-009.2: The teleoperation system shall select and configure network protocols and codecs to achieve the target packet loss limit under agreed conditions.",
+      "FR-NGHE-009.3: The teleoperation system shall monitor and report real-time packet loss metrics to the operator and safety manager."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Implement adaptive bitrate encoding and forward error correction (FEC) in the teleoperation link to tolerate packet loss and maintain command/feedback fidelity.",
+      "DP-B: Deploy redundant communication paths (dual network interfaces, carrier diversity) with automatic failover to reduce single-point-of-failure packet loss.",
+      "DP-C: Use a hybrid approach combining protocol-level retransmission (TCP-like), FEC, and adaptive quality-of-service (QoS) prioritization for critical telemetry and tasking frames.",
+      "DP-D: Implement a lightweight, deterministic teleoperation protocol with built-in packet loss tolerance and operator-side command buffering to mask transient network degradation."
+    ],
+    "selected_dp": "DP-C: Use a hybrid approach combining protocol-level retransmission (TCP-like), FEC, and adaptive quality-of-service (QoS) prioritization for critical telemetry and tasking frames.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "DP-C couples teleoperation protocol design (retransmission logic) with network infrastructure (QoS configuration) and safety policy (frame prioritization rules). This is acceptable because teleoperation is inherently a cross-layer concern; however, the coupling must be managed via clear interface contracts (Telemetry, Tasking, SafetyAlert).",
+        "DP-C also couples with FR-NGHE-009.3 (monitoring/reporting), which requires instrumentation of the protocol layer. This is a logical dependency, not a design flaw."
+      ],
+      "notes": "DP-C is selected over DP-A (FEC alone is insufficient for high-loss scenarios), DP-B (redundancy adds cost and complexity without addressing protocol-level loss), and DP-D (deterministic protocols are harder to adapt to varying network conditions). DP-C balances robustness, adaptability, and cost."
+    },
+    "assumptions_risks": [
+      "Assumption: Customer-agreed network conditions are well-defined and stable (e.g., LTE coverage, WiFi RSSI range). Risk: If conditions are vague or highly variable, target packet loss may be unachievable.",
+      "Assumption: Retransmission overhead (latency increase) is acceptable for non-safety-critical telemetry. Risk: If latency becomes excessive (>500ms), operator control may degrade; safety-critical frames must bypass retransmission.",
+      "Assumption: QoS prioritization can be configured on customer network infrastructure. Risk: If customer network does not support QoS tagging, prioritization will fail.",
+      "Assumption: FEC overhead (bandwidth increase ~10–20%) is within customer's network budget. Risk: If bandwidth is severely constrained, FEC may not be deployable."
+    ],
+    "recommended_revision": "Refine DP-C to explicitly separate safety-critical frames (SafetyAlert, emergency stop commands) from best-effort telemetry. Safety-critical frames should use deterministic, low-latency delivery (no retransmission); best-effort frames use FEC + adaptive retransmission. This decoupling reduces risk of safety-critical latency inflation."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "The Teleoperation module owns the end-to-end teleoperation communication stack, including protocol logic (retransmission, FEC, QoS prioritization), codec selection, network interface abstraction, and packet loss monitoring. It interfaces with Vehicle (via Tasking and Telemetry) and Safety Services (via SafetyAlert). It abstracts the underlying Network Link."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Receives sensor telemetry from Vehicle (camera, LIDAR, IMU, position, load, etc.). Teleoperation module encodes, applies FEC, and transmits to operator console. Packet loss on this path is monitored and reported."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Receives operator commands from console, applies retransmission/FEC, and transmits to Vehicle. Tasking includes movement commands, tool actuation, and mode changes. Critical tasking frames are prioritized."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "Receives safety-critical alerts from Safety Services (e.g., geofence breach, emergency stop trigger). Teleoperation module ensures these are delivered with deterministic, low-latency guarantees (no retransmission delay). Also reports teleoperation link health (packet loss, latency) to Safety Services for safety decision-making."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Abstracts the underlying network (WiFi, cellular, hybrid). Teleoperation module configures QoS, monitors link quality, and triggers failover if needed. Network Link provides raw packet send/receive and link-state notifications."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "Teleoperation is the natural owner of the teleoperation protocol stack and packet loss mitigation logic. All DP-C components (retransmission, FEC, QoS prioritization) are cohesive and belong in this module. Minimal diffusion: only the Network Link abstraction is external."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 15,
+        "diffusion_score": 85,
+        "notes": "Vehicle is responsible for actuation and sensor acquisition, not communication protocol. Assigning DP-C to Vehicle would scatter protocol logic across vehicle firmware, creating high diffusion and maintenance burden."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Safety Services owns safety policy and decision logic, not communication protocol. While SafetyAlert delivery is safety-critical, the mechanism (retransmission, FEC) belongs in Teleoperation. Safety Services consumes the SafetyAlert interface."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 10,
+        "diffusion_score": 90,
+        "notes": "NGHE Solution is the top-level system container. Assigning DP-C here would bypass the Teleoperation module and create architectural incoherence. Teleoperation is the appropriate sub-module."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the sole owner of the teleoperation protocol stack and packet loss mitigation logic. It encapsulates retransmission, FEC, and QoS prioritization as internal implementation details. External interfaces (Telemetry, Tasking, SafetyAlert, Network Link) are well-defined and stable, enabling clear separation of concerns.",
+    "containment_risks": [
+      "Risk: If Network Link abstraction is poorly defined, Teleoperation may need to know low-level network details (e.g., specific WiFi driver APIs), increasing coupling and reducing portability.",
+      "Risk: If SafetyAlert delivery requirements change (e.g., new safety-critical frame types), Teleoperation's prioritization logic may need revision, creating a change propagation path to Safety Services.",
+      "Risk: If Vehicle's telemetry rate or Tasking command rate changes significantly, Teleoperation's FEC and retransmission parameters may need tuning, creating a dependency on Vehicle's design decisions."
+    ],
+    "recommended_revision": "Establish a formal Network Link interface specification (e.g., link quality metrics, QoS tagging API, failover triggers) to isolate Teleoperation from network-specific details. Define a SafetyAlert frame schema and delivery SLA (e.g., 'SafetyAlert frames must be delivered within 100ms with 99.99% reliability') to enable Teleoperation to implement deterministic delivery without coupling to Safety Services' internal logic."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid retransmission + FEC + QoS prioritization) directly addresses FR-NGHE-009 (packet loss ≤ customer-defined limit). The DP is implementable, testable, and aligns with industry best practices for teleoperation over lossy networks. No logical gaps or contradictions detected."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Moderate risk: QoS prioritization logic may require coordination with Network Link module (e.g., DSCP tagging, traffic shaping). If Network Link does not support QoS APIs, Teleoperation's DP cannot be fully realized.",
+        "Low risk: FEC and retransmission are self-contained within Teleoperation and do not diffuse to other modules."
+      ],
+      "containment_notes": "Teleoperation module cleanly contains the protocol logic. External dependencies (Network Link, Vehicle telemetry rate, Safety Services frame schema) are manageable via interface contracts. No evidence of poor architectural packaging."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. Packet loss can be measured directly via instrumentation of the Teleoperation module (frame counters, loss ratio calculation). Test scenarios can be designed to simulate customer network conditions (packet loss injection, latency variation). Acceptance criteria are quantitative and objective.",
+      "allocation_clarity": "Clear. Teleoperation module is responsible for achieving the packet loss target. Vehicle and Safety Services have supporting roles (providing telemetry, defining safety-critical frame priorities) but do not own the requirement."
+    },
+    "recommended_revisions": [
+      "Clarify the Network Link interface specification to ensure Teleoperation can configure QoS and monitor link quality without tight coupling.",
+      "Define a SafetyAlert delivery SLA (latency, reliability) to enable Teleoperation to implement deterministic delivery for safety-critical frames.",
+      "Establish a test plan that covers the full range of customer-agreed network conditions (WiFi, cellular, hybrid, varying loss rates) to validate DP-C effectiveness."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-NGHE-009 is not atomic; it decomposes into three sub-FRs (error detection/recovery, protocol/codec selection, monitoring/reporting). Each sub-FR requires further refinement and DP selection to ensure completeness and traceability. Proceeding to the next decomposition level is necessary to allocate design responsibility and verify that all aspects of packet loss mitigation are addressed.",
+    "next_level_sub_frs": [
+      "FR-NGHE-009.1: The teleoperation system shall implement error detection and recovery mechanisms to minimize packet loss impact on command execution.",
+      "FR-NGHE-009.2: The teleoperation system shall select and configure network protocols and codecs to achieve the target packet loss limit under agreed conditions.",
+      "FR-NGHE-009.3: The teleoperation system shall monitor and report real-time packet loss metrics to the operator and safety manager."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Customer-agreed network conditions are well-defined and stable (e.g., LTE coverage, WiFi RSSI range).",
+        "Retransmission overhead (latency increase) is acceptable for non-safety-critical telemetry; safety-critical frames bypass retransmission.",
+        "QoS prioritization can be configured on customer network infrastructure.",
+        "FEC overhead (~10–20% bandwidth increase) is within customer's network budget.",
+        "Network Link module provides a stable abstraction for QoS configuration and link quality monitoring.",
+        "SafetyAlert frame schema and delivery SLA are defined by Safety Services and communicated to Teleoperation."
+      ],
+      "open_risks": [
+        "If customer network conditions are vague or highly variable, target packet loss may be unachievable.",
+        "If Network Link abstraction is poorly defined, Teleoperation may become tightly coupled to network-specific details.",
+        "If SafetyAlert delivery requirements change, Teleoperation's prioritization logic may require revision.",
+        "If Vehicle's telemetry rate or Tasking command rate changes significantly, Teleoperation's FEC and retransmission parameters may need tuning.",
+        "High safety criticality of teleoperation requires rigorous validation of packet loss mitigation under worst-case network conditions."
+      ],
+      "evidence_needed": [
+        "Formal specification of customer-agreed network conditions (e.g., LTE coverage map, WiFi RSSI distribution, expected packet loss rates).",
+        "Network Link interface specification (QoS tagging API, link quality metrics, failover triggers).",
+        "SafetyAlert frame schema and delivery SLA (latency, reliability targets).",
+        "Vehicle telemetry rate and Tasking command rate specifications.",
+        "Test plan covering full range of network conditions and packet loss scenarios.",
+        "Validation results demonstrating packet loss ≤ customer-defined limit under agreed conditions.",
+        "Safety analysis (FMEA, FTA) addressing teleoperation link failure modes and mitigation effectiveness."
+      ]
+    }
+  }
+}

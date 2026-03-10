@@ -1,0 +1,162 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current equipment state, environmental conditions, and operational events with a p95 latency not exceeding the customer-defined target (baseline 1.0 s) across all supported update scenarios.",
+    "rationale": "CR-NGHE-007 requires clarification of scope (what constitutes 'worksite model'), measurement basis (p95 latency across which scenarios), and customer-specific acceptance criteria. The refined FR explicitly bounds the latency requirement to a statistical percentile and acknowledges customer tailoring, enabling testable acceptance.",
+    "verification_idea": "Instrument worksite model update pipeline with end-to-end latency telemetry; measure p95 latency across representative scenarios (equipment state change, sensor event, tele-operator command, safety alert); compare against customer-defined SLA.",
+    "sub_frs": [
+      "FR-007-A: Capture and transmit equipment state changes (position, orientation, operational mode) with minimal local processing delay.",
+      "FR-007-B: Receive and integrate state updates into the worksite model with bounded processing and storage latency.",
+      "FR-007-C: Distribute updated worksite model to authorized consumers (Site Manager, Tele-operator, Safety Services) within latency budget.",
+      "FR-007-D: Monitor and report worksite model update latency performance against SLA; trigger alerts if p95 exceeds threshold."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-007-A: Distributed event-driven architecture with local state capture on Vehicle, asynchronous publish-subscribe model update via Network Link, and centralized worksite model store in NGHE Solution with change notification to subscribers.",
+      "DP-007-B: Synchronous request-response polling model where Vehicle periodically sends state snapshots to NGHE Solution, which updates worksite model and broadcasts to consumers on fixed interval.",
+      "DP-007-C: Hybrid push-pull with Vehicle pushing critical state changes (safety-relevant) synchronously and non-critical updates asynchronously; NGHE Solution maintains dual-mode update pipeline with priority queuing."
+    ],
+    "selected_dp": "DP-007-A: Distributed event-driven architecture with local state capture on Vehicle, asynchronous publish-subscribe model update via Network Link, and centralized worksite model store in NGHE Solution with change notification to subscribers.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between Vehicle state capture timing and Network Link transmission reliability (mitigated by local buffering and retry logic).",
+        "Coupling between NGHE Solution worksite model update rate and Teleoperation consumer responsiveness (mitigated by asynchronous notification and consumer-side caching).",
+        "Coupling between Safety Services alert generation and worksite model freshness (acceptable: Safety Services can operate on cached model with explicit staleness bounds)."
+      ],
+      "notes": "Event-driven architecture decouples producers (Vehicle) from consumers (Teleoperation, Safety Services) via Network Link and NGHE Solution broker. Latency is dominated by network transit and model store write latency, both measurable and tunable. No circular dependencies detected."
+    },
+    "assumptions_risks": [
+      "Assumption: Network Link provides reliable, ordered delivery with bounded latency (p95 < 500 ms). Risk: If network is lossy or congested, event loss or reordering could cause worksite model inconsistency. Mitigation: Implement sequence numbering, deduplication, and out-of-order recovery in NGHE Solution.",
+      "Assumption: Vehicle can capture state changes with sub-100 ms granularity. Risk: If Vehicle hardware or firmware has coarser update cycles, effective latency will exceed target. Mitigation: Characterize Vehicle state capture timing early; adjust SLA if needed.",
+      "Assumption: NGHE Solution worksite model store (database or in-memory cache) can sustain write throughput and query latency for p95 < 1.0 s end-to-end. Risk: If store becomes bottleneck, latency will degrade. Mitigation: Prototype with expected update frequency; consider sharding or caching strategies.",
+      "Assumption: Safety criticality (high) does not require synchronous confirmation of model updates before operator action. Risk: If safety policy mandates synchronous acknowledgment, DP-007-A may not be compliant. Mitigation: Engage Safety Manager early to clarify safety-critical update requirements."
+    ],
+    "recommended_revision": "Refine DP-007-A to explicitly specify: (1) Network Link protocol and expected latency distribution; (2) NGHE Solution worksite model store technology and write/query SLA; (3) Fallback behavior if Network Link latency exceeds budget (e.g., operator warning, model staleness indicator); (4) Safety-critical vs. non-critical update paths (if required by Safety Manager)."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "Centralized worksite model store, event broker, and model update orchestration. Receives state change events from Vehicle via Network Link; maintains authoritative worksite model; publishes updates to Teleoperation and Safety Services consumers. Owns latency SLA for model update pipeline."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Vehicle transmits equipment state changes (position, orientation, operational mode, sensor readings) as events via Network Link to NGHE Solution. Telemetry events trigger worksite model updates."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "NGHE Solution distributes updated worksite model snapshots or change notifications to Teleoperation module for operator situational awareness and command planning."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "NGHE Solution provides current worksite model state to Safety Services for hazard detection and alert generation. Safety Services consumes model updates to maintain real-time safety assessment."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "NGHE Solution communicates with Vehicle via Network Link for bidirectional state synchronization and command/response. Network Link carries Telemetry inbound and Tasking outbound."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "NGHE Solution is the natural owner of centralized worksite model store and update orchestration. Latency SLA is end-to-end from Vehicle state capture to consumer notification, which spans Vehicle (capture), Network Link (transit), and NGHE Solution (store + distribution). NGHE Solution owns the store and distribution logic; Vehicle and Network Link are external dependencies. Minimal diffusion: worksite model logic is cohesive and localized to NGHE Solution."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 30,
+        "diffusion_score": 70,
+        "notes": "Vehicle captures state changes but does not own worksite model store or consumer distribution. Assigning IM to Vehicle would scatter model update logic across Vehicle (capture) and NGHE Solution (store), violating cohesion. Vehicle is a producer, not the orchestrator."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Teleoperation is a consumer of worksite model updates, not the owner. Assigning IM to Teleoperation would couple model store logic to operator interface, reducing reusability for other consumers (Safety Services). High diffusion risk."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 25,
+        "diffusion_score": 75,
+        "notes": "Safety Services is a consumer of worksite model updates for hazard detection. Assigning IM to Safety Services would couple model store to safety-specific logic, reducing generality. Safety Services should consume model updates, not own the store."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "NGHE Solution is the single, cohesive owner of worksite model update latency. It owns the centralized model store, event broker, and distribution logic. Vehicle and Network Link are external dependencies that NGHE Solution orchestrates. Teleoperation and Safety Services are external consumers that subscribe to model updates. This assignment minimizes diffusion and maximizes cohesion.",
+    "containment_risks": [
+      "Risk: If NGHE Solution worksite model store becomes a performance bottleneck, latency SLA may be unachievable. Mitigation: Prototype store technology (e.g., in-memory cache, distributed database) early; measure write and query latency under expected load.",
+      "Risk: If Network Link latency is unpredictable or exceeds budget, NGHE Solution cannot meet SLA despite correct internal logic. Mitigation: Establish Network Link latency SLA as a prerequisite; monitor and report network contribution to end-to-end latency.",
+      "Risk: If Vehicle state capture is coarse-grained or delayed, worksite model will lag reality. Mitigation: Characterize Vehicle state capture timing; adjust SLA or DP if needed.",
+      "Risk: If Safety Services requires synchronous confirmation of safety-critical updates, asynchronous event-driven DP may not be compliant. Mitigation: Engage Safety Manager to clarify safety-critical update requirements; consider dual-path DP (synchronous for safety-critical, asynchronous for non-critical)."
+    ],
+    "recommended_revision": "Clarify NGHE Solution's internal architecture for worksite model store: (1) Technology choice (in-memory cache, distributed database, event log); (2) Write and query latency SLA; (3) Consistency model (eventual vs. strong); (4) Fallback behavior if store latency exceeds budget. Establish explicit latency budgets for Vehicle capture, Network Link transit, and NGHE Solution processing. Define safety-critical vs. non-critical update paths in coordination with Safety Manager."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-007-A (event-driven architecture) directly addresses FR-007 (worksite model update latency). The DP specifies a clear mechanism: local state capture on Vehicle, asynchronous transmission via Network Link, centralized model store in NGHE Solution, and change notification to consumers. This DP is traceable to the FR and enables latency measurement and tuning. No logical gaps or contradictions detected."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Diffusion Risk: DP-007-A spans three modules (Vehicle, Network Link, NGHE Solution). NGHE Solution owns the model store and distribution logic, but Vehicle and Network Link are external dependencies. If Vehicle state capture or Network Link latency is not controlled, NGHE Solution cannot meet SLA. Mitigation: Establish explicit latency budgets for Vehicle and Network Link; monitor and report their contributions to end-to-end latency.",
+        "Diffusion Risk: If Safety Services requires synchronous confirmation of safety-critical updates, the asynchronous event-driven DP may require a secondary synchronous path. This could introduce complexity and dual-path logic. Mitigation: Clarify safety-critical update requirements with Safety Manager; consider hybrid DP if needed."
+      ],
+      "containment_notes": "NGHE Solution is the cohesive owner of worksite model update orchestration. Latency SLA is end-to-end, but NGHE Solution owns the critical path (model store and distribution). Vehicle and Network Link are external dependencies with their own latency budgets. This assignment is sound: NGHE Solution is responsible for its portion of the latency SLA and for monitoring external dependencies."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible: instrument the worksite model update pipeline with end-to-end latency telemetry; measure p95 latency across representative scenarios; compare against customer-defined SLA. NGHE Solution can expose latency metrics (e.g., model store write latency, event broker latency, consumer notification latency) for diagnosis and tuning.",
+      "allocation_clarity": "Allocation is clear: NGHE Solution owns the worksite model update latency SLA. Vehicle and Network Link have prerequisite latency budgets that NGHE Solution depends on. Teleoperation and Safety Services are consumers that depend on NGHE Solution's model update latency. Ownership boundaries and dependencies are explicit."
+    },
+    "recommended_revisions": [
+      "Establish explicit latency budgets for Vehicle state capture, Network Link transit, and NGHE Solution processing. Allocate the 1.0 s p95 SLA across these components (e.g., Vehicle 100 ms, Network Link 300 ms, NGHE Solution 600 ms). Document assumptions and rationale.",
+      "Clarify safety-critical vs. non-critical update requirements with Safety Manager. If safety-critical updates require synchronous confirmation, refine DP-007-A to include a secondary synchronous path for safety-critical events.",
+      "Prototype NGHE Solution worksite model store with expected update frequency and query patterns. Measure write and query latency; validate that store can sustain p95 < 600 ms (or allocated budget).",
+      "Define fallback behavior if worksite model update latency exceeds SLA (e.g., operator warning, model staleness indicator, graceful degradation). Ensure Safety Services can operate safely with stale model data."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-007 is not atomic; it decomposes into four sub-FRs (state capture, model integration, distribution, monitoring). DP-007-A is sound and traceable to FR-007, but it spans multiple modules (Vehicle, Network Link, NGHE Solution) with latency dependencies that require further refinement. NGHE Solution is the correct IM owner, but its internal architecture (model store technology, write/query latency, consistency model) must be decomposed to ensure SLA achievability. Proceed to next decomposition level for sub-FRs and internal DP details.",
+    "next_level_sub_frs": [
+      "FR-007-A: Capture and transmit equipment state changes (position, orientation, operational mode) with minimal local processing delay (Vehicle responsibility).",
+      "FR-007-B: Receive and integrate state updates into the worksite model with bounded processing and storage latency (NGHE Solution responsibility).",
+      "FR-007-C: Distribute updated worksite model to authorized consumers (Site Manager, Tele-operator, Safety Services) within latency budget (NGHE Solution responsibility).",
+      "FR-007-D: Monitor and report worksite model update latency performance against SLA; trigger alerts if p95 exceeds threshold (NGHE Solution responsibility)."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Network Link provides reliable, ordered delivery with bounded latency (p95 < 500 ms).",
+        "Vehicle can capture state changes with sub-100 ms granularity.",
+        "NGHE Solution worksite model store can sustain write throughput and query latency for p95 < 600 ms (allocated budget).",
+        "Safety criticality (high) does not require synchronous confirmation of model updates before operator action (to be validated with Safety Manager).",
+        "Customer-defined latency target is 1.0 s p95 (baseline; subject to tailoring).",
+        "Worksite model includes equipment state, environmental conditions, and operational events (scope to be clarified with Site Manager)."
+      ],
+      "open_risks": [
+        "Network Link latency unpredictability or congestion could cause worksite model update latency to exceed SLA.",
+        "Vehicle state capture coarse-grained or delayed, causing worksite model to lag reality.",
+        "NGHE Solution worksite model store becomes performance bottleneck under expected load.",
+        "Safety Services requires synchronous confirmation of safety-critical updates, incompatible with asynchronous event-driven DP.",
+        "Worksite model consistency issues (e.g., out-of-order updates, duplicate events) could cause operator confusion or safety hazards."
+      ],
+      "evidence_needed": [
+        "Network Link latency characterization (p50, p95, p99) under expected load.",
+        "Vehicle state capture timing and granularity specification.",
+        "NGHE Solution worksite model store prototype with latency measurements under expected update frequency.",
+        "Safety Manager clarification on safety-critical vs. non-critical update requirements and synchronous confirmation needs.",
+        "Customer acceptance criteria for worksite model update latency (baseline 1.0 s p95 or tailored target).",
+        "Worksite model scope and content specification (equipment state, environmental conditions, operational events)."
+      ]
+    }
+  }
+}

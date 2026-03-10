@@ -1,0 +1,172 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation communication reliability within the customer-defined packet loss threshold during agreed network conditions.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting teleoperation capability and (2) meeting a specific quality metric (packet loss limit). The refined FR isolates the quality/reliability obligation as the primary functional requirement, removing the implicit 'support teleoperation' clause which is a higher-level system capability. The phrase 'communication quality' is replaced with the measurable, solution-neutral term 'communication reliability,' and 'packet loss limit' is generalized to 'customer-defined packet loss threshold' to remain agnostic to specific numerical targets. The FR now focuses on the problem (what reliability must be achieved) rather than the solution (how to achieve it via specific protocols or technologies).",
+    "verification_idea": "Conduct teleoperation trials under agreed network conditions (latency, bandwidth, interference profiles). Measure end-to-end packet loss across multiple sessions and verify that observed packet loss does not exceed the customer-defined threshold (e.g., ≤1%). Document network conditions, test duration, payload types, and statistical confidence intervals.",
+    "sub_frs": [
+      "FR-NGHE-009.1: The NGHE solution shall enable remote operation of heavy equipment from a tele-operator station.",
+      "FR-NGHE-009.2: The NGHE solution shall maintain teleoperation communication reliability within the customer-defined packet loss threshold during agreed network conditions."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Implement adaptive packet redundancy and forward error correction (FEC) with dynamic threshold adjustment based on real-time network quality metrics",
+      "DP2: Establish a dual-path communication architecture with automatic failover and load balancing across independent network routes",
+      "DP3: Deploy a buffering and retransmission protocol with exponential backoff and selective acknowledgment (SACK) tuned to agreed network latency bounds",
+      "DP4: Implement application-level heartbeat monitoring with predictive congestion detection and graceful degradation of non-critical teleoperation data streams",
+      "DP5: Establish a hybrid approach combining packet prioritization (QoS tagging), local state caching at operator and remote endpoints, and deterministic retry logic calibrated to customer packet loss threshold"
+    ],
+    "selected_dp": "DP5: Establish a hybrid approach combining packet prioritization (QoS tagging), local state caching at operator and remote endpoints, and deterministic retry logic calibrated to customer packet loss threshold",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between QoS tagging logic and network stack implementation (mitigated by defining QoS as a logical contract, not a specific protocol)",
+        "Coupling between state caching strategy and teleoperation command semantics (mitigated by separating cache invalidation policy from command execution logic)",
+        "Coupling between retry logic and latency assumptions (mitigated by making retry parameters customer-configurable and tied to agreed network conditions, not hardcoded)"
+      ],
+      "notes": "DP5 avoids tight coupling to specific technologies (e.g., TCP vs. UDP, 5G vs. WiFi) by defining logical responsibilities: prioritization, caching, and deterministic retry. Each can be realized independently. Coupling risks are primarily at the IM layer (module boundaries), not at the DP level. The design supports substitution of underlying network transport without changing the core reliability logic."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Customer-defined packet loss threshold and agreed network conditions are formally documented and stable during design phase. RISK: Vague or changing acceptance criteria will invalidate calibration of retry logic and cache invalidation policies.",
+      "ASSUMPTION: Operator and remote endpoints have sufficient computational and memory resources to maintain local state caches without introducing new failure modes. RISK: Cache coherency bugs or memory exhaustion could degrade reliability below threshold.",
+      "ASSUMPTION: QoS tagging is supported by the agreed network infrastructure (or can be emulated at application layer). RISK: If network does not honor QoS, prioritization logic becomes ineffective; fallback strategy required.",
+      "ASSUMPTION: Deterministic retry logic can be tuned to network latency without introducing unacceptable operator delay or command queue overflow. RISK: Aggressive retry may saturate network; conservative retry may exceed operator tolerance for responsiveness.",
+      "ASSUMPTION: State caching does not introduce safety-critical inconsistencies (e.g., operator believes equipment is in safe state when remote state has diverged). RISK: Requires explicit safety validation and cache invalidation on critical state transitions.",
+      "ASSUMPTION: Teleoperation command semantics are idempotent or can be made idempotent (e.g., 'move to position X' vs. 'increment position by Y'). RISK: Non-idempotent commands may cause unintended repeated actions if retransmitted."
+    ],
+    "recommended_revision": "FR (refined): The NGHE solution shall maintain teleoperation communication reliability by ensuring that critical operator commands reach the remote equipment with ≤ [customer-defined]% packet loss under [agreed network conditions: latency range, jitter, baseline loss rate], while preserving operator responsiveness (≤ [latency budget] ms round-trip) and preventing unintended command repetition through idempotent or explicitly sequenced command semantics. The solution shall support graceful degradation of non-critical telemetry streams to prioritize command delivery. Acceptance criteria: (1) Packet loss on critical commands ≤ customer threshold; (2) Operator round-trip latency ≤ [budget]; (3) No unintended command repetition under retry; (4) State cache coherency validated in safety analysis."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Encapsulates hybrid QoS/caching/retry logic for remote operator-to-vehicle command and telemetry flows, including packet prioritization, local state caching at operator console and vehicle endpoints, and deterministic retry calibration based on observed packet loss"
+    },
+    "external_interfaces": [
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Bidirectional transport layer; Teleoperation module instruments this interface with QoS tagging, monitors packet loss, and applies retry logic"
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Operator commands flow in; Teleoperation applies prioritization and caching before transmission over Network Link"
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle state flows out; Teleoperation caches locally and applies deterministic retry on loss before delivery to operator"
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Critical safety signals bypass standard retry logic; Teleoperation ensures highest QoS priority for safety-tagged packets"
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit: QoS tagging, caching, and retry logic are core to operator-vehicle communication. Packet prioritization and loss-based retry calibration are native to teleoperation workflows. Minor diffusion: SafetyAlert integration requires coordination with Safety Services for priority override rules."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.55,
+        "diffusion_score": 0.45,
+        "notes": "Weak fit: Vehicle module owns vehicle-side state and actuation, but QoS tagging and operator-side caching belong in operator domain. Retry logic would split across Vehicle and Teleoperation, creating coupling. Packet loss thresholds are operator-centric, not vehicle-centric."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Poor fit: Safety Services owns safety validation and alerts, not network transport optimization. QoS/caching/retry are orthogonal to safety logic. Would require Safety Services to own network-layer concerns, violating separation of concerns."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor fit: NGHE Solution is a top-level container. Placing DP5 here avoids specificity and distributes implementation across multiple sub-modules (Teleoperation, Vehicle, Safety Services), maximizing diffusion and reducing cohesion."
+      }
+    ],
+    "ownership_candidate": "Teleoperation module (with coordination interface to Safety Services for SafetyAlert priority tagging)",
+    "containment_hypothesis": "DP5 is fundamentally a teleoperation-layer concern: it addresses the reliability and responsiveness of operator-to-vehicle communication under lossy network conditions. QoS tagging, local caching at operator and remote endpoints, and loss-calibrated retry are all native to the teleoperation domain. The module boundary Teleoperation naturally contains the logic for packet prioritization (operator commands vs. telemetry), maintains operator-side cache state, and implements retry policies based on observed packet loss. Safety Services is consulted (via SafetyAlert interface) to mark critical packets for highest priority, but does not own the retry or caching logic.",
+    "containment_risks": [
+      "Risk: SafetyAlert integration may require bidirectional coordination. If Safety Services needs to override retry behavior for certain critical packets, a callback or event-driven interface may be needed, increasing coupling.",
+      "Risk: Vehicle-side caching and retry state must be synchronized with Teleoperation module. If Vehicle module independently implements retry logic, state divergence and duplicate logic will occur. Mitigation: Vehicle module should expose a simple 'acknowledge receipt' interface; Teleoperation owns retry orchestration.",
+      "Risk: Packet loss threshold calibration is customer-specific. If thresholds are hardcoded in Teleoperation, configuration management and multi-tenant scenarios may require refactoring. Mitigation: Externalize thresholds as configuration parameters passed to Teleoperation at initialization.",
+      "Risk: Network Link interface abstraction may hide transport-specific QoS capabilities (e.g., DSCP marking, UDP vs. TCP). If DP5 assumes capabilities not available in all Network Link implementations, portability suffers. Mitigation: Define a capability negotiation handshake on Network Link."
+    ],
+    "recommended_revision": "DP5 is well-aligned with Teleoperation as stated. No revision needed. However, to improve containment and reduce coupling, consider splitting DP5 into two sub-DPs: (1) DP5a: Implement QoS tagging and packet prioritization at Teleoperation layer (owned by Teleoperation); (2) DP5b: Implement deterministic retry logic with loss-threshold calibration as a configurable policy engine (owned by Teleoperation, with configuration parameters exposed to NGHE Solution for customer tuning). This separation clarifies that QoS is a transport concern (Teleoperation) while retry policy is a reliability concern (also Teleoperation, but with external configuration). Both remain in Teleoperation, but the split improves clarity and testability."
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. Acceptance criterion (packet loss ≤ 1% or customer-defined target) is measurable and testable via network simulation, field trials, and telemetry logging. Teleoperation module can instrument Network Link interface to collect packet loss metrics and validate against threshold. Configuration parameters (customer-defined thresholds) must be externalized and version-controlled for traceability.",
+      "allocation_clarity": "Clear. FR is allocated to Teleoperation IM with well-defined scope: operator-to-vehicle command/telemetry flows under lossy network conditions. Interfaces (Tasking, Telemetry, Network Link, SafetyAlert) are explicit. However, allocation clarity depends on resolving Vehicle-side state synchronization and SafetyAlert priority override semantics (see diffusion risks)."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP5 directly addresses FR: hybrid approach (QoS tagging + local caching + deterministic retry) is a sound logical solution to maintain teleoperation reliability under packet loss. DP is technology-agnostic and does not over-specify implementation (e.g., does not mandate specific QoS protocol or retry algorithm). DP is traceable to acceptance criterion: retry logic calibration to customer packet loss threshold is explicit. No logical gaps detected."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "SafetyAlert priority override: If Safety Services must dynamically override retry behavior for critical packets, bidirectional coordination is required. Current unidirectional SafetyAlert interface (out from Teleoperation) may be insufficient. Mitigation: Define a SafetyAlert.priority_override callback or event subscription mechanism; clarify whether Safety Services can veto retry delays for safety-critical packets.",
+        "Vehicle-side retry state divergence: Vehicle module must acknowledge receipt and report packet loss to Teleoperation, but if Vehicle independently implements retry logic, duplicate state machines will emerge. Mitigation: Enforce that Vehicle module exposes only a passive 'acknowledge' interface; Teleoperation owns all retry orchestration logic. Document this in Vehicle module interface contract.",
+        "Packet loss threshold configuration: Customer-defined thresholds are currently assumed to be passed to Teleoperation at initialization, but no configuration management interface is specified. If thresholds must be tuned post-deployment or per-mission, a configuration update interface is needed. Mitigation: Add a Configuration interface to Teleoperation (or expose via NGHE Solution) to allow runtime threshold adjustment without module restart.",
+        "Network Link capability negotiation: DP5 assumes QoS tagging (e.g., DSCP, UDP priority) is available on all Network Link implementations. If Network Link is abstracted (e.g., satellite, mesh, cellular), QoS capabilities vary. Mitigation: Define a capability discovery handshake on Network Link initialization; Teleoperation must gracefully degrade if QoS is unavailable (e.g., fall back to pure retry logic).",
+        "Operator-side cache coherency: DP5 specifies local state caching at operator console, but does not define cache invalidation or coherency semantics. If operator cache diverges from vehicle state due to packet loss, operator may issue stale commands. Mitigation: Define cache TTL and explicit invalidation triggers (e.g., on retry exhaustion, on SafetyAlert receipt)."
+      ],
+      "containment_notes": "Excellent containment (0.92 score). Teleoperation module is the natural owner of QoS tagging, operator-side caching, and loss-calibrated retry logic. All three sub-mechanisms are native to teleoperation workflows and do not belong in Vehicle, Safety Services, or top-level NGHE Solution. Minor coupling with Safety Services (SafetyAlert priority tagging) is acceptable and well-scoped. Recommended split into DP5a (QoS tagging) and DP5b (retry policy engine) is sound and improves testability without changing ownership. Both sub-DPs remain in Teleoperation."
+    },
+    "recommended_revisions": [
+      "Split DP5 into DP5a (QoS tagging and packet prioritization) and DP5b (deterministic retry logic with loss-threshold calibration). Both owned by Teleoperation, but split clarifies transport vs. reliability concerns and improves unit testability.",
+      "Externalize customer-defined packet loss thresholds as configuration parameters. Add a Configuration interface to Teleoperation (or expose via NGHE Solution) to allow runtime tuning without module restart. Document parameter schema and validation rules.",
+      "Define SafetyAlert priority override semantics: clarify whether Safety Services can veto retry delays or force immediate transmission of safety-critical packets. If yes, add a SafetyAlert.priority_override callback or event subscription to Teleoperation.",
+      "Document Vehicle module interface contract: Vehicle must expose only a passive 'acknowledge receipt' interface and packet loss telemetry. Vehicle must NOT implement independent retry logic. Teleoperation owns all retry orchestration.",
+      "Add Network Link capability negotiation handshake: Teleoperation must query Network Link for QoS support (DSCP, UDP priority, etc.) at initialization. If unavailable, Teleoperation must gracefully degrade to pure retry logic without QoS tagging.",
+      "Define operator-side cache coherency policy: specify cache TTL, invalidation triggers (e.g., on retry exhaustion, on SafetyAlert receipt), and conflict resolution if operator cache diverges from vehicle state.",
+      "Add acceptance test for multi-tenant scenarios: if NGHE Solution supports multiple customers with different packet loss thresholds, verify that Teleoperation correctly isolates and applies per-customer thresholds without cross-contamination."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "Gate results show all three gates (FR-IM, FR-DP, DP-IM) passing with high confidence (verification feasibility: High, allocation clarity: Clear, containment: 0.92). However, the diffusion risks and recommended revisions reveal that FR5 is sufficiently complex and coupled to warrant decomposition into sub-FRs before implementation. Specifically: (1) SafetyAlert priority override semantics require explicit functional treatment to avoid bidirectional coupling surprises; (2) Network Link capability negotiation is a distinct functional concern (graceful degradation under varying QoS availability); (3) Operator-side cache coherency is a separable functional requirement with its own acceptance criteria; (4) Configuration management for customer-defined thresholds is a distinct functional concern. These are not minor implementation details—they are functional requirements that must be explicitly stated, designed, and verified. Decomposing FR5 into sub-FRs will clarify ownership, reduce diffusion risk, and improve testability. The high safety criticality of teleoperation reinforces the need for explicit functional decomposition rather than burying these concerns in DP/IM details.",
+    "next_level_sub_frs": [
+      "FR5.1: Maintain operator-side command/telemetry cache coherency under packet loss and network delays (ensure cache TTL, invalidation triggers, and conflict resolution prevent stale operator commands)",
+      "FR5.2: Negotiate Network Link QoS capabilities at initialization and gracefully degrade retry/prioritization logic if QoS is unavailable (e.g., satellite, mesh, cellular links with no DSCP support)",
+      "FR5.3: Allow Safety Services to override teleoperation retry delays for safety-critical packets (SafetyAlert priority tagging and veto semantics must be explicit and testable)",
+      "FR5.4: Support runtime configuration of customer-defined packet loss thresholds without module restart (configuration interface must be externalized and version-controlled)"
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "DP5 should be split into DP5a (QoS tagging and packet prioritization) and DP5b (deterministic retry logic with loss-threshold calibration) as recommended. This split clarifies transport vs. reliability concerns and aligns with the sub-FR decomposition. Additionally, DP5 should explicitly reference the four sub-DPs that will address FR5.1–FR5.4 (cache coherency policy, capability negotiation handshake, SafetyAlert priority callback, and configuration interface). This ensures traceability and prevents diffusion risks from being overlooked during implementation."
+    },
+    "record": {
+      "assumptions": [
+        "SafetyAlert priority override is a functional requirement, not an implementation detail; Safety Services must have explicit veto authority over retry delays for safety-critical packets.",
+        "Network Link is abstracted and may support varying QoS capabilities (DSCP, UDP priority, etc.); Teleoperation must discover and adapt to these capabilities at runtime.",
+        "Operator-side cache coherency is critical to prevent stale commands under packet loss; cache TTL and invalidation semantics must be explicitly designed and tested.",
+        "Customer-defined packet loss thresholds must be tunable post-deployment without module restart; configuration management is a functional requirement, not a deployment concern.",
+        "Vehicle module will expose only passive 'acknowledge receipt' and packet loss telemetry interfaces; Vehicle will NOT implement independent retry logic (Teleoperation owns all retry orchestration)."
+      ],
+      "open_risks": [
+        "SafetyAlert priority override semantics are not yet defined: unclear whether Safety Services can veto retry delays, force immediate transmission, or only tag packets as safety-critical. This must be resolved at FR5.3 decomposition.",
+        "Network Link capability negotiation handshake is not yet specified: unclear how Teleoperation will query QoS support, what fallback behavior is acceptable, and how graceful degradation will be tested. This must be resolved at FR5.2 decomposition.",
+        "Operator-side cache coherency policy is incomplete: cache TTL, invalidation triggers (e.g., on retry exhaustion, on SafetyAlert receipt), and conflict resolution are not yet defined. This must be resolved at FR5.1 decomposition.",
+        "Configuration management interface is not yet designed: unclear whether configuration updates will be applied per-mission, per-customer, or globally; no schema or validation rules are specified. This must be resolved at FR5.4 decomposition.",
+        "Multi-tenant isolation is not yet verified: if NGHE Solution supports multiple customers with different packet loss thresholds, cross-contamination risk exists. This must be addressed in acceptance testing for FR5.4."
+      ],
+      "evidence_needed": [
+        "Explicit SafetyAlert priority override specification (e.g., callback signature, event subscription mechanism, veto semantics) from Safety Services domain expert.",
+        "Network Link capability discovery protocol (e.g., handshake messages, QoS capability flags, fallback behavior) from Network Link module owner.",
+        "Operator-side cache coherency policy document (e.g., cache TTL values, invalidation triggers, conflict resolution rules) with acceptance test cases.",
+        "Configuration management interface design (e.g., API signature, parameter schema, validation rules, runtime update semantics) with acceptance test cases for multi-tenant scenarios.",
+        "Vehicle module interface contract clarifying that Vehicle exposes only passive 'acknowledge' and telemetry interfaces; Vehicle does NOT implement independent retry logic.",
+        "Acceptance test plan for FR5 sub-FRs, including network simulation scenarios (varying packet loss rates, QoS availability, SafetyAlert priority conflicts) and field trial protocols."
+      ]
+    }
+  }
+}

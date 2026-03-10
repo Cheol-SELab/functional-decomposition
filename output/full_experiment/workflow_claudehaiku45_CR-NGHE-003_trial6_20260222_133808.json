@@ -1,0 +1,169 @@
+{
+  "refined_fr": {
+    "refined_fr": "Enable measurement and reporting of energy consumption per unit of work output to support evaluation against customer-defined energy efficiency targets.",
+    "rationale": "The original FR conflates two distinct obligations: (1) the capability to measure/report energy efficiency metrics, and (2) the achievement of a specific target value. The refined FR focuses on the functional requirement—providing visibility and traceability of energy performance—which is solution-neutral and within system control. Achievement of the target is a verification criterion (acceptance), not a functional requirement. The refined FR is atomic: it describes a single, measurable capability without 'and'/'or' conjunctions.",
+    "verification_idea": "Demonstrate that the system can continuously or periodically measure energy_used (kWh or equivalent) and work_output (tons moved or equivalent unit), compute energy_per_ton, log the result with timestamp and operational context, and present the metric to authorized stakeholders (Site Manager, Safety Manager, Maintenance) via a defined interface (dashboard, report, API). Verify that reported values are traceable to source sensors and calculation logic.",
+    "sub_frs": [
+      "Acquire and log energy consumption data from all active subsystems during operation.",
+      "Acquire and log work output (mass moved, distance, or equivalent) during operation.",
+      "Calculate energy efficiency metric (energy per unit output) from logged data.",
+      "Store and retrieve energy efficiency records with operational context (date, time, equipment state, operator, site).",
+      "Present energy efficiency metrics to authorized stakeholders in a defined format."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Continuous dual-channel measurement (energy input + work output) with independent acquisition, buffering, and post-processing to compute efficiency ratio",
+      "DP2: Real-time energy and work metering with embedded ratio calculation and periodic reporting to external evaluation system",
+      "DP3: Passive energy/work logging via instrumentation with centralized batch processing and efficiency computation",
+      "DP4: Hybrid approach—continuous energy measurement with event-driven work quantification, decoupled via message queue, enabling asynchronous efficiency reporting"
+    ],
+    "selected_dp": "DP4: Hybrid approach—continuous energy measurement with event-driven work quantification, decoupled via message queue, enabling asynchronous efficiency reporting",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Energy measurement module and work quantification module remain logically independent; message queue decouples timing and failure modes",
+        "Efficiency computation (ratio calculation) is isolated from measurement acquisition, reducing risk of measurement interference",
+        "Reporting module can be updated or replaced without affecting measurement or work-tracking logic",
+        "Risk: If message queue is not properly isolated, loss of work events could corrupt efficiency ratio; mitigation: implement acknowledgment and replay capability"
+      ],
+      "notes": "DP4 avoids tight coupling present in DP2 (embedded ratio calculation creates shared state) and DP1 (post-processing dependency on both channels being synchronized). DP3 is passive and introduces latency unsuitable for real-time evaluation. DP4 allows energy and work to be measured at their natural frequencies without forcing artificial synchronization."
+    },
+    "assumptions_risks": [
+      "Assumption: Work output can be quantified as discrete events (e.g., 'ton moved') or continuous signal; if work is ambiguous or multi-modal, DP4 may require clarification of work definition before implementation.",
+      "Risk: Message queue failure or event loss could lead to incomplete efficiency reporting; mitigation required: durable queue with replay and reconciliation logic.",
+      "Risk: Clock skew between energy and work measurement systems could introduce systematic bias in efficiency ratio; mitigation: synchronized time source or post-hoc alignment in reporting module.",
+      "Assumption: Evaluation period is known and fixed; if dynamic or rolling-window evaluation is required, reporting module must support windowing logic.",
+      "Risk: Acceptance criterion `energy_per_ton ≤ E_target` assumes linear relationship; if efficiency varies nonlinearly with load or operating conditions, acceptance test may be insufficient; recommend stratified analysis by operating mode."
+    ],
+    "recommended_revision": "Refine FR to explicitly state: (1) temporal granularity of efficiency reporting (e.g., per-shift, per-day, continuous); (2) definition of 'work output' (discrete events vs. continuous signal, units, measurement method); (3) acceptable latency between work completion and efficiency reporting; (4) handling of partial or failed work cycles. These clarifications will enable DP4 to be decomposed into independent FR→DP→IM chains for energy acquisition, work quantification, and efficiency reporting, each with clear ownership and testability."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "Encapsulates continuous energy measurement hardware/firmware, event-driven work quantification logic, internal message queue for decoupling, and asynchronous efficiency reporting pipeline"
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle exports efficiency metrics and energy consumption data to external telemetry consumers (NGHE Solution, monitoring systems)"
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives work commands/task definitions that trigger event-driven work quantification logic"
+      },
+      {
+        "name": "Network Link",
+        "direction": "out",
+        "details": "Vehicle uses network link to transmit asynchronous efficiency reports to remote systems or cloud backends"
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.85,
+        "diffusion_score": 0.15,
+        "notes": "Strong containment: energy measurement hardware, work quantification logic, and internal message queue naturally belong within vehicle subsystem. Asynchronous reporting is vehicle-internal concern. Minor diffusion: efficiency reporting must cross boundary via Telemetry/Network Link interfaces, but this is expected and well-defined."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Weak containment: NGHE is a higher-level orchestration/solution layer. Placing energy measurement and work quantification here would require Vehicle to expose raw sensor data upward, violating encapsulation. Message queue and continuous measurement are vehicle-domain concerns. High diffusion: logic would scatter across Vehicle hardware layer and NGHE software layer."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.25,
+        "diffusion_score": 0.75,
+        "notes": "Very weak containment: Teleoperation is a control/command interface, not an energy/efficiency domain. Energy measurement and work quantification are orthogonal to teleoperation concerns. High diffusion: would require Teleoperation to manage vehicle internals unrelated to remote operation."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Weak containment: Safety Services focuses on hazard detection and safety alerts. Energy efficiency and work quantification are not safety-critical concerns (though safety may consume efficiency data). High diffusion: placing measurement/quantification logic here would scatter energy domain across two modules."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module is the natural owner of DP4 because it contains the physical energy measurement hardware, the computational substrate for work quantification, and the internal message queue infrastructure. The DP's core logic—continuous measurement, event-driven quantification, and asynchronous decoupling—are all vehicle-internal concerns. External consumers (NGHE Solution, monitoring systems) receive efficiency reports via well-defined Telemetry and Network Link interfaces, maintaining clean separation of concerns.",
+    "containment_risks": [
+      "Risk: If Vehicle module is too tightly coupled to a specific telemetry protocol, changes to reporting format could require Vehicle refactoring. Mitigation: Define Telemetry interface as a contract; use adapter pattern if needed.",
+      "Risk: Message queue implementation details (queue depth, latency, ordering guarantees) could leak into external interface expectations. Mitigation: Telemetry interface should specify only the semantic contract (efficiency metrics, timestamps), not queue internals.",
+      "Risk: If work quantification logic requires real-time feedback from external systems (e.g., task definitions from Tasking), latency in the message queue could degrade responsiveness. Mitigation: Ensure Tasking interface has low-latency path; use queue only for non-critical efficiency reporting, not task processing.",
+      "Risk: Asynchronous reporting may create eventual-consistency issues if multiple consumers expect synchronized efficiency snapshots. Mitigation: Define Telemetry contract to clarify consistency guarantees (e.g., 'best-effort', 'eventual', or 'transactional')."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP4 (hybrid continuous measurement + event-driven quantification via decoupled message queue) directly addresses the FR requirement to enable measurement and reporting of energy consumption per unit of work output. The DP logically decomposes the problem into three coherent sub-concerns: (1) continuous energy measurement (hardware/firmware layer), (2) event-driven work quantification (triggered by Tasking commands), and (3) asynchronous efficiency reporting (decoupled via message queue). This design supports the acceptance criterion of computing energy_per_ton = energy_used / ton_moved and enables comparison against E_target. The asynchronous decoupling is a sound architectural choice for avoiding tight coupling between measurement and reporting."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "MEDIUM: Asynchronous reporting via message queue introduces potential eventual-consistency gaps. If external consumers (NGHE Solution, monitoring systems) expect synchronized efficiency snapshots for compliance reporting, the Telemetry interface contract must explicitly define consistency semantics (best-effort, eventual, or transactional). Without this clarity, consumers may misinterpret stale or out-of-order efficiency metrics when validating against E_target.",
+        "MEDIUM: Work quantification logic depends on event-driven triggers from Tasking interface. If Tasking commands are queued alongside efficiency reports in the same message queue, latency in the queue could delay work quantification, causing measurement windows to drift relative to actual task execution. Mitigation: Ensure Tasking has a low-latency, priority path separate from the efficiency reporting queue.",
+        "LOW: Telemetry interface exports efficiency metrics but must not expose internal message queue implementation details (queue depth, latency, ordering guarantees). Risk of diffusion if external systems begin to depend on queue-specific behavior. Mitigation: Telemetry contract should specify only semantic guarantees (e.g., 'efficiency metrics reported within T seconds of work completion'), not queue internals.",
+        "LOW: Vehicle module's tight coupling to a specific telemetry protocol could create refactoring burden if reporting format changes. Mitigation: Use adapter pattern or define Telemetry as a contract interface, allowing protocol changes without Vehicle core logic changes."
+      ],
+      "containment_notes": "Vehicle module achieves strong containment (0.85 score) for DP4. Energy measurement hardware, work quantification logic, and internal message queue are naturally vehicle-domain concerns. The DP's core logic is fully encapsulated within Vehicle boundaries. External diffusion (0.15 score) is minimal and well-managed: efficiency reports cross the boundary via Telemetry and Network Link interfaces, which is expected and architecturally sound. Alternative ownership candidates (NGHE Solution, Teleoperation, Safety Services) all exhibit high diffusion (0.6–0.75) because they would require scattering measurement and quantification logic across multiple modules, violating encapsulation and domain separation. Vehicle is the correct owner."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "HIGH. The Vehicle module's internal structure (continuous energy measurement hardware + event-driven work quantification) directly produces the data needed to compute energy_per_ton. The Telemetry interface exports efficiency metrics and energy consumption data, enabling external systems (NGHE Solution, monitoring systems) to validate measured energy_per_ton ≤ E_target over the agreed evaluation period. The message queue decoupling ensures asynchronous reporting does not block measurement, supporting continuous operation during evaluation. Acceptance criterion is verifiable via Telemetry interface exports.",
+      "allocation_clarity": "HIGH. Ownership is unambiguous: Vehicle module owns DP4 implementation. Responsibilities are clearly allocated: (1) Vehicle: continuous energy measurement, work quantification, internal message queue, asynchronous reporting pipeline; (2) Tasking interface: provides work commands that trigger quantification; (3) Telemetry interface: exports efficiency metrics for external validation; (4) Network Link interface: transmits reports to remote systems. No ambiguity about which module is accountable for measurement accuracy, work quantification logic, or reporting timeliness. Worksite safety plan and operational policies are external constraints that do not affect IM allocation clarity."
+    },
+    "recommended_revisions": [
+      "REVISION 1: Explicitly define Telemetry interface contract to specify consistency semantics for efficiency metrics. Document whether reports are best-effort, eventual-consistent, or transactional. This prevents external consumers from misinterpreting stale metrics when validating against E_target.",
+      "REVISION 2: Separate Tasking command path from efficiency reporting queue. Ensure work quantification triggers have low-latency, priority processing independent of asynchronous reporting queue depth. Document latency SLA for work quantification (e.g., 'work quantification triggered within 100ms of Tasking command').",
+      "REVISION 3: Document Telemetry interface contract to specify only semantic guarantees (e.g., 'efficiency metrics reported within T seconds of work completion'), not internal queue implementation details. Use adapter pattern if telemetry protocol changes are anticipated.",
+      "REVISION 4: Add acceptance criterion detail: specify the evaluation period duration, sampling frequency for energy_per_ton calculation, and how asynchronous reporting delays are handled in compliance validation (e.g., 'efficiency metrics must be reported within 5 minutes of work completion for inclusion in E_target evaluation').",
+      "REVISION 5: Document how Vehicle module handles edge cases: (a) work quantification without energy measurement (e.g., idle periods), (b) energy measurement without work events (e.g., parasitic losses), (c) message queue overflow or network failures during reporting. Ensure these scenarios do not corrupt energy_per_ton calculation."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass with high confidence. The DP4 design (hybrid continuous measurement + event-driven quantification via decoupled message queue) is logically sound, architecturally well-contained within Vehicle module, and verifiable against acceptance criteria. However, the recommended revisions expose critical sub-concerns that require explicit functional decomposition to ensure safety, consistency, and operational robustness. Specifically: (1) Telemetry interface consistency semantics must be formalized as a distinct FR to prevent external misinterpretation of stale metrics during E_target validation; (2) Tasking-to-quantification latency and queue separation require explicit FR to ensure work quantification does not drift relative to task execution; (3) Edge case handling (idle periods, parasitic losses, queue overflow, network failures) must be elevated to explicit FRs to ensure energy_per_ton calculation integrity under fault conditions. Given high safety criticality, these sub-concerns cannot remain implicit in DP4. Decomposition is necessary to allocate ownership, define acceptance criteria, and enable verification of fault tolerance.",
+    "next_level_sub_frs": [
+      "FR4.1: Ensure efficiency metrics exported via Telemetry interface are consistent with work quantification events and energy measurements, with explicitly defined consistency semantics (best-effort, eventual, or transactional) to prevent external systems from misinterpreting stale or out-of-order metrics during E_target validation.",
+      "FR4.2: Guarantee that work quantification is triggered with low latency (≤100ms) relative to Tasking commands, independent of asynchronous efficiency reporting queue depth, to prevent measurement windows from drifting relative to actual task execution.",
+      "FR4.3: Handle edge cases in energy_per_ton calculation robustly: (a) work quantification without concurrent energy measurement (idle periods, parasitic losses), (b) energy measurement without work events, (c) message queue overflow or network failures during reporting, ensuring calculation integrity and preventing data corruption.",
+      "FR4.4: Isolate Telemetry interface contract from internal message queue implementation details, exposing only semantic guarantees (e.g., 'efficiency metrics reported within T seconds of work completion') to prevent external systems from depending on queue-specific behavior.",
+      "FR4.5: Define evaluation period duration, sampling frequency for energy_per_ton aggregation, and handling of asynchronous reporting delays in compliance validation (e.g., 'efficiency metrics must be reported within 5 minutes of work completion for inclusion in E_target evaluation') to enable unambiguous acceptance testing."
+    ],
+    "revise": {
+      "target": "FR",
+      "why": "FR4 (parent) is well-formed and passes all gates, but its scope is broad enough to encompass multiple distinct sub-concerns that carry different risk profiles and ownership implications. Decomposing into FR4.1–FR4.5 makes explicit the consistency, latency, fault-tolerance, interface isolation, and evaluation criteria concerns that are currently implicit in DP4. This decomposition is essential for high-safety-criticality systems to ensure each sub-concern is independently verified, owned, and traced to acceptance criteria. Revising FR4 itself is not necessary; rather, the next-level FRs should be derived to support detailed design and verification planning."
+    },
+    "record": {
+      "assumptions": [
+        "Tasking interface can provide low-latency, priority-path work commands independent of efficiency reporting queue.",
+        "Vehicle module has access to continuous energy measurement hardware (power sensors, current monitors) with sufficient accuracy to compute energy_per_ton within acceptable tolerance.",
+        "External systems (NGHE Solution, monitoring systems) can tolerate eventual-consistency semantics for efficiency metrics if explicitly documented in Telemetry contract.",
+        "Message queue infrastructure (e.g., RabbitMQ, Kafka, in-vehicle message broker) is available and can be configured with overflow handling and network resilience.",
+        "Evaluation period for E_target validation is defined externally (e.g., by worksite safety plan or operational policy) and will be communicated to Vehicle module via configuration or interface contract.",
+        "Edge cases (idle periods, parasitic losses, queue overflow) are within scope of Vehicle module responsibility and not delegated to external systems."
+      ],
+      "open_risks": [
+        "MEDIUM: Consistency semantics for Telemetry interface not yet formalized. If external consumers expect synchronized efficiency snapshots but receive eventual-consistent reports, compliance validation against E_target could be disputed. Mitigation: FR4.1 must define and document consistency guarantees explicitly.",
+        "MEDIUM: Latency SLA for work quantification not yet specified. If Tasking queue and efficiency reporting queue share infrastructure, queue congestion could delay work quantification, causing measurement window drift. Mitigation: FR4.2 must enforce low-latency, priority-path separation.",
+        "MEDIUM: Edge case handling (idle periods, parasitic losses, queue overflow, network failures) not yet detailed. If Vehicle module does not handle these robustly, energy_per_ton calculation could be corrupted or incomplete. Mitigation: FR4.3 must define handling logic and acceptance criteria for each edge case.",
+        "LOW: Telemetry interface contract could leak internal queue implementation details if not carefully designed. External systems might depend on queue-specific behavior (e.g., ordering guarantees, latency bounds), creating refactoring burden. Mitigation: FR4.4 must enforce semantic-only contract.",
+        "LOW: Evaluation period and sampling frequency not yet defined. Without explicit acceptance criteria, verification of E_target compliance could be ambiguous. Mitigation: FR4.5 must specify evaluation period, sampling frequency, and reporting delay tolerance."
+      ],
+      "evidence_needed": [
+        "Specification of Telemetry interface consistency semantics (best-effort, eventual, or transactional) with formal definition of what 'consistency' means in context of E_target validation.",
+        "Latency SLA for work quantification (e.g., '≤100ms from Tasking command to work quantification trigger') with measurement methodology and acceptance criteria.",
+        "Edge case handling specification: (a) algorithm for computing energy_per_ton when work quantification and energy measurement are not concurrent, (b) handling of parasitic losses (energy consumed without work output), (c) queue overflow recovery and data integrity guarantees, (d) network failure recovery and reporting resumption.",
+        "Telemetry interface contract specification with semantic guarantees only (no queue implementation details) and adapter pattern design if protocol changes are anticipated.",
+        "Evaluation period definition (duration, sampling frequency, reporting delay tolerance) from worksite safety plan or operational policy, with traceability to acceptance criteria.",
+        "Test plan for edge cases: idle periods, parasitic losses, queue overflow, network failures, with acceptance criteria for energy_per_ton calculation integrity under each scenario.",
+        "Verification evidence from Vehicle module integration testing: continuous energy measurement accuracy, work quantification latency, message queue resilience, Telemetry interface consistency under load."
+      ]
+    }
+  }
+}

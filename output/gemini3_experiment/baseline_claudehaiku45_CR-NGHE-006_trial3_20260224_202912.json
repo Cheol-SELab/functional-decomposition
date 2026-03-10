@@ -1,0 +1,162 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and designated work zones with sufficient fidelity to support autonomous path planning and operator situational awareness.",
+    "rationale": "The original FR was vague on scope (what constitutes 'area analysis') and lacked specificity on fidelity requirements, update frequency, and consumer functions. Refinement clarifies that the worksite model must be dynamic, multi-layered (terrain + obstacles + hazards + zones), and directly consumable by planning and execution subsystems. High safety criticality demands explicit hazard representation.",
+    "verification_idea": "Acceptance test: (1) Terrain model accuracy within ±0.5 m vertical RMS over mapped area; (2) obstacle detection latency <2 s for static features, <1 s for dynamic hazards; (3) work-zone boundaries correctly represented in model; (4) model available to planning and teleoperation subsystems via agreed interface within 100 ms of update.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire terrain and obstacle data from onboard sensors (LiDAR, camera, IMU) and external sources (site survey, GIS).",
+      "CR-NGHE-006.2: Fuse multi-modal sensor data into a unified 3D worksite model with confidence metrics.",
+      "CR-NGHE-006.3: Detect and track dynamic hazards (personnel, moving equipment) in real-time.",
+      "CR-NGHE-006.4: Represent work zones, exclusion zones, and safety boundaries in the model.",
+      "CR-NGHE-006.5: Publish worksite model to planning, autonomous execution, and teleoperation subsystems with guaranteed latency and consistency."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized mapping service (e.g., ROS-based SLAM + occupancy grid) running on vehicle compute, fusing LiDAR, camera, and IMU; model published via standardized message bus (e.g., ROS topics) to planning and teleoperation clients.",
+      "DP-B: Distributed sensor processing: each sensor stream processed independently on edge compute nodes; results aggregated by a lightweight fusion coordinator; model cached in a shared database accessible to planning and teleoperation.",
+      "DP-C: Cloud-based mapping service: sensor data streamed to remote server; model computed and cached in cloud; vehicle and tele-operator clients query model via network API with fallback to onboard cache.",
+      "DP-D: Hybrid approach: onboard SLAM for real-time local mapping + cloud service for global map refinement and long-term persistence; dual-path publication (local bus + network API)."
+    ],
+    "selected_dp": "DP-A: Centralized mapping service (SLAM + occupancy grid) on vehicle compute with multi-modal sensor fusion and standardized message-bus publication.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling to sensor hardware (LiDAR, camera, IMU) is expected and manageable via driver abstraction.",
+        "Coupling to planning subsystem is intentional (model is consumed by path planner); interface is standardized (message bus).",
+        "Coupling to teleoperation is intentional; same interface decouples implementation from consumer.",
+        "No hidden coupling to Safety Services or Vehicle control detected; model is read-only output."
+      ],
+      "notes": "DP-A is selected because it minimizes latency (critical for safety), centralizes model authority (reduces consistency risk), and leverages mature SLAM/occupancy-grid algorithms. DP-C (cloud) introduces network dependency and latency unsuitable for high-safety-criticality hazard detection. DP-B (distributed) risks model inconsistency across clients. DP-D (hybrid) adds complexity without clear safety benefit at this stage."
+    },
+    "assumptions_risks": [
+      "Assumption: Vehicle compute platform has sufficient CPU/GPU capacity for real-time SLAM + fusion (estimated 2–4 cores @ 2+ GHz, 4+ GB RAM).",
+      "Assumption: LiDAR and camera sensors are available and calibrated; sensor drivers are stable.",
+      "Risk: SLAM may fail or drift in GPS-denied, featureless terrain (e.g., open pit, sand); mitigation: integrate IMU dead-reckoning and periodic loop-closure from external survey data.",
+      "Risk: Occupancy grid resolution vs. memory trade-off; high resolution (0.1 m) may exceed onboard storage; mitigation: use adaptive resolution or rolling-window buffer.",
+      "Risk: Real-time fusion latency may exceed 100 ms under high sensor data rate; mitigation: implement priority-based processing (hazards > terrain detail)."
+    ],
+    "recommended_revision": "Clarify compute platform specifications (CPU, GPU, RAM, storage) and sensor suite (LiDAR range/resolution, camera specs, IMU grade) before finalizing DP-A. If compute is severely constrained, consider DP-B with edge processing. If network is reliable and latency <500 ms acceptable, DP-C may reduce onboard complexity."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "The Vehicle module owns the onboard mapping service, including SLAM algorithm, sensor fusion logic, occupancy-grid data structure, and local model cache. It publishes the worksite model via standardized interfaces (Telemetry for model updates, Tasking for model queries from planning subsystems)."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle publishes worksite model updates (occupancy grid, obstacle list, hazard positions, work-zone boundaries) as telemetry stream to planning and teleoperation consumers. Update frequency: 10 Hz (100 ms latency target)."
+      },
+      {
+        "name": "Tasking",
+        "direction": "inout",
+        "details": "Vehicle receives model queries (e.g., 'is point X safe?', 'get terrain elevation at Y') from planning subsystem via Tasking interface; responds with model data. Also receives work-zone definitions and safety-boundary updates from Site Manager via Tasking."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Vehicle publishes detected hazards (personnel intrusion, dynamic obstacles) as SafetyAlert events to Safety Services for real-time monitoring and operator notification."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.95,
+        "diffusion_score": 0.05,
+        "notes": "Excellent containment: mapping service is core to vehicle autonomy and situational awareness. Onboard compute, sensors, and model storage are all vehicle-resident. Minimal diffusion: only model outputs (Telemetry, Tasking, SafetyAlert) cross module boundaries. This is the natural home for real-time mapping."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.6,
+        "diffusion_score": 0.4,
+        "notes": "Moderate containment if interpreted as system-level orchestrator. However, mapping is fundamentally a vehicle capability (onboard sensors, compute). Assigning to NGHE Solution would require Vehicle to delegate mapping to a system-level service, introducing network latency and complexity. Not recommended."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Poor containment. Teleoperation is a consumer of the worksite model, not its producer. Assigning mapping to Teleoperation would couple it to vehicle sensors and compute, violating separation of concerns. High diffusion: model would need to be replicated or streamed from vehicle to Teleoperation module."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.25,
+        "diffusion_score": 0.75,
+        "notes": "Poor containment. Safety Services consumes hazard alerts derived from the model but does not own the mapping capability. Assigning mapping to Safety Services would require it to own vehicle sensors and compute, which is architecturally incorrect. Safety Services should receive SafetyAlert events from Vehicle."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module is the natural and optimal owner of the worksite mapping service. It has direct access to onboard sensors (LiDAR, camera, IMU), sufficient compute capacity, and is responsible for autonomous navigation and hazard avoidance. The mapping service is a core capability of the vehicle, not a cross-cutting system service. Model outputs are published via standardized interfaces (Telemetry, Tasking, SafetyAlert) to decoupled consumers.",
+    "containment_risks": [
+      "Risk: If vehicle compute is overloaded by mapping, other vehicle functions (control, diagnostics) may be starved. Mitigation: allocate dedicated compute core(s) for mapping; implement priority-based scheduling.",
+      "Risk: Model consistency across multiple consumers (planning, teleoperation, safety) if updates are asynchronous. Mitigation: use message timestamps and sequence numbers; implement model versioning.",
+      "Risk: Sensor failures (LiDAR, camera) degrade model quality; vehicle must detect and alert. Mitigation: implement sensor health monitoring; publish confidence metrics with model; fallback to IMU-only dead-reckoning if sensors fail."
+    ],
+    "recommended_revision": "Confirm that Vehicle module compute platform can sustain real-time SLAM + fusion without impacting vehicle control loop (typically 50–100 Hz). If not, consider a dedicated compute module (e.g., 'Perception Module') as a sub-component of Vehicle, with clear interface contracts. Ensure Telemetry and Tasking interfaces are defined with latency, bandwidth, and consistency guarantees."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-A (centralized SLAM + occupancy grid on vehicle compute) directly addresses the refined FR: it generates a real-time worksite model with terrain, obstacles, hazards, and work zones, and publishes it to planning and teleoperation consumers. The DP is feasible, leverages mature algorithms, and aligns with high-safety-criticality requirements (low latency, high availability). No decoupling or missing logic detected."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Model outputs (Telemetry, Tasking, SafetyAlert) cross module boundaries, but this is intentional and well-managed via standardized interfaces. No hidden diffusion detected.",
+        "Sensor data flows into Vehicle from hardware drivers; this is expected and manageable via driver abstraction."
+      ],
+      "containment_notes": "Vehicle module achieves 0.95 containment score. Mapping service is tightly integrated with vehicle autonomy and sensor suite. No architectural diffusion or duplication risk. Interface contracts (Telemetry, Tasking, SafetyAlert) are clear and decoupled from implementation."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible: (1) Unit tests for SLAM algorithm and fusion logic; (2) integration tests for sensor data ingestion and model publication; (3) system tests for model accuracy (terrain, obstacles, hazards) against ground truth; (4) latency tests for Telemetry and Tasking interfaces; (5) safety tests for hazard detection and SafetyAlert publication.",
+      "allocation_clarity": "Allocation is clear: Vehicle module owns mapping service, publishes model via Telemetry/Tasking/SafetyAlert. Planning subsystem consumes model via Tasking. Teleoperation consumes model via Telemetry. Safety Services consumes hazards via SafetyAlert. No ambiguity in ownership or interface responsibility."
+    },
+    "recommended_revisions": [
+      "Define detailed interface specifications for Telemetry (model update schema, frequency, latency SLA), Tasking (query/response schema, timeout), and SafetyAlert (hazard event schema, priority levels).",
+      "Specify compute platform requirements (CPU, GPU, RAM, storage) and sensor suite (LiDAR range/resolution, camera specs, IMU grade) to validate DP-A feasibility.",
+      "Define model fidelity requirements (occupancy grid resolution, terrain accuracy, obstacle detection confidence thresholds) and acceptance criteria.",
+      "Identify fallback/degradation modes if sensors fail or compute is overloaded; define graceful degradation strategy."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The refined FR is well-defined and decomposable into five sub-FRs (sensor acquisition, data fusion, hazard detection, zone representation, model publication). DP-A is sound and feasible. Vehicle module is the correct owner with high containment (0.95) and low diffusion (0.05). All gates pass. However, the sub-FRs are not yet atomic and require further decomposition to drive detailed design and implementation. Proceeding to the next level will clarify sensor integration, fusion algorithms, hazard detection logic, and interface contracts.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire terrain and obstacle data from onboard sensors (LiDAR, camera, IMU) and external sources (site survey, GIS).",
+      "CR-NGHE-006.2: Fuse multi-modal sensor data into a unified 3D worksite model with confidence metrics.",
+      "CR-NGHE-006.3: Detect and track dynamic hazards (personnel, moving equipment) in real-time.",
+      "CR-NGHE-006.4: Represent work zones, exclusion zones, and safety boundaries in the model.",
+      "CR-NGHE-006.5: Publish worksite model to planning, autonomous execution, and teleoperation subsystems with guaranteed latency and consistency."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Vehicle compute platform has sufficient capacity (2–4 cores @ 2+ GHz, 4+ GB RAM) for real-time SLAM + fusion.",
+        "LiDAR, camera, and IMU sensors are available, calibrated, and have stable drivers.",
+        "Telemetry, Tasking, and SafetyAlert interfaces are standardized and available for use.",
+        "Planning subsystem can consume model via Tasking interface with <500 ms query latency.",
+        "Teleoperation subsystem can consume model via Telemetry stream at 10 Hz.",
+        "Safety Services can consume hazard alerts via SafetyAlert interface with <1 s latency."
+      ],
+      "open_risks": [
+        "SLAM drift in GPS-denied, featureless terrain; mitigation strategy needed (loop closure, external survey integration).",
+        "Occupancy grid memory footprint vs. resolution trade-off; adaptive resolution or rolling-window strategy required.",
+        "Real-time fusion latency may exceed 100 ms under high sensor data rate; priority-based processing needed.",
+        "Model consistency across asynchronous consumers; versioning and timestamp strategy required.",
+        "Sensor failure modes and graceful degradation; fallback to IMU-only dead-reckoning needed."
+      ],
+      "evidence_needed": [
+        "Compute platform specifications and benchmarks (SLAM + fusion latency on target hardware).",
+        "Sensor suite specifications (LiDAR range/resolution, camera resolution/frame rate, IMU grade).",
+        "Detailed interface specifications (Telemetry schema, Tasking query/response, SafetyAlert event schema).",
+        "Model fidelity requirements and acceptance criteria (terrain accuracy, obstacle detection confidence, hazard latency).",
+        "SLAM algorithm selection and tuning (e.g., ORB-SLAM2, Cartographer) for heavy equipment worksite conditions.",
+        "Hazard detection algorithm (e.g., person detection via camera + LiDAR fusion) and performance metrics.",
+        "Fallback/degradation strategy for sensor failures and compute overload."
+      ]
+    }
+  }
+}

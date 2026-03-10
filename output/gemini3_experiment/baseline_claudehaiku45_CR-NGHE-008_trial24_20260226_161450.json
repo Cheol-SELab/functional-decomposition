@@ -1,0 +1,176 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall establish and maintain teleoperation communication channels with end-to-end latency (sensor-to-operator-to-actuator) not exceeding 150 ms at the 95th percentile under agreed network conditions, enabling safe and responsive remote equipment control.",
+    "rationale": "CR-NGHE-008 addresses a critical safety and operational requirement. Teleoperation latency directly impacts operator situational awareness and control responsiveness. The p95 ≤ 150 ms acceptance criterion is a hard constraint for safe remote operation. Refinement clarifies that latency is measured end-to-end (not just network transit), includes both uplink and downlink paths, and is conditioned on agreed network assumptions. High safety criticality demands explicit verification and traceability.",
+    "verification_idea": "Measure end-to-end latency under representative network conditions (agreed bandwidth, jitter, packet loss profiles). Conduct operator acceptance testing with simulated remote tasks. Validate p95 latency across 1000+ control cycles under worst-case network conditions within the agreed envelope.",
+    "sub_frs": [
+      "FR-TEL-001: Acquire sensor data (position, orientation, video, environmental) at sufficient frequency to support 150 ms latency budget",
+      "FR-TEL-002: Transmit sensor telemetry to remote operator with minimal latency and jitter",
+      "FR-TEL-003: Receive operator control commands at remote site with minimal latency",
+      "FR-TEL-004: Execute received control commands on vehicle actuators with minimal processing delay",
+      "FR-TEL-005: Monitor and report teleoperation link health and latency metrics",
+      "FR-TEL-006: Gracefully degrade or halt teleoperation if latency exceeds safe thresholds"
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Implement low-latency network stack with priority queuing, adaptive compression, and edge processing to minimize round-trip delay",
+      "DP-B: Deploy distributed architecture with local autonomy fallback and predictive control to mask network latency",
+      "DP-C: Use dedicated, low-jitter network infrastructure (private LTE or fiber) with hardware-accelerated packet processing",
+      "DP-D: Combine real-time telemetry streaming (UDP-based), operator command prioritization, and latency monitoring with automatic failsafe triggers"
+    ],
+    "selected_dp": "DP-D: Implement real-time telemetry streaming using low-latency protocol (UDP with FEC), operator command prioritization queue, continuous latency monitoring with automated failsafe triggers (halt/local autonomy) when p95 exceeds 150 ms threshold.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Network infrastructure quality (external dependency, not fully controlled by NGHE design)",
+        "Sensor acquisition frequency and data serialization (coupled to FR-TEL-001)",
+        "Actuator response time (coupled to FR-TEL-004)",
+        "Failsafe logic (coupled to FR-TEL-006 and safety services)"
+      ],
+      "notes": "DP-D is decoupled from specific network technology (works with agreed conditions), decoupled from vehicle architecture (telemetry/tasking interfaces are abstracted), and decoupled from operator interface (command format is standardized). Coupling to safety failsafe is intentional and required. Residual risk: network conditions must remain within agreed envelope; if network degrades beyond assumptions, latency may exceed 150 ms despite correct DP implementation."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Network infrastructure (bandwidth, jitter, packet loss) remains within agreed operational envelope throughout mission.",
+      "ASSUMPTION: Sensor data can be acquired and serialized within 30–40 ms budget (leaving 55–60 ms for network transit and 40–50 ms for operator response and command execution).",
+      "ASSUMPTION: Operator command processing and actuator response time is ≤ 40–50 ms.",
+      "RISK: If network conditions degrade beyond agreed envelope, DP-D cannot guarantee p95 ≤ 150 ms; failsafe triggers may cause mission interruption.",
+      "RISK: Latency monitoring overhead (telemetry + analysis) could itself contribute to latency if not carefully optimized.",
+      "RISK: Operator training and procedures must account for 150 ms latency; inadequate training could lead to unsafe control actions despite meeting latency spec."
+    ],
+    "recommended_revision": "Clarify and document the agreed network conditions (bandwidth, jitter, packet loss, coverage) as a formal constraint. Define the latency budget allocation across sensor acquisition, network transit, operator response, and actuator execution. Establish automated latency monitoring and failsafe thresholds in the DP. Consider hybrid approach: DP-D for normal operation + DP-B (local autonomy fallback) for graceful degradation if network latency exceeds safe limits."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Encapsulates all teleoperation-specific logic: real-time telemetry streaming, operator command reception and prioritization, latency monitoring, and failsafe triggers. Owns the low-latency communication protocol stack, telemetry serialization, command deserialization, and latency measurement instrumentation. Interfaces with Vehicle (via Telemetry and Tasking) and Safety Services (via SafetyAlert) to coordinate failsafe actions."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Receives sensor data (position, orientation, video, environmental state) from Vehicle at high frequency (≥ 10 Hz). Teleoperation module serializes and streams to remote operator."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Sends operator control commands (movement, tool actuation, mode changes) to Vehicle. Commands are prioritized and timestamped for latency tracking."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "Receives safety constraints and failsafe triggers from Safety Services. Sends latency-related safety alerts (e.g., 'latency exceeded threshold, initiating failsafe') to Safety Services for logging and operator notification."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Abstracts the underlying network transport (LTE, fiber, satellite, etc.). Teleoperation module sends telemetry streams and receives operator commands via Network Link; does not assume specific network technology."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "Teleoperation module is the natural owner of latency-critical telemetry streaming, command prioritization, and latency monitoring. All core DP-D logic (UDP streaming, FEC, failsafe triggers) resides here. Minimal diffusion: only external interfaces are Telemetry (in), Tasking (out), SafetyAlert (inout), and Network Link (inout). High cohesion: all latency-related concerns are localized."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 15,
+        "diffusion_score": 85,
+        "notes": "Vehicle module owns sensor acquisition and actuator control, but latency monitoring and failsafe logic belong in Teleoperation. Placing latency monitoring in Vehicle would diffuse teleoperation concerns across two modules and complicate network-aware failsafe coordination. Not recommended."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Safety Services owns safety policy and failsafe decision logic, but real-time latency monitoring and command prioritization are teleoperation-specific. Placing latency monitoring in Safety Services would create tight coupling and latency overhead. Teleoperation monitors latency and alerts Safety Services; Safety Services decides failsafe action. Recommended separation of concerns."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 10,
+        "diffusion_score": 90,
+        "notes": "NGHE Solution is the top-level system container. Teleoperation is a subsystem within NGHE Solution. Assigning DP-D to NGHE Solution would diffuse implementation across multiple sub-modules and lose architectural clarity. Not recommended."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the optimal owner of DP-D (real-time telemetry streaming, command prioritization, latency monitoring, failsafe triggers). This module encapsulates all latency-critical logic, minimizes diffusion, and maintains clear interfaces with Vehicle (Telemetry/Tasking), Safety Services (SafetyAlert), and Network Link. Latency monitoring is a teleoperation concern, not a vehicle or safety concern; placing it in Teleoperation ensures tight coupling of related logic and reduces inter-module latency overhead.",
+    "containment_risks": [
+      "RISK: Teleoperation module must be highly optimized (low-latency code paths, minimal allocations, real-time scheduling) to avoid introducing latency overhead. Requires careful implementation and profiling.",
+      "RISK: Teleoperation module depends on Vehicle providing sensor data at sufficient frequency and on Safety Services responding to failsafe alerts promptly. If Vehicle or Safety Services introduce latency, Teleoperation cannot meet p95 ≤ 150 ms. Requires clear latency budgets and interface contracts.",
+      "RISK: Network Link abstraction must not hide network-specific latency characteristics. Teleoperation must be aware of network conditions (jitter, packet loss) to adapt compression and FEC parameters. Requires rich Network Link interface.",
+      "RISK: Failsafe coordination between Teleoperation and Safety Services must be atomic and deterministic. If SafetyAlert interface is slow or unreliable, failsafe may not trigger in time. Requires high-priority, low-latency SafetyAlert channel."
+    ],
+    "recommended_revision": "Establish explicit latency budgets for each interface: Telemetry (sensor-to-Teleoperation), Tasking (Teleoperation-to-Vehicle), SafetyAlert (Teleoperation-to-Safety Services), and Network Link (round-trip). Define performance contracts (max latency, jitter bounds) for each interface. Implement latency monitoring and tracing at module boundaries to detect and diagnose latency violations. Consider real-time scheduling (e.g., RTOS, priority queues) for Teleoperation module to ensure deterministic latency."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "Refined FR-NGHE-008 clearly specifies the requirement (end-to-end latency p95 ≤ 150 ms under agreed network conditions). Selected DP-D (real-time telemetry streaming, command prioritization, latency monitoring, failsafe triggers) directly addresses this requirement. DP-D is implementable, testable, and traceable to FR. Coupling check passes: DP-D is decoupled from specific network technology and vehicle architecture, allowing flexibility in realization. Assumptions and risks are documented and manageable with proper network conditions and latency budgets."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Teleoperation module must coordinate with Vehicle (Telemetry/Tasking) and Safety Services (SafetyAlert). If interfaces are slow or unreliable, latency targets may be missed. Requires careful interface design and performance contracts.",
+        "Latency monitoring logic must be distributed across Teleoperation (measurement), Safety Services (failsafe decision), and Vehicle (actuator response). Ensure monitoring overhead does not exceed latency budget.",
+        "Network Link abstraction must support low-latency, high-frequency telemetry streaming without introducing buffering or serialization overhead. Requires optimized implementation."
+      ],
+      "containment_notes": "Teleoperation module achieves 95% containment of DP-D logic. External interfaces (Telemetry, Tasking, SafetyAlert, Network Link) are well-defined and minimal. Ownership is clear: Teleoperation owns latency-critical logic; Vehicle owns sensor/actuator; Safety Services owns failsafe policy. Separation of concerns is maintained. Recommended: establish latency budgets and performance contracts for each interface to ensure end-to-end latency target is met."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification of FR-NGHE-008 is feasible via end-to-end latency measurement under agreed network conditions. Teleoperation module can be instrumented with latency probes at Telemetry (in), Tasking (out), and Network Link (inout) to measure round-trip latency. Operator acceptance testing can validate p95 ≤ 150 ms under representative workloads. Failsafe triggers can be tested by simulating network latency spikes and verifying that Teleoperation halts or switches to local autonomy.",
+      "allocation_clarity": "Allocation of FR-NGHE-008 to Teleoperation module is clear and unambiguous. Teleoperation owns latency monitoring, command prioritization, and failsafe triggers. Vehicle owns sensor acquisition and actuator response (sub-allocations to FR-TEL-001 and FR-TEL-004). Safety Services owns failsafe policy (sub-allocation to FR-TEL-006). Network Link owns transport (sub-allocation to FR-TEL-002 and FR-TEL-003). Each sub-FR is allocated to a single module with clear ownership."
+    },
+    "recommended_revisions": [
+      "Establish formal latency budgets for each interface and sub-FR. Example: Telemetry (sensor-to-Teleoperation) ≤ 30 ms, Network Link (round-trip) ≤ 60 ms, Tasking (Teleoperation-to-Vehicle) ≤ 30 ms, Actuator response ≤ 30 ms. Total: 150 ms.",
+      "Define performance contracts for Telemetry, Tasking, SafetyAlert, and Network Link interfaces. Specify max latency, jitter bounds, and packet loss tolerance.",
+      "Implement latency monitoring and tracing at module boundaries. Instrument Teleoperation module with latency probes to detect and diagnose violations.",
+      "Establish failsafe thresholds and triggers. Define what happens when latency exceeds 150 ms (e.g., halt, switch to local autonomy, alert operator). Coordinate with Safety Services.",
+      "Document agreed network conditions (bandwidth, jitter, packet loss, coverage) as a formal constraint. Define what happens if network conditions degrade beyond agreed envelope.",
+      "Plan operator training and procedures to account for 150 ms latency. Validate that operators can safely control equipment with this latency."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-NGHE-008 is not atomic; it decomposes into six sub-FRs (FR-TEL-001 through FR-TEL-006) that address distinct aspects of teleoperation latency: sensor acquisition, telemetry transmission, command reception, actuator execution, link health monitoring, and failsafe degradation. Each sub-FR requires further refinement and design. DP-D is sound and well-justified, but its realization depends on successful design of sub-FRs and their corresponding DPs and IMs. Teleoperation module is the correct owner, but its internal architecture (how DP-D is decomposed into sub-modules or components) must be designed at the next level. Recommend proceeding to next decomposition level to refine sub-FRs and allocate them to sub-modules or components within Teleoperation.",
+    "justification_detail": "The refined FR-NGHE-008 is complex and multi-faceted. It involves sensor data acquisition, network transmission, operator command reception, actuator control, and failsafe logic. No single DP can address all aspects without further decomposition. DP-D provides a high-level solution strategy (real-time streaming, prioritization, monitoring, failsafe), but the detailed design of each component (telemetry serializer, command prioritizer, latency monitor, failsafe trigger) requires sub-level decomposition. Additionally, the sub-FRs (FR-TEL-001 through FR-TEL-006) are not yet allocated to specific design parameters or implementation modules. Proceeding to the next level will clarify the internal architecture of Teleoperation and ensure that each sub-FR is properly addressed.",
+    "next_level_sub_frs": [
+      "FR-TEL-001: Acquire sensor data (position, orientation, video, environmental) at sufficient frequency (≥ 10 Hz) to support 150 ms latency budget",
+      "FR-TEL-002: Transmit sensor telemetry to remote operator with minimal latency and jitter (target: ≤ 60 ms round-trip)",
+      "FR-TEL-003: Receive operator control commands at remote site with minimal latency (target: ≤ 30 ms)",
+      "FR-TEL-004: Execute received control commands on vehicle actuators with minimal processing delay (target: ≤ 30 ms)",
+      "FR-TEL-005: Monitor and report teleoperation link health and latency metrics in real-time",
+      "FR-TEL-006: Gracefully degrade or halt teleoperation if latency exceeds safe thresholds (p95 > 150 ms)"
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Network infrastructure (bandwidth, jitter, packet loss) remains within agreed operational envelope throughout mission.",
+        "Sensor data can be acquired and serialized within 30–40 ms budget.",
+        "Operator command processing and actuator response time is ≤ 40–50 ms.",
+        "Teleoperation module can be implemented with real-time scheduling and low-latency code paths.",
+        "Vehicle and Safety Services interfaces support low-latency, high-frequency communication.",
+        "Operator training and procedures account for 150 ms latency and failsafe behavior."
+      ],
+      "open_risks": [
+        "Network conditions may degrade beyond agreed envelope, causing latency to exceed 150 ms despite correct DP implementation.",
+        "Latency monitoring overhead could itself contribute to latency if not carefully optimized.",
+        "Failsafe coordination between Teleoperation and Safety Services must be atomic and deterministic; slow or unreliable SafetyAlert interface could delay failsafe triggers.",
+        "Operator may not adapt to 150 ms latency; inadequate training could lead to unsafe control actions.",
+        "Sub-FRs (FR-TEL-001 through FR-TEL-006) may reveal additional latency sources or constraints not anticipated at this level."
+      ],
+      "evidence_needed": [
+        "Formal specification of agreed network conditions (bandwidth, jitter, packet loss, coverage).",
+        "Latency budget allocation across sensor acquisition, network transit, operator response, and actuator execution.",
+        "Performance contracts for Telemetry, Tasking, SafetyAlert, and Network Link interfaces.",
+        "Detailed design of Teleoperation module (telemetry serializer, command prioritizer, latency monitor, failsafe trigger).",
+        "Operator acceptance testing results validating p95 ≤ 150 ms under representative workloads.",
+        "Failsafe testing results confirming that Teleoperation halts or switches to local autonomy when latency exceeds threshold.",
+        "Network degradation testing results showing behavior when network conditions exceed agreed envelope.",
+        "Operator training and procedure documentation accounting for 150 ms latency."
+      ]
+    }
+  }
+}

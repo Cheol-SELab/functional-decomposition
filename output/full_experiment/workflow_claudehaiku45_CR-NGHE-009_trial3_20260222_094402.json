@@ -1,0 +1,174 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation communication packet loss within customer-defined limits during agreed network conditions.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting teleoperation capability and (2) meeting a specific quality metric (packet loss). The refined FR isolates the quality requirement as a single, measurable constraint on the communication channel. The phrase 'communication quality meeting the customer-defined packet loss limit' is replaced with explicit reference to the metric and conditions, making the requirement solution-neutral and testable. The FR now resides purely in the problem domain (what level of packet loss is acceptable) without prescribing how to achieve it (DP layer will address redundancy, protocol selection, buffering, etc.).",
+    "verification_idea": "Conduct teleoperation trials under agreed network conditions (e.g., 4G/5G coverage, latency profile, interference scenarios). Measure end-to-end packet loss over representative mission durations. Confirm measured packet loss ≤ customer-defined threshold (e.g., ≤1%). Document network conditions and acceptance criteria in test protocol.",
+    "sub_frs": [
+      "FR-NGHE-009.1: The NGHE solution shall enable remote operation of heavy equipment from a tele-operator station.",
+      "FR-NGHE-009.2: The NGHE solution shall maintain teleoperation communication packet loss within customer-defined limits under agreed network conditions."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Implement adaptive packet redundancy and selective retransmission based on real-time loss detection and network condition feedback",
+      "DP2: Establish a dual-path communication architecture with automatic failover to maintain continuous connectivity across independent network routes",
+      "DP3: Deploy dynamic quality-of-service (QoS) negotiation that adjusts payload compression, frame rate, and control update frequency to stay within loss thresholds",
+      "DP4: Implement forward error correction (FEC) encoding with configurable redundancy levels tuned to measured network loss characteristics",
+      "DP5: Establish a loss-aware command prioritization and buffering strategy that preserves critical safety commands while gracefully degrading non-critical telemetry",
+      "DP6: Implement network condition monitoring and predictive throttling that proactively reduces traffic load before loss thresholds are exceeded"
+    ],
+    "selected_dp": "DP1 + DP5 (Composite): Implement adaptive packet redundancy with real-time loss detection and feedback control, combined with loss-aware command prioritization that preserves safety-critical packets while allowing graceful degradation of non-critical telemetry. Network condition monitoring informs redundancy level adjustment.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "DP1 and DP5 are logically orthogonal: redundancy strategy (DP1) operates at packet transmission layer; command prioritization (DP5) operates at application/payload layer. Both can be implemented independently and composed without tight coupling.",
+        "Risk: If loss detection mechanism (DP1) and prioritization logic (DP5) share the same network monitoring data source, ensure that data is published as a decoupled service to avoid hidden dependencies.",
+        "Risk: Redundancy overhead from DP1 could itself increase loss probability if not carefully tuned; DP5's graceful degradation provides a safety valve but requires clear handoff criteria between layers."
+      ],
+      "notes": "Composite DP avoids single-point-of-failure logic. DP1 handles transmission robustness; DP5 handles application-level resilience. Both are necessary and complementary. Avoid conflating them into a monolithic 'loss mitigation' DP."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Customer-defined loss target (≤1%) is achievable under agreed network conditions without requiring 100% redundancy, which would double bandwidth and may be infeasible.",
+      "ASSUMPTION: Real-time loss detection is possible (e.g., via acknowledgment-based or probe-based measurement) with acceptable latency overhead.",
+      "ASSUMPTION: Safety-critical commands can be clearly distinguished from telemetry at the application layer, enabling prioritization without ambiguity.",
+      "RISK: If network conditions are highly variable or unpredictable, adaptive tuning of redundancy levels may lag behind actual loss spikes, causing transient violations of the 1% target.",
+      "RISK: Redundancy and retransmission introduce latency; if teleoperation control loops are tight (e.g., <100ms round-trip), added latency may degrade operator experience or safety.",
+      "RISK: Worksite safety plan may impose constraints on acceptable latency or command buffering that conflict with loss mitigation strategies (e.g., 'all commands must execute within 50ms').",
+      "RISK: Customer-defined network conditions may not be formally specified; ambiguity in 'agreed conditions' could lead to disputes over whether loss target was met."
+    ],
+    "recommended_revision": "FR should be refined to explicitly state: (1) acceptable latency budget for loss detection and retransmission, (2) definition of 'safety-critical' vs. 'non-critical' packets, (3) formal specification of 'agreed network conditions' (e.g., bandwidth, latency, loss rate ranges, geographic coverage), and (4) whether the 1% target applies to all packet types or only to safety-critical commands. This will enable DP selection to be validated against operational constraints and avoid post-design conflicts with the worksite safety plan."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Adaptive packet redundancy, real-time loss detection, feedback control, loss-aware command prioritization, and network condition monitoring for teleoperated vehicle control"
+    },
+    "external_interfaces": [
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Bidirectional interface for transmitting redundant packets, receiving acknowledgments, and monitoring network conditions (latency, packet loss rate, bandwidth availability)"
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives operator commands and task priorities; Teleoperation module classifies commands as safety-critical or non-critical based on task context"
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Signals safety-critical packet loss or network degradation that exceeds safe thresholds; triggers fallback behaviors in Safety Services"
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Exports network health metrics (loss rate, redundancy level, feedback control state) for operator situational awareness and system diagnostics"
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit: Teleoperation owns command transmission, prioritization logic, and real-time feedback loops. Adaptive redundancy and loss detection are intrinsic to reliable command delivery. Network monitoring is localized to this module. Minor diffusion: SafetyAlert coupling to Safety Services is necessary but well-defined; Telemetry export is a standard observability interface."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.45,
+        "diffusion_score": 0.55,
+        "notes": "Poor fit: Safety Services should enforce safety constraints, not implement adaptive redundancy or loss detection. Placing DP here would require Safety Services to own network-level packet handling, which is outside its domain. High diffusion: redundancy logic would leak into Teleoperation anyway; command prioritization belongs with command execution, not safety validation."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Very poor fit: Vehicle module owns actuators and vehicle state, not teleoperation or network communication. Placing adaptive redundancy and loss detection here inverts the control flow (vehicle should not manage uplink command reliability). Severe diffusion: all command prioritization and network monitoring logic would need to diffuse back to Teleoperation."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor fit: NGHE Solution is a top-level system container, not a functional module. Placing DP here bypasses architectural layering and makes ownership ambiguous. High diffusion: implementation would still require delegation to Teleoperation for command handling and to Vehicle for state feedback."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the natural owner of adaptive packet redundancy, loss detection, and loss-aware command prioritization because: (1) it already owns the command transmission pipeline and real-time feedback loops; (2) network condition monitoring is intrinsic to reliable command delivery in a teleoperated system; (3) command prioritization (safety-critical vs. non-critical) is a teleoperation-specific concern that must be co-located with command execution logic; (4) graceful degradation of telemetry is a teleoperation-level policy, not a vehicle-level concern. The DP is cohesive within Teleoperation and does not require major diffusion across module boundaries.",
+    "containment_risks": [
+      "Risk: Teleoperation module may become large if it also owns command parsing, operator interface adaptation, and vehicle-specific command translation. Mitigation: Ensure Teleoperation focuses on network reliability and command prioritization; delegate command parsing and translation to separate sub-modules or interfaces.",
+      "Risk: Network condition monitoring may require low-level packet inspection that conflicts with higher-level command abstraction. Mitigation: Define a clean Network Link interface that abstracts packet-level details (loss rate, latency) as high-level metrics consumed by Teleoperation.",
+      "Risk: Safety-critical packet classification may require knowledge of vehicle safety constraints that reside in Safety Services. Mitigation: Establish a clear contract: Teleoperation classifies commands by priority level; Safety Services validates that safety-critical commands are executed correctly. No circular dependency.",
+      "Risk: Feedback control loop for redundancy adjustment may introduce latency if network monitoring is asynchronous. Mitigation: Implement network monitoring as a real-time task with bounded latency; use predictive models to anticipate network degradation rather than reacting only to observed loss."
+    ],
+    "recommended_revision": "No revision to DP choice is necessary. The composite DP (DP1 + DP5) is well-suited to the Teleoperation module boundary. However, consider refining the DP to explicitly separate concerns: (1) DP1a: Adaptive packet redundancy and loss detection (network-level); (2) DP1b: Real-time feedback control for redundancy adjustment (control-level); (3) DP5: Loss-aware command prioritization (command-level). This decomposition clarifies that all three concerns are owned by Teleoperation but operate at different abstraction levels, reducing the risk of conflating network mechanics with command semantics."
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The FR specifies a measurable acceptance criterion (packet loss ≤ 1% or customer-defined target under agreed network conditions). The Teleoperation IM boundary owns adaptive redundancy, loss detection, and feedback control—all directly observable and testable through network simulation, field trials, and telemetry export. The SafetyAlert interface provides a clear signal for threshold violations. Verification can be conducted via packet capture analysis, loss injection testing, and operator feedback during agreed network condition scenarios.",
+      "allocation_clarity": "Clear. The FR is allocated to the Teleoperation module with well-defined external interfaces: Network Link (inout) for packet transmission and network metrics, Tasking (in) for command priority context, SafetyAlert (out) for safety threshold signaling, and Telemetry (out) for observability. Ownership is unambiguous; no competing module claims responsibility for packet loss management. The containment score of 0.92 for Teleoperation confirms strong cohesion."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "The composite DP (DP1 + DP5) directly addresses the FR. DP1 (adaptive packet redundancy with real-time loss detection and feedback control) is the primary mechanism for maintaining packet loss within limits. DP5 (loss-aware command prioritization) ensures that safety-critical packets are preserved during degradation, supporting the FR's implicit requirement for safe operation under loss conditions. The DP is solution-complete: it specifies both the redundancy strategy and the prioritization logic needed to meet the acceptance criterion. The feedback control loop enables dynamic adjustment to changing network conditions, aligning with the FR's reference to 'customer-defined limits during agreed network conditions.' No logical gaps detected."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Risk: Adaptive redundancy adjustment logic may diffuse into Network Link interface if packet-level details (retransmission counts, acknowledgment timing) are not abstracted as high-level metrics (loss rate, latency). Mitigation: Enforce a clean interface contract where Network Link exports only aggregated network health metrics; Teleoperation owns the control algorithm that consumes these metrics.",
+        "Risk: Command prioritization (safety-critical vs. non-critical classification) may diffuse into Tasking interface if priority semantics are not clearly defined. Mitigation: Establish a priority taxonomy in the Tasking interface specification; Teleoperation applies this taxonomy consistently without requiring bidirectional negotiation with the task planner.",
+        "Risk: Feedback control loop for redundancy adjustment may create a tight coupling between network monitoring (real-time, low-level) and command execution (higher-level, task-driven). Mitigation: Decouple via a state machine: network monitoring updates redundancy level asynchronously; command execution queries current redundancy level synchronously. Avoid blocking command transmission on network metric updates.",
+        "Risk: SafetyAlert signaling may create circular dependency if Safety Services attempts to override Teleoperation's redundancy decisions. Mitigation: Define SafetyAlert as a one-way signal (Teleoperation → Safety Services); Safety Services responds by triggering fallback behaviors (e.g., autonomous hold, manual takeover) but does not modify Teleoperation's redundancy policy."
+      ],
+      "containment_notes": "Excellent containment within Teleoperation (score 0.92). The module naturally owns command transmission, real-time feedback loops, and network-level reliability mechanisms. Minor diffusion (0.08) is limited to well-defined external interfaces: SafetyAlert coupling to Safety Services is necessary and properly scoped; Telemetry export is a standard observability interface. No significant leakage of DP logic into other modules. The recommended refinement (decomposing DP into DP1a, DP1b, DP5) is optional but would improve clarity by explicitly separating network-level, control-level, and command-level concerns—all owned by Teleoperation but operating at different abstraction layers."
+    },
+    "recommended_revisions": [
+      "Refine DP decomposition for clarity: (1) DP1a: Adaptive packet redundancy and real-time loss detection (network-level mechanism); (2) DP1b: Feedback control loop for redundancy level adjustment (control-level policy); (3) DP5: Loss-aware command prioritization with graceful degradation (command-level policy). This decomposition does not change ownership (all remain in Teleoperation) but clarifies that the composite DP operates across three abstraction levels.",
+      "Formalize the Network Link interface specification to abstract packet-level details as high-level metrics: define loss rate calculation (e.g., rolling window, exponential smoothing), latency measurement (e.g., round-trip time), and bandwidth availability estimation. This prevents diffusion of network mechanics into Teleoperation's control logic.",
+      "Establish a priority taxonomy in the Tasking interface: define categories (e.g., safety-critical, mission-critical, informational) and rules for classification. Teleoperation applies this taxonomy deterministically without requiring dynamic negotiation with the task planner.",
+      "Document the SafetyAlert contract explicitly: specify trigger conditions (e.g., packet loss exceeds threshold for >N consecutive seconds), signal semantics (e.g., severity levels), and expected Safety Services responses. Ensure one-way signaling to avoid circular dependencies.",
+      "Implement network monitoring as a real-time task with bounded latency (e.g., ≤100 ms update cycle) to support responsive feedback control. Consider predictive models (e.g., exponential weighted moving average of loss rate) to anticipate degradation rather than reacting only to observed loss.",
+      "Add a sub-module boundary within Teleoperation to separate command transmission logic from network reliability logic, if the module grows beyond a manageable size. For example: (1) CommandHandler (owns command parsing, prioritization, transmission); (2) NetworkReliability (owns redundancy, loss detection, feedback control). Both sub-modules share the Network Link interface but maintain clear separation of concerns."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-IM, FR-DP, DP-IM) pass with high confidence. The FR is measurable, the DP is solution-complete, and containment within Teleoperation is excellent (0.92). However, the recommended revisions and diffusion risk mitigations reveal that the current DP operates across three distinct abstraction layers (network-level, control-level, command-level) that warrant explicit decomposition. Decomposing into sub-FRs will clarify ownership boundaries, reduce diffusion risk, and enable more precise verification and testing at each layer. The high safety criticality of this system further justifies detailed decomposition to ensure each sub-FR has unambiguous acceptance criteria and testability.",
+    "next_level_sub_frs": [
+      "FR1.1: Detect packet loss in real-time and maintain a rolling loss rate metric (e.g., loss % over last N seconds) with latency ≤100 ms.",
+      "FR1.2: Adjust packet redundancy level dynamically based on observed loss rate, maintaining packet loss ≤1% (or customer-defined target) under agreed network conditions.",
+      "FR1.3: Classify outgoing commands by priority (safety-critical, mission-critical, informational) and apply loss-aware prioritization to preserve safety-critical packets during network degradation.",
+      "FR1.4: Signal Safety Services when packet loss exceeds threshold for >N consecutive seconds, enabling autonomous fallback (e.g., hold, manual takeover)."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "Decompose the composite DP (DP1 + DP5) into three explicit sub-DPs aligned with the sub-FRs: (1) DP1a: Real-time loss detection with rolling metric calculation and ≤100 ms latency; (2) DP1b: Feedback control loop (e.g., PID or state machine) that adjusts redundancy level based on loss rate; (3) DP5: Priority-aware packet scheduling that applies deterministic priority taxonomy. This decomposition clarifies that all three sub-DPs remain owned by Teleoperation but operate at different abstraction layers. It also enables independent verification and reduces diffusion risk by making each sub-DP's interface contract explicit."
+    },
+    "record": {
+      "assumptions": [
+        "Network Link interface will export aggregated metrics (loss rate, latency, bandwidth) rather than low-level packet details; Teleoperation owns the control algorithm that consumes these metrics.",
+        "Tasking interface will provide a priority taxonomy (safety-critical, mission-critical, informational) that Teleoperation applies deterministically without dynamic negotiation.",
+        "SafetyAlert is a one-way signal from Teleoperation to Safety Services; Safety Services responds with fallback actions but does not modify Teleoperation's redundancy policy.",
+        "Network monitoring operates as a real-time task with bounded latency (≤100 ms update cycle); command execution queries current redundancy level synchronously without blocking.",
+        "Customer-defined packet loss target and agreed network conditions (e.g., max 15% loss, latency range) are specified in the system requirements and remain stable during operation.",
+        "Redundancy mechanism (e.g., forward error correction, packet duplication) is feasible within bandwidth and latency constraints; cost/benefit trade-off is acceptable."
+      ],
+      "open_risks": [
+        "Risk: Feedback control loop (FR1.2) may oscillate if redundancy adjustment is too aggressive or network conditions change rapidly. Mitigation: Implement hysteresis or exponential smoothing in loss rate calculation; tune control parameters (e.g., PID gains) via simulation before deployment.",
+        "Risk: Priority taxonomy (FR1.3) may be ambiguous or inconsistently applied if not formally specified. Mitigation: Define priority categories and classification rules in Tasking interface specification; implement deterministic classifier in Teleoperation; validate via code review and unit tests.",
+        "Risk: SafetyAlert signaling (FR1.4) may create latency if Safety Services response is slow, delaying fallback action. Mitigation: Specify maximum response time (e.g., 5 seconds); implement autonomous fallback (e.g., hold) if Safety Services does not respond within timeout.",
+        "Risk: Network monitoring (FR1.1) may consume significant CPU/memory if loss rate calculation is inefficient. Mitigation: Use bounded data structures (e.g., circular buffer for rolling window); implement exponential smoothing instead of full history retention.",
+        "Risk: Redundancy mechanism may introduce additional latency or jitter, affecting teleoperation responsiveness. Mitigation: Measure end-to-end latency (command transmission to operator feedback) under various redundancy levels; ensure latency remains acceptable for safe operation."
+      ],
+      "evidence_needed": [
+        "Network simulation results: packet loss detection accuracy (±2%) under 0–10% loss injection; feedback control convergence time (<5 seconds) under 0–15% loss injection.",
+        "Field trial data: packet loss distribution, latency profile, and bandwidth availability under real network conditions (e.g., cellular, satellite, WiFi); validation of customer-defined loss target.",
+        "Priority taxonomy specification: formal definition of safety-critical, mission-critical, informational categories; classification rules; examples of commands in each category.",
+        "SafetyAlert interface specification: trigger conditions, signal semantics, severity levels, expected Safety Services responses; timing requirements (e.g., signal latency <2 seconds, fallback response <5 seconds).",
+        "Control algorithm design: PID or state machine parameters; stability analysis; simulation results showing convergence and robustness to network condition changes.",
+        "Code review and unit tests: verification that priority taxonomy is applied deterministically; no circular dependencies between Teleoperation and Safety Services; network monitoring latency ≤100 ms.",
+        "End-to-end latency measurement: command transmission to operator feedback under various redundancy levels; validation that latency remains acceptable for safe teleoperation."
+      ]
+    }
+  }
+}

@@ -1,0 +1,175 @@
+{
+  "refined_fr": {
+    "refined_fr": "Enable measurement and reporting of material throughput in volumetric or mass units per unit time.",
+    "rationale": "The original FR conflates two distinct obligations: (1) the system's capability to measure/report throughput metrics, and (2) the achievement of a customer-defined target. The latter is a success criterion dependent on operational execution, not a system requirement. The refined FR isolates the system's functional obligation—providing visibility into throughput—which is solution-neutral and testable independent of whether a specific productivity target is met. The target itself belongs in acceptance criteria or KPI definitions, not in the FR.",
+    "verification_idea": "Demonstrate that the NGHE solution captures and reports material throughput (m³/h or ton/h) during representative operations. Verify data accuracy against independent measurement. Confirm reporting is accessible to Site Manager and Equipment Operator in real time or near-real time.",
+    "sub_frs": [
+      "Acquire volumetric or mass flow data from material handling subsystems during operation.",
+      "Calculate throughput rate (m³/h or ton/h) from acquired flow data.",
+      "Display or transmit throughput metrics to authorized stakeholders in real time or near-real time.",
+      "Log historical throughput data for post-operation analysis and reporting."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Acquire instantaneous flow rate via continuous sensing of material stream properties (mass or volume per unit time) and integrate over evaluation period to compute cumulative throughput",
+      "DP2: Periodically sample material quantity at fixed time intervals, compute differential changes, and extrapolate to period-level throughput estimate",
+      "DP3: Instrument material input and output boundaries with independent accumulation counters (mass or volume), compute net throughput as difference, and normalize by elapsed time",
+      "DP4: Decompose throughput into constituent process stages (e.g., feed rate, processing rate, discharge rate), measure each independently, and synthesize via process model to infer system throughput",
+      "DP5: Establish reference material batches of known quantity, correlate batch processing time to throughput rate, and apply calibration model to operational cycles"
+    ],
+    "selected_dp": "DP3: Instrument material input and output boundaries with independent accumulation counters (mass or volume), compute net throughput as difference, and normalize by elapsed time",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Counter synchronization: input and output clocks must be aligned to avoid systematic bias in net throughput calculation; recommend synchronized time reference (e.g., NTP, PLC heartbeat)",
+        "Boundary definition ambiguity: 'input' and 'output' must be unambiguously defined in process flow; risk of double-counting or omission if intermediate storage or recirculation exists",
+        "Measurement independence: input and output sensors should not share a single failure mode; recommend physically and logically separate acquisition paths",
+        "Accumulation reset/rollover: counter overflow or manual reset events must be tracked and reconciled to avoid discontinuities in throughput reporting"
+      ],
+      "notes": "DP3 exhibits low functional coupling because input and output measurement are logically independent; failure of one does not directly compromise the other. However, temporal and data-fusion coupling exists at the synthesis step (net throughput = output − input). This is acceptable because the coupling is explicit and manageable via synchronized timing and clear boundary definitions. DP1 and DP4 show higher coupling due to reliance on process models or multi-stage inference; DP2 exhibits sampling bias risk under transient conditions."
+    },
+    "assumptions_risks": [
+      "Assumption: Material does not accumulate indefinitely within process boundaries between input and output measurement points. Risk: If intermediate storage is significant and variable, net throughput may not reflect instantaneous processing rate; mitigation: define evaluation period long enough to amortize storage variance, or add intermediate inventory measurement.",
+      "Assumption: Input and output measurement devices have comparable accuracy and calibration stability over the evaluation period. Risk: Systematic bias in one counter could dominate net throughput error; mitigation: pre-evaluation calibration cross-check and periodic in-situ verification.",
+      "Assumption: Acceptance criterion 'productivity ≥ productivity_target' is defined as average throughput over the evaluation period, not instantaneous peak. Risk: If criterion requires sustained minimum rate, transient dips may cause false negatives; mitigation: clarify acceptance criterion (e.g., 95th percentile, rolling average window).",
+      "Assumption: Worksite safety plan permits installation of measurement instrumentation at input and output boundaries without disrupting material flow or creating hazards. Risk: Sensor placement constraints may force suboptimal measurement locations; mitigation: early coordination with safety and operations teams.",
+      "Assumption: Material properties (density, moisture, particle size) remain within a known range during evaluation. Risk: Significant variation could affect volumetric-to-mass conversion or sensor response; mitigation: specify material property acceptance bands or use mass-based measurement if density variability is high."
+    ],
+    "recommended_revision": "Refine FR to explicitly state: (1) whether throughput is measured in mass or volume (or both), (2) the definition of 'input' and 'output' boundaries in the process flow diagram, (3) the evaluation period duration and whether intermediate inventory changes must be accounted for, and (4) the acceptable measurement uncertainty (e.g., ±5% of productivity_target). Additionally, clarify the acceptance criterion: is it average throughput, minimum sustained rate, or a statistical percentile? Recommend pairing DP3 with a secondary DP (e.g., DP5 calibration check) to validate counter accuracy at the start and end of the evaluation period, reducing risk of undetected systematic bias."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "Centralized material flow monitoring and throughput computation subsystem that instruments input/output boundaries, maintains independent accumulation counters, and derives net throughput metrics normalized by elapsed time."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Transmit computed net throughput, accumulation counter states, and material flow metrics to external monitoring/logging systems"
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receive configuration parameters for counter initialization, boundary definitions, and throughput computation intervals"
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Signal anomalous throughput or counter drift conditions that may indicate system malfunction or safety concern"
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent containment: material flow instrumentation, accumulation logic, and throughput computation are core NGHE responsibilities. Counter state management and time-normalized calculations are naturally localized. Minor diffusion: telemetry export and safety alerting require external interface coupling, but these are well-defined and minimal."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor containment: Vehicle module typically owns physical actuation and motion control, not material flow accounting. Placing accumulation counters and throughput logic in Vehicle creates semantic mismatch and forces Vehicle to depend on material boundary sensors and timing services outside its natural scope. High diffusion: computation would leak into teleoperation and safety layers."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.25,
+        "diffusion_score": 0.75,
+        "notes": "Very poor containment: Teleoperation is a command/control interface layer, not a material accounting system. Placing throughput computation here violates separation of concerns. Accumulation counters would be orphaned from the physical process they monitor. High diffusion: requires tight coupling to Vehicle sensors and NGHE process state."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Weak containment: Safety Services owns alert generation and constraint enforcement, not primary material flow measurement. While Safety Services may consume throughput anomalies, it should not own the accumulation and computation logic. Placing DP here inverts the dependency: Safety should react to throughput data, not generate it. High diffusion: core accounting logic would be scattered across NGHE and Safety."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "The NGHE Solution module is the natural owner of material flow instrumentation and throughput computation because: (1) it directly manages the process boundaries where material enters and exits; (2) accumulation counters are process-state variables intrinsic to NGHE operation; (3) net throughput is a primary process performance metric; (4) time normalization and counter management are algorithmic concerns aligned with NGHE's core responsibility for process monitoring and control. External interfaces (Telemetry, Tasking, SafetyAlert) are minimal and well-defined, representing data export and configuration ingestion rather than core logic diffusion.",
+    "containment_risks": [
+      "Sensor integration risk: If material boundary sensors are owned by Vehicle or a separate instrumentation module, NGHE must establish clear data contracts for sensor readings. Ensure sensor ownership and calibration responsibility are explicitly assigned.",
+      "Time synchronization risk: Elapsed time computation requires a reliable clock source. If timing is not internally available, NGHE must depend on an external time service; ensure this dependency is explicit and latency-bounded.",
+      "Counter overflow/reset risk: Long-running accumulation counters may overflow or require periodic reset. Define reset semantics and communicate them via Tasking interface to prevent counter discontinuities.",
+      "Telemetry bandwidth risk: Frequent throughput updates may saturate Telemetry interface. Define sampling/aggregation policy to balance freshness and bandwidth.",
+      "Safety coupling risk: SafetyAlert interface must not create circular dependency where Safety Services modify counter state. Ensure Safety only consumes throughput data, not writes to counters."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP3 directly and sufficiently addresses the FR. The design parameter specifies independent accumulation counters at material input/output boundaries, net throughput computation as difference, and time normalization—all necessary and sufficient to enable measurement and reporting of material throughput in volumetric or mass units per unit time. The logic is sound and complete."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Sensor integration risk: Material boundary sensors must be owned and calibrated by a clearly designated module (likely Vehicle or a dedicated instrumentation subsystem). NGHE must establish explicit data contracts specifying sensor reading format, calibration state, and latency. Lack of clarity here will diffuse counter logic across sensor ownership boundaries.",
+        "Time synchronization risk: Elapsed time computation requires a reliable, low-latency clock source. If timing is not internally available to NGHE, dependency on an external time service must be explicit in the IM boundary. Ensure clock drift and synchronization failures are handled without counter discontinuities.",
+        "Counter state persistence and reset risk: Long-running accumulation counters require explicit reset semantics and state persistence strategy. If reset is triggered externally via Tasking, ensure NGHE owns the reset logic and communicates counter discontinuities to Telemetry consumers. Avoid diffusion of reset responsibility across modules.",
+        "SafetyAlert feedback loop risk: SafetyAlert interface must be unidirectional (NGHE → Safety). If Safety Services attempt to write to counters or modify accumulation logic in response to anomalies, this creates circular coupling and diffuses DP ownership. Enforce read-only consumption of throughput data by Safety.",
+        "Telemetry export sampling risk: Frequent counter updates may saturate the Telemetry interface. Define and document sampling/aggregation policy within NGHE to prevent interface congestion. Avoid pushing this policy decision to external consumers."
+      ],
+      "containment_notes": "NGHE Solution achieves 0.92 containment score with excellent localization of core DP logic: accumulation counters, net throughput computation, and time normalization are naturally aligned with NGHE's responsibility for process monitoring. The 0.08 diffusion score reflects only well-defined external interfaces (Telemetry export, Tasking configuration, SafetyAlert signaling), which are data flows rather than logic diffusion. Alternative candidates (Vehicle, Teleoperation, Safety Services) all exhibit poor containment (0.25–0.40) and high diffusion (0.60–0.75) due to semantic mismatch and forced coupling to unrelated responsibilities. NGHE ownership is strongly justified."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible against the stated acceptance criterion: 'reported productivity is ≥ productivity_target over the agreed evaluation period.' NGHE's throughput computation (net accumulation normalized by elapsed time) directly produces the productivity metric. Verification requires: (1) instrumentation of input/output boundaries with calibrated sensors; (2) validation of counter accumulation logic against ground-truth material flow; (3) confirmation that time normalization produces units consistent with productivity_target definition (e.g., kg/min, m³/hr). Worksite safety plan and operational policies must specify acceptable throughput ranges and anomaly thresholds for SafetyAlert triggering.",
+      "allocation_clarity": "Allocation is clear and well-structured. NGHE Solution owns the core DP (accumulation counters, net throughput computation, time normalization). External dependencies are explicitly identified: (1) Tasking provides configuration and reset commands; (2) Telemetry consumes computed metrics; (3) SafetyAlert signals anomalies. Sensor ownership (input/output boundary instrumentation) must be explicitly assigned to Vehicle or a dedicated instrumentation module with clear data contracts. Clock source ownership must be explicit (internal or external time service). Counter state persistence and reset semantics must be documented in NGHE's interface specification. With these clarifications, allocation is unambiguous."
+    },
+    "recommended_revisions": [
+      "Explicitly assign sensor ownership and establish data contracts: Define which module owns material boundary sensors (mass/volume transducers), their calibration responsibility, reading format, and latency guarantees. Document sensor-to-counter interface in NGHE's input specification.",
+      "Specify clock source and synchronization strategy: Declare whether NGHE uses an internal clock or depends on an external time service. If external, define latency bounds, drift tolerance, and handling of clock discontinuities. Ensure elapsed time computation is robust to clock resets.",
+      "Document counter reset semantics and state persistence: Define when and how accumulation counters are reset (e.g., per shift, per job, manual via Tasking). Specify whether counter state persists across power cycles and how discontinuities are communicated to Telemetry consumers.",
+      "Enforce unidirectional SafetyAlert interface: Explicitly state that SafetyAlert is output-only from NGHE to Safety Services. Safety must not write to counters or modify accumulation logic. Define anomaly thresholds (e.g., counter drift, throughput deviation) in NGHE's specification, not in Safety Services.",
+      "Define Telemetry sampling and aggregation policy: Specify the frequency and granularity of throughput metric export (e.g., instantaneous, rolling average, per-interval summary). Document any filtering or aggregation applied within NGHE to prevent interface saturation.",
+      "Validate acceptance criterion alignment: Confirm that the productivity_target definition (units, measurement period, acceptable variance) is consistent with NGHE's throughput computation. If productivity_target is defined externally, ensure NGHE's metric directly maps to it without post-processing."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass with high confidence. The DP is sound and sufficient; NGHE ownership is strongly justified with 0.92 containment. However, the recommended_revisions and diffusion_risks reveal that critical architectural clarifications—sensor ownership, clock synchronization, counter reset semantics, SafetyAlert unidirectionality, and Telemetry sampling policy—must be resolved before detailed design proceeds. These are not logic defects but rather IM-level boundary and interface specifications that require decomposition into sub-FRs to ensure each diffusion risk is explicitly owned and verified. Given high safety criticality, deriving sub-FRs to address sensor integration, time synchronization, state persistence, and interface governance is justified to prevent downstream coupling and verification gaps.",
+    "next_level_sub_frs": [
+      "FR3.1: Acquire and validate material input boundary sensor readings (mass or volume) with documented calibration state and latency guarantees.",
+      "FR3.2: Acquire and validate material output boundary sensor readings (mass or volume) with documented calibration state and latency guarantees.",
+      "FR3.3: Obtain elapsed time with bounded drift and robustness to clock discontinuities, enabling consistent time normalization of accumulation counters.",
+      "FR3.4: Initialize, accumulate, and reset input boundary counters with explicit reset semantics and state persistence strategy, communicating discontinuities to downstream consumers.",
+      "FR3.5: Initialize, accumulate, and reset output boundary counters with explicit reset semantics and state persistence strategy, communicating discontinuities to downstream consumers.",
+      "FR3.6: Compute net throughput as the difference between output and input accumulation counters, normalized by elapsed time, in units consistent with productivity_target definition.",
+      "FR3.7: Export computed throughput metrics to Telemetry with defined sampling frequency and aggregation policy, preventing interface saturation.",
+      "FR3.8: Signal anomalies (counter drift, throughput deviation, sensor failures) to Safety Services via unidirectional SafetyAlert interface, with anomaly thresholds defined and owned by NGHE."
+    ],
+    "revise": {
+      "target": "IM",
+      "why": "The DP logic is sound, but the IM specification is incomplete. Recommended revisions must be incorporated into NGHE's interface specification before sub-FR decomposition proceeds: (1) explicitly assign sensor ownership and establish data contracts; (2) specify clock source and synchronization strategy; (3) document counter reset semantics and state persistence; (4) enforce unidirectional SafetyAlert interface; (5) define Telemetry sampling and aggregation policy. These revisions clarify module boundaries and prevent diffusion of DP logic across ownership boundaries. Update the IM layer to reflect these clarifications, then proceed with sub-FR derivation."
+    },
+    "record": {
+      "assumptions": [
+        "Sensor ownership (material boundary transducers) will be explicitly assigned to Vehicle or a dedicated instrumentation module with clear data contracts specifying reading format, calibration state, and latency.",
+        "NGHE has access to a reliable, low-latency clock source (internal or external) with bounded drift and documented synchronization strategy.",
+        "Counter reset is triggered externally via Tasking interface; NGHE owns reset logic and communicates discontinuities to Telemetry consumers.",
+        "SafetyAlert interface is unidirectional (NGHE → Safety Services); Safety does not write to counters or modify accumulation logic.",
+        "Telemetry sampling and aggregation policy is defined and owned by NGHE to prevent interface saturation.",
+        "Productivity_target definition (units, measurement period, acceptable variance) is consistent with NGHE's throughput computation and requires no post-processing."
+      ],
+      "open_risks": [
+        "Sensor integration risk: Material boundary sensors must be owned and calibrated by a clearly designated module. Lack of clarity will diffuse counter logic across sensor ownership boundaries. Mitigation: FR3.1 and FR3.2 explicitly decompose sensor acquisition and validation.",
+        "Time synchronization risk: Elapsed time computation requires a reliable, low-latency clock source. If timing is not internally available, dependency on external time service must be explicit. Mitigation: FR3.3 explicitly addresses clock acquisition and robustness.",
+        "Counter state persistence and reset risk: Long-running accumulation counters require explicit reset semantics and state persistence strategy. Mitigation: FR3.4 and FR3.5 explicitly decompose counter initialization, accumulation, and reset.",
+        "SafetyAlert feedback loop risk: SafetyAlert interface must be unidirectional. If Safety attempts to write to counters, this creates circular coupling. Mitigation: FR3.8 explicitly enforces unidirectional anomaly signaling with NGHE-owned thresholds.",
+        "Telemetry export saturation risk: Frequent counter updates may saturate the Telemetry interface. Mitigation: FR3.7 explicitly defines sampling and aggregation policy within NGHE."
+      ],
+      "evidence_needed": [
+        "Data contract specification between NGHE and sensor-owning module (Vehicle or instrumentation subsystem) defining sensor reading format, calibration state, latency, and error handling.",
+        "Clock source specification (internal or external) with documented drift bounds, synchronization strategy, and handling of clock discontinuities.",
+        "Counter reset semantics specification: trigger conditions, reset frequency, state persistence across power cycles, and discontinuity communication protocol to Telemetry.",
+        "SafetyAlert interface specification: unidirectional data flow, anomaly threshold definitions (counter drift, throughput deviation, sensor failures), and confirmation that Safety Services do not write to counters.",
+        "Telemetry sampling and aggregation policy: export frequency, metric granularity (instantaneous, rolling average, per-interval summary), and filtering rules to prevent saturation.",
+        "Validation that productivity_target definition (units, measurement period, acceptable variance) maps directly to NGHE's throughput computation without post-processing.",
+        "Worksite safety plan and operational policies specifying acceptable throughput ranges and anomaly thresholds for SafetyAlert triggering."
+      ]
+    }
+  }
+}

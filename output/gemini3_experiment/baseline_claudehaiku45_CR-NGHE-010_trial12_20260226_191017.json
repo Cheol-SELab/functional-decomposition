@@ -1,0 +1,164 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation link availability ≥ 0.999 (99.9%) over the agreed evaluation period, measured as the ratio of time the bidirectional command-and-telemetry link is operational to total evaluation time.",
+    "rationale": "CR-NGHE-010 addresses a critical operational requirement: remote equipment control depends on reliable communication. The refined FR quantifies the acceptance criterion (≥0.999 availability), specifies the measurement scope (bidirectional link), and defines the evaluation period. This is essential for safety-critical teleoperation where link loss can lead to equipment immobilization or unsafe states.",
+    "verification_idea": "Continuous monitoring of link state (up/down) during the evaluation period; calculate availability as (total_time_link_up) / (total_evaluation_time). Log link state transitions with timestamps. Compare measured availability against the 0.999 threshold at evaluation conclusion.",
+    "sub_frs": [
+      "FR-NGHE-010.1: The teleoperation system shall detect link loss within [X] milliseconds.",
+      "FR-NGHE-010.2: The teleoperation system shall implement redundant communication paths to minimize single-point-of-failure impact on link availability.",
+      "FR-NGHE-010.3: The teleoperation system shall recover from transient link interruptions and re-establish bidirectional command-telemetry flow.",
+      "FR-NGHE-010.4: The teleoperation system shall log link availability metrics for post-evaluation analysis and reporting."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Implement dual independent communication channels (primary and backup) with automatic failover; monitor link health continuously; log availability metrics.",
+      "DP-B: Deploy a single high-reliability communication link with error correction and retransmission; implement watchdog timers for link detection.",
+      "DP-C: Use a mesh network topology with multiple relay nodes to provide path redundancy; implement dynamic routing to maintain connectivity.",
+      "DP-D: Implement a hybrid approach combining dual channels (DP-A) with mesh-capable relay infrastructure (DP-C) and continuous health monitoring."
+    ],
+    "selected_dp": "DP-D: Implement a hybrid dual-channel architecture with mesh-capable relay infrastructure, continuous link health monitoring, automatic failover logic, and comprehensive availability logging. Primary channel uses dedicated network; secondary channel uses alternative carrier or mesh relay. Both channels feed a link aggregation layer that selects the best available path and logs state transitions for availability calculation.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between link detection logic and failover decision logic (mitigated by clear state machine definition).",
+        "Coupling between telemetry reception and link health assessment (acceptable; both are inputs to link state determination).",
+        "Coupling between logging subsystem and link state machine (acceptable; logging is a side effect, not a control dependency)."
+      ],
+      "notes": "DP-D exhibits low coupling because the dual-channel architecture, failover logic, health monitoring, and logging are functionally separable. The primary coupling is information flow (link state), not control or resource contention. Decoupling is achieved through clear interfaces: each channel reports its status independently; the aggregation layer makes failover decisions based on status inputs."
+    },
+    "assumptions_risks": [
+      "Assumption: Two independent communication carriers or paths are available at the worksite (primary and secondary/mesh).",
+      "Assumption: Failover latency (time to switch from primary to secondary) is acceptable for safety (must be verified against operational safety requirements).",
+      "Risk: If both channels fail simultaneously, link availability drops to zero; mitigation requires redundancy at the carrier/infrastructure level (outside NGHE control).",
+      "Risk: Mesh relay infrastructure may introduce variable latency; must verify that command-response timing remains within acceptable bounds for safe teleoperation.",
+      "Risk: Logging overhead could impact real-time performance; mitigation via asynchronous logging or dedicated logging thread."
+    ],
+    "recommended_revision": "Clarify the acceptable failover latency and the definition of 'link operational' (e.g., does a brief transient loss count as downtime, or only sustained loss >X ms?). Confirm that two independent communication paths are contractually available. Specify the mesh relay topology and node density to ensure coverage at the worksite."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "The Teleoperation module owns the dual-channel communication architecture, link health monitoring, failover logic, and availability logging. It interfaces with the Vehicle module to receive telemetry and send commands, and with Safety Services to report link state and receive safety constraints. It manages the primary and secondary communication channels and the link aggregation layer."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Receives vehicle state telemetry (position, orientation, sensor readings, operational status) from Vehicle module; used to assess link quality and populate telemetry for transmission to tele-operator."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Sends operator commands (movement, tool control, mode changes) to Vehicle module; originates from tele-operator input received over the communication link."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "Receives safety constraints and link-loss emergency procedures from Safety Services; sends link availability status and link-loss events to Safety Services for safety-critical decision making."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Manages primary and secondary communication channels; monitors link state, initiates failover, and logs link availability metrics."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.95,
+        "diffusion_score": 0.05,
+        "notes": "Teleoperation is the natural owner of link availability logic. The dual-channel architecture, failover, health monitoring, and logging are core teleoperation functions. Minimal diffusion: only the Vehicle module needs to know about link state for safe shutdown; Safety Services needs link status for emergency procedures. Both are handled via clean interfaces (SafetyAlert, Telemetry)."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Safety Services should not own link availability logic; it should own the safety response to link loss (e.g., safe shutdown, emergency stop). Assigning DP-D to Safety Services would diffuse communication and failover logic across the safety domain, violating separation of concerns."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Vehicle module owns the physical equipment and its local control. Link availability is a communication concern, not a vehicle concern. Assigning DP-D to Vehicle would couple vehicle control logic with remote communication management, creating high diffusion and poor cohesion."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "NGHE Solution is the top-level system container. While it could logically own link availability, doing so would bypass the Teleoperation module and create diffusion. Better to assign to Teleoperation and have NGHE Solution orchestrate the integration."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the correct owner of DP-D (dual-channel architecture with failover and logging). It has the highest containment score (0.95) and lowest diffusion (0.05). The module's primary responsibility is managing remote command-and-telemetry flow; link availability is a direct enabler of that responsibility. External interfaces (Telemetry, Tasking, SafetyAlert, Network Link) are all well-defined and do not require new interface definitions.",
+    "containment_risks": [
+      "Risk: If the Vehicle module needs to implement local failover logic (e.g., safe shutdown on link loss), there may be coupling between Teleoperation's failover decision and Vehicle's local response. Mitigation: Use SafetyAlert interface to communicate link state; Vehicle responds autonomously without tight coupling.",
+      "Risk: If the primary and secondary communication channels are managed by different infrastructure teams, ownership of the Network Link interface may be ambiguous. Mitigation: Clarify in the interface specification that Teleoperation owns the logical link aggregation; physical channel management may be delegated to infrastructure partners via service-level agreements.",
+      "Risk: Logging overhead could impact real-time teleoperation performance. Mitigation: Use asynchronous logging or a dedicated logging thread to avoid blocking command-response loops."
+    ],
+    "recommended_revision": "Confirm that the Teleoperation module has authority over both primary and secondary communication channels (or at least the ability to select and switch between them). Define the Network Link interface in detail: what signals/messages constitute 'link up' vs. 'link down'? What is the failover latency budget? Specify the logging format and storage location for availability metrics."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "The refined FR (achieve ≥0.999 link availability) is directly addressed by DP-D (dual-channel architecture with failover and logging). The DP provides a clear solution path: redundancy reduces single-point-of-failure risk, failover ensures continuity, and logging enables verification. The FR is measurable (availability ratio), and the DP is implementable. No fundamental mismatch detected."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Low risk: Teleoperation module ownership is well-aligned with DP-D. The dual-channel logic, failover, and logging are cohesive functions within the teleoperation domain.",
+        "Low risk: External interfaces (Telemetry, Tasking, SafetyAlert, Network Link) are all pre-defined and do not require new interface invention.",
+        "Moderate risk: If the Vehicle module or Safety Services need to react to link state changes, there is potential for coupling. Mitigation: Use SafetyAlert and Telemetry interfaces to communicate state; avoid direct control dependencies."
+      ],
+      "containment_notes": "Teleoperation module achieves 0.95 containment score. The DP is well-contained within the module boundary. No significant diffusion of DP logic across other modules is required. The module's external interfaces are clean and minimal."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The refined FR is measurable: link availability can be calculated from continuous monitoring of link state (up/down) during the evaluation period. The DP includes explicit logging of link state transitions, enabling post-evaluation analysis. Verification is straightforward: compare measured availability against the 0.999 threshold.",
+      "allocation_clarity": "High. The FR is allocated to the Teleoperation module, which owns the communication architecture and link management. The allocation is clear and unambiguous. Sub-FRs (link loss detection, redundancy, recovery, logging) are all within the Teleoperation module's scope."
+    },
+    "recommended_revisions": [
+      "Refine the definition of 'link operational': does a brief transient loss (e.g., <100 ms) count as downtime, or only sustained loss? This affects the measurement methodology and the DP design (e.g., failover latency budget).",
+      "Specify the evaluation period duration and the measurement methodology (continuous monitoring vs. periodic sampling). This affects the logging and analysis approach.",
+      "Clarify the acceptable failover latency and the impact on safety. If failover must be <100 ms, the DP may need to be revised (e.g., faster switching logic, pre-positioned backup channels).",
+      "Confirm that two independent communication paths are available at the worksite. If not, the DP may need to be revised (e.g., rely on error correction and retransmission instead of dual channels)."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The refined FR is clear, measurable, and well-aligned with the selected DP and assigned IM. The Teleoperation module is the correct owner with high containment (0.95) and low diffusion (0.05). However, the FR is not atomic; it decomposes into four sub-FRs (link loss detection, redundancy, recovery, logging). Each sub-FR requires further decomposition to define concrete design parameters and implementation details. Proceeding to the next level of decomposition is necessary to flesh out the dual-channel architecture, failover logic, health monitoring, and logging subsystems.",
+    "next_level_sub_frs": [
+      "FR-NGHE-010.1: The teleoperation system shall detect link loss within [X] milliseconds.",
+      "FR-NGHE-010.2: The teleoperation system shall implement redundant communication paths to minimize single-point-of-failure impact on link availability.",
+      "FR-NGHE-010.3: The teleoperation system shall recover from transient link interruptions and re-establish bidirectional command-telemetry flow.",
+      "FR-NGHE-010.4: The teleoperation system shall log link availability metrics for post-evaluation analysis and reporting."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Two independent communication carriers or paths are available at the worksite (primary and secondary/mesh).",
+        "Failover latency is acceptable for safe teleoperation (must be verified against operational safety requirements in next level).",
+        "Link state can be continuously monitored and logged without significant performance impact.",
+        "The customer-defined target availability (≥0.999) is achievable with dual-channel architecture and failover logic.",
+        "Safety Services will implement appropriate emergency procedures (e.g., safe shutdown) upon link loss notification via SafetyAlert interface."
+      ],
+      "open_risks": [
+        "Risk: If both channels fail simultaneously, link availability drops to zero; mitigation requires redundancy at the carrier/infrastructure level (outside NGHE control).",
+        "Risk: Mesh relay infrastructure may introduce variable latency; must verify that command-response timing remains within acceptable bounds for safe teleoperation.",
+        "Risk: Logging overhead could impact real-time performance; mitigation via asynchronous logging or dedicated logging thread.",
+        "Risk: Failover latency may be too high for safety-critical operations; must be verified in next level decomposition.",
+        "Risk: Definition of 'link operational' is ambiguous (brief transient loss vs. sustained loss); must be clarified before implementation."
+      ],
+      "evidence_needed": [
+        "Confirmation that two independent communication paths are contractually available at the worksite.",
+        "Specification of acceptable failover latency and its impact on safety (from Safety Manager and Operator).",
+        "Definition of 'link operational' and measurement methodology (from Project Manager and System Engineer).",
+        "Evaluation period duration and measurement approach (from Project Manager).",
+        "Mesh relay topology and node density (if applicable) to ensure coverage at the worksite.",
+        "Performance analysis of logging subsystem to confirm no impact on real-time teleoperation.",
+        "Safety analysis of link loss scenarios and emergency procedures (from Safety Manager)."
+      ]
+    }
+  }
+}

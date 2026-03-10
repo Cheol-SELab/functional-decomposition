@@ -1,0 +1,168 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and designated work zones with sufficient fidelity to support autonomous path planning, collision avoidance, and operator situational awareness.",
+    "rationale": "The original FR was vague on scope (what constitutes 'area analysis') and lacked explicit linkage to downstream functional consumers (planning, execution, safety). Refinement adds: (1) real-time update cadence to support dynamic safety; (2) explicit feature taxonomy (terrain, static obstacles, dynamic hazards, work zones); (3) fidelity requirement tied to use cases (path planning, collision avoidance, situational awareness); (4) availability requirement for planning/execution functions.",
+    "verification_idea": "Acceptance test: Worksite model is generated within 5 minutes of system initialization; model is updated at ≥2 Hz; model includes all terrain features within ±0.5 m horizontal accuracy and ±0.1 m vertical accuracy; model correctly represents 95% of obstacles >0.3 m in height within sensor range; model is accessible to planning and execution subsystems via agreed interface.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire worksite sensor data (LiDAR, camera, GNSS, IMU) with sufficient coverage and refresh rate.",
+      "CR-NGHE-006.2: Process sensor data to extract terrain, obstacles, and hazard features.",
+      "CR-NGHE-006.3: Fuse multi-sensor data into a unified worksite model representation.",
+      "CR-NGHE-006.4: Maintain and update worksite model in real-time as new sensor data arrives.",
+      "CR-NGHE-006.5: Provide worksite model access to planning and execution functions via standardized interface.",
+      "CR-NGHE-006.6: Validate worksite model completeness and accuracy against acceptance criteria."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized perception pipeline (sensor fusion engine) running on vehicle compute platform, producing a 3D occupancy grid + feature map, published to shared data bus.",
+      "DP-B: Distributed sensor processing (edge compute on each sensor module) with local feature extraction, aggregated by a central fusion coordinator into a unified model.",
+      "DP-C: Cloud-based worksite modeling service receiving raw sensor telemetry, performing fusion and feature extraction remotely, returning model updates via network link.",
+      "DP-D: Hybrid approach: vehicle-local real-time occupancy grid (DP-A) for immediate safety/planning, with asynchronous cloud refinement (DP-C) for long-term map persistence and multi-vehicle coordination."
+    ],
+    "selected_dp": "DP-D: Hybrid vehicle-local + cloud-assisted worksite modeling. Vehicle maintains a real-time 3D occupancy grid and feature map (terrain, obstacles, hazards, work zones) via on-board sensor fusion. Model is published to planning/execution subsystems via Tasking interface. Asynchronously, model snapshots are transmitted via Network Link to cloud service for refinement, persistence, and multi-vehicle coordination. Safety-critical features (dynamic hazards, work-zone boundaries) are prioritized in local real-time path; non-critical features (terrain detail, historical obstacles) are refined in cloud.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between vehicle compute load (local fusion) and vehicle power budget: mitigated by offloading non-real-time refinement to cloud.",
+        "Coupling between local model and cloud model consistency: mitigated by clear ownership (vehicle owns real-time safety-critical features; cloud owns long-term refinement).",
+        "Coupling between sensor data rate and network bandwidth: mitigated by selective transmission (only model updates, not raw sensor streams)."
+      ],
+      "notes": "DP-D decouples real-time safety (local) from long-term coordination (cloud), reducing coupling compared to pure cloud (DP-C) or pure local (DP-A). Hybrid approach allows graceful degradation: if cloud link fails, vehicle continues with local model; if local compute fails, vehicle can fall back to cloud-provided model (with latency penalty)."
+    },
+    "assumptions_risks": [
+      "Assumption: Vehicle has sufficient on-board compute (GPU/FPGA) to run real-time sensor fusion at ≥2 Hz. Risk: If compute is undersized, real-time model updates will lag, degrading safety. Mitigation: Specify compute platform early; prototype fusion pipeline on target hardware.",
+      "Assumption: Network link to cloud is available and has sufficient bandwidth (≥1 Mbps) for model updates. Risk: If network is unavailable or congested, cloud refinement is delayed, reducing multi-vehicle coordination. Mitigation: Design local model to be fully functional offline; cloud refinement is optional enhancement.",
+      "Assumption: Sensor suite (LiDAR, camera, GNSS, IMU) provides sufficient coverage and accuracy for terrain/obstacle detection. Risk: If sensors are occluded or noisy, model will have gaps or false positives. Mitigation: Specify sensor placement and calibration; validate sensor performance in representative worksite conditions.",
+      "Assumption: Safety-critical features (dynamic hazards, work-zone boundaries) can be reliably detected and tracked in real-time. Risk: If detection fails, safety is compromised. Mitigation: Implement redundant detection (e.g., multiple cameras, LiDAR + radar); integrate with Safety Services for hazard validation."
+    ],
+    "recommended_revision": "Clarify ownership of dynamic hazard detection: is this part of CR-NGHE-006 (worksite modeling) or delegated to a separate safety perception FR? If delegated, CR-NGHE-006 should specify the interface contract for receiving hazard updates from Safety Services. This will reduce coupling and clarify responsibility."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "The Vehicle module owns the real-time worksite modeling capability, including on-board sensor fusion, occupancy grid generation, feature extraction, and model publication to planning/execution subsystems. The Vehicle module also manages asynchronous transmission of model snapshots to cloud services for refinement and persistence."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle publishes worksite model snapshots (3D occupancy grid, feature map, timestamp, confidence metrics) to Telemetry interface for consumption by planning/execution subsystems and cloud services."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives task/mission requests from planning subsystems; worksite model is used internally to validate task feasibility and generate collision-free paths."
+      },
+      {
+        "name": "Network Link",
+        "direction": "out",
+        "details": "Vehicle transmits model snapshots and sensor metadata via Network Link to cloud worksite modeling service for refinement, persistence, and multi-vehicle coordination."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "in",
+        "details": "Vehicle receives safety alerts and hazard updates from Safety Services; these are integrated into the worksite model as dynamic hazard features."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "Vehicle is the natural owner of real-time sensor fusion and local model generation. Sensor hardware (LiDAR, camera, GNSS, IMU) is mounted on vehicle; compute platform is vehicle-resident. Model is published externally via interfaces, so some diffusion is expected (planning/execution subsystems consume model). Minimal diffusion risk."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Teleoperation module is responsible for remote operator control and situational awareness. While tele-operator may consume worksite model for visualization, the core modeling capability (sensor fusion, feature extraction) is not a teleoperation function. Assigning to Teleoperation would diffuse sensor fusion logic across two modules (Vehicle + Teleoperation), violating cohesion."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 30,
+        "diffusion_score": 70,
+        "notes": "Safety Services is responsible for safety validation, hazard detection, and safety alerts. While Safety Services may consume worksite model for hazard analysis, the core modeling capability (sensor fusion, occupancy grid generation) is not a safety function per se. Assigning to Safety Services would create tight coupling between perception and safety validation, reducing modularity."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 10,
+        "diffusion_score": 90,
+        "notes": "NGHE Solution is the top-level system container. Assigning CR-NGHE-006 to NGHE Solution would not provide architectural clarity; the actual implementation must reside in a concrete module (Vehicle, Teleoperation, or Safety Services). This would be a degenerate assignment."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module is the optimal owner of worksite modeling because: (1) sensor hardware is vehicle-resident; (2) real-time fusion requires low-latency compute, best co-located with sensors; (3) model is primarily consumed by vehicle-local planning/execution subsystems; (4) Vehicle module already owns perception and navigation functions. Diffusion is minimal (model is published externally via well-defined interfaces).",
+    "containment_risks": [
+      "Risk: If Vehicle module compute is overloaded with sensor fusion, other vehicle functions (motor control, telemetry aggregation) may be starved. Mitigation: Allocate dedicated compute core(s) for perception pipeline; implement priority scheduling.",
+      "Risk: If worksite model is tightly coupled to vehicle-specific sensor calibration, model may not be portable to other vehicle types or cloud services. Mitigation: Define model representation as sensor-agnostic (e.g., standard 3D occupancy grid format); separate sensor-specific calibration from model generation.",
+      "Risk: If Vehicle module is responsible for both real-time local model and cloud synchronization, network failures may cause model inconsistency. Mitigation: Implement clear ownership: Vehicle owns real-time model; cloud owns persistent model. Synchronization is best-effort; local model is authoritative for safety."
+    ],
+    "recommended_revision": "Explicitly define the worksite model data structure (e.g., 3D occupancy grid resolution, feature taxonomy, timestamp format, confidence metrics) as a shared contract between Vehicle and consuming subsystems (planning, execution, Safety Services, cloud). This will reduce coupling and enable independent evolution of model consumers."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "Refined FR clearly specifies what worksite modeling must do (generate real-time model with terrain, obstacles, hazards, work zones). Selected DP (hybrid vehicle-local + cloud) logically addresses the FR by decomposing the problem into real-time safety-critical modeling (vehicle-local) and long-term refinement (cloud). DP is traceable to FR and does not over-specify implementation details (e.g., specific sensor types, algorithms). Coupling is acceptable (real-time vs. long-term separation reduces coupling compared to alternatives)."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Diffusion risk: If Vehicle module is responsible for both sensor fusion AND cloud synchronization, the module may become too large and lose cohesion. Mitigation: Define clear sub-module boundaries within Vehicle (e.g., PerceptionPipeline, CloudSync) and specify their interfaces.",
+        "Diffusion risk: If worksite model is consumed by multiple subsystems (planning, execution, Safety Services, Teleoperation), changes to model format may require coordinated updates across all consumers. Mitigation: Define model as a stable, versioned interface; use adapter pattern if consumers require different representations."
+      ],
+      "containment_notes": "Vehicle module is the clear owner of real-time worksite modeling. Containment score is 95%, indicating strong fit. External interfaces (Telemetry, Tasking, Network Link, SafetyAlert) are well-defined and minimal. No alternative module is a better fit. Ownership is unambiguous."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification of CR-NGHE-006 is feasible via: (1) unit tests of sensor fusion algorithms (accuracy, latency); (2) integration tests of model generation and publication (model completeness, update rate); (3) system tests of model consumption by planning/execution subsystems (path planning success rate, collision avoidance effectiveness); (4) field tests in representative worksite conditions (sensor coverage, feature detection accuracy). Acceptance criteria are measurable and testable.",
+      "allocation_clarity": "Allocation of CR-NGHE-006 to Vehicle module is clear. Sub-FRs (sensor acquisition, data processing, fusion, model maintenance, model access, validation) are allocated to Vehicle sub-modules or external services (cloud). Interfaces are explicit (Telemetry, Tasking, Network Link, SafetyAlert). No ambiguity in responsibility."
+    },
+    "recommended_revisions": [
+      "Clarify the contract for dynamic hazard detection: is this part of CR-NGHE-006 or delegated to Safety Services? If delegated, specify the interface for receiving hazard updates (e.g., SafetyAlert).",
+      "Define the worksite model data structure (3D occupancy grid format, feature taxonomy, timestamp, confidence metrics) as a shared specification. This will enable independent development of model producers (Vehicle) and consumers (planning, execution, Safety Services).",
+      "Specify the cloud worksite modeling service as a separate FR (e.g., CR-NGHE-007: Cloud worksite model refinement and persistence). This will clarify the boundary between Vehicle and cloud responsibilities.",
+      "Add a sub-FR for model validation: CR-NGHE-006.6 should specify how model completeness and accuracy are verified against acceptance criteria (e.g., comparison with ground truth, operator feedback)."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "CR-NGHE-006 is not atomic; it comprises multiple sub-functions (sensor acquisition, data processing, fusion, model maintenance, model access, validation). Decomposition to the next level is necessary to allocate responsibility and define interfaces for each sub-function. Vehicle module is the clear owner, but sub-module boundaries and internal interfaces must be defined to ensure cohesion and reduce coupling.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire worksite sensor data (LiDAR, camera, GNSS, IMU) with sufficient coverage and refresh rate.",
+      "CR-NGHE-006.2: Process sensor data to extract terrain, obstacles, and hazard features.",
+      "CR-NGHE-006.3: Fuse multi-sensor data into a unified worksite model representation (3D occupancy grid + feature map).",
+      "CR-NGHE-006.4: Maintain and update worksite model in real-time as new sensor data arrives (≥2 Hz update rate).",
+      "CR-NGHE-006.5: Provide worksite model access to planning and execution functions via Tasking/Telemetry interfaces.",
+      "CR-NGHE-006.6: Validate worksite model completeness and accuracy against acceptance criteria (±0.5 m horizontal, ±0.1 m vertical, 95% obstacle detection)."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Vehicle has sufficient on-board compute (GPU/FPGA) to run real-time sensor fusion at ≥2 Hz.",
+        "Sensor suite (LiDAR, camera, GNSS, IMU) provides sufficient coverage and accuracy for terrain/obstacle detection.",
+        "Network link to cloud is available for asynchronous model refinement (optional, not required for real-time safety).",
+        "Safety-critical features (dynamic hazards, work-zone boundaries) can be reliably detected and tracked in real-time.",
+        "Worksite model is consumed by planning/execution subsystems via well-defined interfaces (Tasking, Telemetry).",
+        "Cloud worksite modeling service is a separate system (not part of Vehicle module)."
+      ],
+      "open_risks": [
+        "Vehicle compute overload: if sensor fusion consumes too much CPU, other vehicle functions may be starved. Mitigation: allocate dedicated compute core(s); implement priority scheduling.",
+        "Sensor occlusion/noise: if sensors are occluded or noisy, model will have gaps or false positives. Mitigation: specify sensor placement and calibration; validate in representative worksite conditions.",
+        "Dynamic hazard detection: if hazard detection fails, safety is compromised. Mitigation: implement redundant detection; integrate with Safety Services for validation.",
+        "Model format portability: if model is tightly coupled to vehicle-specific sensor calibration, it may not be portable to cloud or other vehicles. Mitigation: define model as sensor-agnostic; separate calibration from model generation.",
+        "Network synchronization: if Vehicle and cloud models diverge, multi-vehicle coordination may fail. Mitigation: Vehicle owns real-time model; cloud owns persistent model; synchronization is best-effort."
+      ],
+      "evidence_needed": [
+        "Specification of vehicle compute platform (CPU, GPU, FPGA, memory, power budget).",
+        "Specification of sensor suite (LiDAR type/range, camera resolution, GNSS accuracy, IMU specs).",
+        "Specification of worksite model data structure (3D occupancy grid resolution, feature taxonomy, timestamp format, confidence metrics).",
+        "Specification of interfaces (Tasking, Telemetry, Network Link, SafetyAlert) with message formats and update rates.",
+        "Prototype or simulation of sensor fusion pipeline on target hardware to validate real-time performance.",
+        "Field test results validating sensor coverage, feature detection accuracy, and model completeness in representative worksite conditions.",
+        "Specification of cloud worksite modeling service (if separate FR) and synchronization protocol with Vehicle.",
+        "Safety analysis (FMEA, FTA) of worksite modeling function to identify failure modes and mitigation strategies."
+      ]
+    }
+  }
+}

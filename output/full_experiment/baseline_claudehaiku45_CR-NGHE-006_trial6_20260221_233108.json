@@ -1,0 +1,163 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and work-zone boundaries, with sufficient fidelity to support autonomous path planning and operator situational awareness.",
+    "rationale": "The original FR was vague on fidelity requirements, update frequency, and use-case binding. Refinement clarifies that the model must serve both planning (offline) and execution (real-time) functions, must distinguish static from dynamic features, and must be safety-critical (high criticality factor). This enables downstream DP selection to address sensor fusion, data freshness, and hazard representation.",
+    "verification_idea": "Acceptance test: (1) Worksite model generated within 5 minutes of site survey; (2) Terrain elevation accuracy ±0.5 m over 95% of mapped area; (3) Obstacles detected and represented with position uncertainty <1 m; (4) Model available to planning and execution subsystems via agreed interface; (5) Safety-critical features (hazard zones) flagged and logged.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire worksite sensor data (LiDAR, camera, GNSS, IMU) from vehicle platform.",
+      "CR-NGHE-006.2: Fuse multi-modal sensor data into unified 3D terrain and obstacle representation.",
+      "CR-NGHE-006.3: Classify and label terrain, obstacles, and hazard zones with safety metadata.",
+      "CR-NGHE-006.4: Maintain model freshness and consistency for real-time execution.",
+      "CR-NGHE-006.5: Expose worksite model to planning and execution functions via standardized interface."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Onboard sensor suite (LiDAR + stereo camera + GNSS/RTK) on vehicle; real-time fusion engine (particle filter + occupancy grid); local model storage and streaming to cloud backend for planning.",
+      "DP-B: Tele-operator-guided manual survey with handheld LiDAR scanner; offline batch processing and model generation; model served from centralized server.",
+      "DP-C: Hybrid: vehicle-mounted sensors for dynamic hazards (personnel, moving equipment); pre-surveyed static terrain map (from prior survey or GIS data); real-time fusion of dynamic layer onto static base.",
+      "DP-D: Cloud-native sensor fusion: raw sensor streams from vehicle transmitted to edge/cloud processor; model computed and cached centrally; pushed back to vehicle and planning systems on demand."
+    ],
+    "selected_dp": "DP-C (Hybrid): Vehicle-mounted sensor suite (LiDAR + camera + GNSS) detects and tracks dynamic hazards (personnel, equipment) in real-time; static terrain and obstacle base map is pre-loaded from prior survey or authoritative GIS source; onboard fusion engine overlays dynamic layer onto static base; unified model streamed to planning and execution subsystems via Telemetry interface. This balances real-time responsiveness (critical for safety), computational load (onboard vs. cloud), and operational flexibility (pre-survey reduces field time).",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Sensor data acquisition (CR-NGHE-006.1) is decoupled from fusion logic (CR-NGHE-006.2) via standardized sensor driver interfaces.",
+        "Static base map loading is decoupled from dynamic hazard detection; either can be updated independently.",
+        "Model output (CR-NGHE-006.5) is decoupled from internal representation; planning and execution consume via Telemetry interface, not internal data structures."
+      ],
+      "notes": "DP-C exhibits low coupling because the hybrid approach separates concerns: static geometry (pre-computed, stable) from dynamic state (real-time, sensor-driven). Fusion is a pure transformation with no feedback loops. Risk: dependency on pre-survey data quality; mitigation: validation gate before deployment."
+    },
+    "assumptions_risks": [
+      "Assumption: Pre-surveyed static base map is available and accurate to ±0.5 m before field deployment.",
+      "Assumption: Vehicle-mounted sensor suite (LiDAR + camera) has sufficient FOV and range to detect personnel and equipment at safe standoff distances (e.g., >10 m).",
+      "Risk: Dynamic hazard detection may fail in adverse weather (heavy rain, dust, snow) or low-light conditions; mitigation: sensor redundancy and fallback to operator input.",
+      "Risk: Fusion latency may exceed real-time requirement if onboard compute is insufficient; mitigation: profile and optimize fusion algorithm; consider edge offload if needed.",
+      "Risk: Model freshness degrades if vehicle loses GNSS lock or sensor calibration drifts; mitigation: periodic re-calibration and GNSS backup (e.g., visual odometry)."
+    ],
+    "recommended_revision": "Clarify sensor specifications (LiDAR range, camera resolution, GNSS accuracy) and fusion algorithm latency budget in DP-C. Define fallback behavior if dynamic hazard detection fails (e.g., operator override, reduced autonomy). Specify pre-survey data format and validation criteria."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "The Vehicle module owns the worksite mapping/modeling capability. It integrates onboard sensor hardware (LiDAR, camera, GNSS, IMU), real-time sensor fusion engine, and model management logic. The Vehicle module is responsible for acquiring, fusing, and maintaining the worksite model; it exposes the model to downstream planning and execution functions via standardized interfaces."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle streams worksite model (terrain, obstacles, dynamic hazards, metadata) to planning and execution subsystems. Telemetry carries model updates at configurable frequency (e.g., 1–10 Hz for dynamic hazards, lower for static geometry)."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives survey task directives (e.g., 'map zone A', 'update hazard layer') from planning or operator. Tasking may include pre-survey data (static base map) to be loaded into the model."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Vehicle emits SafetyAlert when dynamic hazards (personnel, obstacles) are detected within critical zones or when model freshness degrades below acceptable threshold. SafetyAlert is routed to Safety Services and operator."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.95,
+        "diffusion_score": 0.05,
+        "notes": "Vehicle is the natural owner of sensor acquisition, onboard fusion, and model management. Sensor hardware is physically mounted on the vehicle; fusion engine runs onboard for real-time responsiveness. Model is maintained locally and streamed out. Minimal diffusion: only model output (Telemetry) and task input (Tasking) cross the boundary. High containment."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.6,
+        "diffusion_score": 0.4,
+        "notes": "NGHE Solution is the system-level container. Worksite mapping is a subsystem capability, not a top-level responsibility. If assigned here, the mapping logic would be diffused across Vehicle, Teleoperation, and Safety Services, violating cohesion. Not recommended."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Teleoperation is responsible for remote operator control and situational awareness. While the tele-operator consumes the worksite model, Teleoperation does not own model generation or sensor fusion. Assigning here would create tight coupling between sensor fusion and operator interface, reducing modularity. Not recommended."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Safety Services is responsible for safety monitoring and policy enforcement. While Safety Services consumes hazard alerts from the worksite model, it does not own sensor acquisition or fusion. Assigning here would diffuse sensor management across Safety Services and Vehicle. Not recommended."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module is the optimal owner of CR-NGHE-006 because: (1) Sensor hardware (LiDAR, camera, GNSS) is physically integrated on the vehicle platform; (2) Real-time fusion requires onboard compute for latency-critical safety functions; (3) Model maintenance and freshness monitoring are vehicle-centric concerns; (4) Downstream consumers (planning, execution, safety) access the model via clean interfaces (Telemetry, SafetyAlert), not internal data structures. Containment score 0.95 reflects high cohesion and minimal diffusion.",
+    "containment_risks": [
+      "Risk: Vehicle module may become overloaded if additional sensing or fusion tasks are added (e.g., SLAM, loop closure). Mitigation: define clear module boundaries and defer advanced features to future levels.",
+      "Risk: Onboard compute capacity may be insufficient for real-time fusion at high sensor data rates. Mitigation: profile fusion algorithm; consider edge offload to Teleoperation or cloud if latency permits.",
+      "Risk: Model freshness depends on vehicle availability and sensor health. If vehicle is offline or sensors fail, model becomes stale. Mitigation: Safety Services must monitor model age and alert operator; fallback to pre-surveyed static map.",
+      "Risk: Tight coupling between sensor drivers and fusion engine may reduce testability. Mitigation: use dependency injection and mock sensor interfaces for unit testing."
+    ],
+    "recommended_revision": "Confirm that Vehicle module has sufficient onboard compute and storage for real-time fusion and model management. Define model versioning and caching strategy to support both real-time execution and offline planning. Specify Telemetry interface schema (model format, update frequency, metadata) to ensure interoperability with planning and safety subsystems."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (Hybrid: vehicle-mounted sensors + pre-surveyed static base + real-time fusion) directly addresses all sub-FRs of CR-NGHE-006. DP-C enables real-time acquisition (CR-NGHE-006.1), multi-modal fusion (CR-NGHE-006.2), hazard classification (CR-NGHE-006.3), model freshness (CR-NGHE-006.4), and interface exposure (CR-NGHE-006.5). Coupling is low; assumptions and risks are documented and mitigable. DP-C is feasible and aligns with NGHE mission (productivity, effectiveness, safety)."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Sensor driver integration: Vehicle module must integrate multiple sensor drivers (LiDAR, camera, GNSS, IMU). Risk of driver version conflicts or incompatibilities. Mitigation: use standardized driver interfaces and version control.",
+        "Fusion algorithm complexity: Real-time fusion engine is computationally intensive. Risk of latency spikes or resource contention. Mitigation: profile and optimize; consider multi-threading or GPU acceleration.",
+        "Model persistence: Vehicle must manage model storage (local cache, versioning, rollback). Risk of data corruption or inconsistency. Mitigation: use transactional semantics and checksums."
+      ],
+      "containment_notes": "Vehicle module containment is strong (0.95). Sensor acquisition, fusion, and model management are cohesive and localized. External interfaces (Telemetry, Tasking, SafetyAlert) are clean and minimal. No significant diffusion across other modules. Ownership is clear and unambiguous."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "CR-NGHE-006 can be verified via integration testing: (1) Deploy Vehicle with sensor suite and fusion engine; (2) Conduct field survey of test worksite; (3) Validate model accuracy against ground truth (e.g., surveyor measurements); (4) Measure model freshness and latency; (5) Verify SafetyAlert triggers for injected hazards. Acceptance criteria are measurable and testable.",
+      "allocation_clarity": "Allocation is clear: Vehicle owns model generation and maintenance; Safety Services owns hazard policy enforcement; Planning owns path planning using the model; Execution owns real-time navigation using the model. Interfaces (Telemetry, SafetyAlert, Tasking) define information flow. No ambiguity or overlap."
+    },
+    "recommended_revisions": [
+      "Refine DP-C with explicit sensor specifications (LiDAR: 64-channel, 100 m range, 10 Hz; Camera: 1080p, 60 Hz; GNSS: RTK, ±0.1 m; IMU: 6-axis, 100 Hz). Define fusion algorithm (e.g., particle filter, occupancy grid) and latency budget (e.g., <100 ms for dynamic hazards).",
+      "Define Telemetry interface schema: model format (e.g., OctoMap, voxel grid, point cloud), update frequency, metadata (timestamp, confidence, hazard flags). Ensure compatibility with planning and execution subsystems.",
+      "Specify pre-survey data format and validation criteria. Define how static base map is loaded into Vehicle and merged with dynamic layer.",
+      "Define fallback behavior if dynamic hazard detection fails (e.g., operator override, reduced autonomy, SafetyAlert escalation).",
+      "Establish model versioning and caching strategy to support both real-time execution and offline planning."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "CR-NGHE-006 is not atomic; it comprises five sub-FRs (sensor acquisition, fusion, classification, freshness, interface exposure). Each sub-FR requires further decomposition to define concrete DPs and IMs. Proceeding to the next level will clarify sensor driver architecture, fusion algorithm design, model representation, and interface contracts. The current level (FR-DP-IM) is sound and ready for decomposition.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire worksite sensor data (LiDAR, camera, GNSS, IMU) from vehicle platform.",
+      "CR-NGHE-006.2: Fuse multi-modal sensor data into unified 3D terrain and obstacle representation.",
+      "CR-NGHE-006.3: Classify and label terrain, obstacles, and hazard zones with safety metadata.",
+      "CR-NGHE-006.4: Maintain model freshness and consistency for real-time execution.",
+      "CR-NGHE-006.5: Expose worksite model to planning and execution functions via standardized interface."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Pre-surveyed static base map is available and accurate to ±0.5 m before field deployment.",
+        "Vehicle-mounted sensor suite has sufficient FOV and range to detect personnel and equipment at safe standoff distances (>10 m).",
+        "Onboard compute capacity is sufficient for real-time fusion at 10 Hz update rate.",
+        "GNSS/RTK is available at the worksite with ±0.1 m accuracy.",
+        "Sensor drivers and fusion libraries are available and compatible with Vehicle platform OS."
+      ],
+      "open_risks": [
+        "Dynamic hazard detection may fail in adverse weather or low-light conditions.",
+        "Fusion latency may exceed real-time requirement if onboard compute is insufficient.",
+        "Model freshness degrades if vehicle loses GNSS lock or sensor calibration drifts.",
+        "Pre-survey data quality may be inadequate; validation gate required before deployment.",
+        "Sensor driver integration complexity may introduce version conflicts or incompatibilities."
+      ],
+      "evidence_needed": [
+        "Sensor specifications and datasheets (LiDAR, camera, GNSS, IMU).",
+        "Fusion algorithm design document and latency analysis.",
+        "Onboard compute platform specifications and performance benchmarks.",
+        "Pre-survey data format specification and validation criteria.",
+        "Telemetry interface schema and protocol definition.",
+        "Field test results: model accuracy, freshness, hazard detection performance.",
+        "Safety analysis: failure modes, hazard detection reliability, fallback behavior."
+      ]
+    }
+  }
+}

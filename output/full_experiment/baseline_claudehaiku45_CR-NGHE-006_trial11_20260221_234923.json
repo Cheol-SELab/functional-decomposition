@@ -1,0 +1,168 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 Refined: The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and designated work zones with sufficient fidelity to support autonomous path planning and operator situational awareness.",
+    "rationale": "The original FR was vague on scope (what constitutes 'area analysis') and lacked specificity on fidelity requirements, update frequency, and consumer functions. Refinement clarifies that the model must be actionable for both planning (pre-execution) and execution (real-time), distinguishes static from dynamic content, and ties fidelity to downstream use cases (path planning, SA). High safety criticality demands explicit hazard representation.",
+    "verification_idea": "Acceptance: (1) Model generated within 5 min of site survey; (2) Terrain elevation error <0.5 m RMS; (3) Obstacle detection recall >95% for objects >0.3 m³; (4) Work-zone boundaries marked with <0.2 m lateral error; (5) Model accessible to planning and execution subsystems via agreed interface; (6) Safety-critical hazards (personnel, drop-offs) flagged with confidence scores.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire worksite sensor data (LiDAR, camera, GNSS) with sufficient coverage and resolution.",
+      "CR-NGHE-006.2: Process sensor data to extract terrain, static obstacles, and work-zone boundaries.",
+      "CR-NGHE-006.3: Detect and track dynamic hazards (personnel, moving equipment) in real-time.",
+      "CR-NGHE-006.4: Maintain and update worksite model with temporal consistency and confidence metadata.",
+      "CR-NGHE-006.5: Distribute worksite model to planning, execution, and safety subsystems via standardized interface."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized mapping service (e.g., ROS-based SLAM + occupancy grid) running on vehicle compute, publishing model via Telemetry interface to cloud planning backend.",
+      "DP-B: Distributed edge-cloud architecture: vehicle-local perception pipeline (LiDAR + camera fusion) generates local model; cloud service ingests Telemetry, performs global registration and hazard inference, publishes unified model back to vehicle and planning systems.",
+      "DP-C: Hybrid human-in-the-loop: operator or tele-operator manually annotates survey imagery and CAD overlays; system stores annotations in a GIS database accessible to planning and execution."
+    ],
+    "selected_dp": "DP-B: Distributed edge-cloud architecture with vehicle-local perception (LiDAR + camera fusion for terrain and static obstacles) and cloud-based global model integration (hazard inference, temporal consistency, multi-vehicle fusion). Vehicle publishes raw Telemetry (sensor streams, local pose estimates); cloud ingests, registers, and publishes unified model back via Telemetry. Safety-critical hazards (personnel, drop-offs) flagged with confidence scores and routed via SafetyAlert for real-time notification.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between vehicle perception pipeline and cloud model service via Telemetry bandwidth and latency (mitigated by edge processing and asynchronous updates).",
+        "Coupling between model update frequency and planning/execution cycle time (mitigated by model versioning and confidence metadata).",
+        "Coupling between safety-critical hazard detection and SafetyAlert routing (mitigated by explicit confidence thresholds and dual-path notification)."
+      ],
+      "notes": "DP-B decouples vehicle autonomy (local SLAM) from global planning (cloud model), reducing real-time dependency. Telemetry and SafetyAlert interfaces provide clean separation of concerns. Confidence metadata allows downstream consumers to make risk-aware decisions."
+    },
+    "assumptions_risks": [
+      "Assumption: Vehicle has sufficient onboard compute (GPU) for real-time LiDAR + camera fusion; Risk: If compute is limited, local model quality degrades, increasing cloud inference burden.",
+      "Assumption: Network link (Telemetry) has sufficient bandwidth and latency (<500 ms round-trip) for model updates; Risk: In poor connectivity zones, model staleness increases, reducing planning confidence.",
+      "Assumption: Cloud service can ingest and fuse multi-vehicle telemetry without race conditions; Risk: Temporal misalignment or duplicate hazard reports could corrupt global model.",
+      "Assumption: Safety-critical hazard detection (e.g., personnel proximity) achieves >99% recall; Risk: Missed detections could lead to collision or injury."
+    ],
+    "recommended_revision": "Specify minimum onboard compute requirements (e.g., NVIDIA Jetson AGX or equivalent) and cloud model update SLA (e.g., <2 s latency for hazard alerts). Define fallback behavior if network link is lost (e.g., vehicle operates on local model only, with reduced autonomy). Establish hazard detection confidence thresholds and dual-path notification (SafetyAlert + operator alert)."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "Onboard perception pipeline (LiDAR, camera, GNSS sensors; local SLAM and obstacle detection; local model generation and maintenance). Publishes Telemetry (sensor streams, local pose, local model snapshots) and receives Tasking (mission commands, work-zone definitions). Subscribes to SafetyAlert for real-time hazard notifications."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle publishes raw sensor streams (LiDAR point clouds, camera frames, GNSS fixes), local pose estimates, and local model snapshots (terrain grid, obstacle list, confidence metadata) to cloud planning and model service."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives mission commands (waypoints, work-zone boundaries, survey parameters) from planning subsystem."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "in",
+        "details": "Vehicle receives real-time hazard notifications (personnel proximity, drop-off warnings, equipment collision alerts) from cloud safety service, triggers operator alerts and autonomous avoidance."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Vehicle maintains persistent network connection for Telemetry upload and SafetyAlert/Tasking download."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.85,
+        "diffusion_score": 0.15,
+        "notes": "Vehicle naturally owns onboard perception (sensors, local SLAM, obstacle detection). Local model generation is contained. However, global model integration, multi-vehicle fusion, and cloud-based hazard inference are diffused to external services (not shown as candidate modules). Telemetry interface cleanly separates local from global responsibilities."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Teleoperation is primarily a control/command interface for remote operators. Worksite mapping is a perception and planning function, not a teleoperation function. Tele-operator may consume the model for situational awareness, but does not own model generation or maintenance."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.6,
+        "diffusion_score": 0.4,
+        "notes": "Safety Services owns hazard inference and alert routing (SafetyAlert interface). However, raw perception and local model generation belong to Vehicle. Diffusion arises because hazard detection requires both local perception (Vehicle) and global context (Safety Services). Recommend clear interface contract: Vehicle publishes confidence-scored detections; Safety Services applies policy and thresholds."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "NGHE Solution is the top-level system integrator. Worksite mapping is a subsystem function, not a solution-level responsibility. Containment score reflects that the solution orchestrates mapping but does not directly implement it."
+      }
+    ],
+    "ownership_candidate": "Vehicle (primary: onboard perception and local model generation); Safety Services (secondary: hazard inference and alert routing).",
+    "containment_hypothesis": "Worksite mapping is primarily a Vehicle responsibility because it requires onboard sensors and real-time local processing. Global model integration and hazard inference are secondary responsibilities of Safety Services, accessed via Telemetry and SafetyAlert interfaces. This assignment minimizes diffusion and aligns with architectural separation of concerns (perception on vehicle, planning/safety in cloud).",
+    "containment_risks": [
+      "Risk: If Vehicle module lacks sufficient compute or storage for local model, mapping quality degrades and cloud service burden increases (diffusion).",
+      "Risk: If Telemetry interface bandwidth is insufficient, model updates are delayed or lossy, reducing planning confidence (diffusion to network layer).",
+      "Risk: If Safety Services hazard detection logic is not clearly separated from Vehicle perception, responsibility boundaries blur and testing becomes difficult (diffusion).",
+      "Risk: If multiple vehicles publish overlapping Telemetry, cloud model service must handle deduplication and temporal alignment (diffusion to cloud service, not shown as candidate module)."
+    ],
+    "recommended_revision": "Clarify that Vehicle owns local perception and model generation; Safety Services owns hazard inference and alert routing. Define Telemetry schema to include confidence scores and timestamps for all detections. Establish SLA for Telemetry upload frequency (e.g., 10 Hz for dynamic hazards, 1 Hz for static model updates). Specify fallback behavior if Safety Services is unavailable (e.g., Vehicle operates on local model only, with operator override)."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-B (distributed edge-cloud architecture) directly addresses all sub-FRs: (1) Vehicle acquires sensor data via onboard LiDAR/camera; (2) Vehicle processes data locally via SLAM and obstacle detection; (3) Cloud service detects dynamic hazards via Telemetry ingestion; (4) Cloud service maintains global model with temporal consistency; (5) Model distributed via Telemetry and SafetyAlert interfaces. DP-B is feasible, scalable, and aligns with high safety criticality (confidence metadata, dual-path alerts)."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Diffusion Risk 1: Global model integration and multi-vehicle fusion are not explicitly assigned to a candidate module (Vehicle, Teleoperation, Safety Services, NGHE Solution). These functions are implicitly in a cloud service not listed as a candidate. Recommend adding 'Cloud Model Service' or 'Planning Backend' as a candidate module in future decomposition.",
+        "Diffusion Risk 2: Hazard inference spans Vehicle (local detection) and Safety Services (policy application). Clear interface contract (Telemetry schema, confidence thresholds) is essential to avoid ambiguity.",
+        "Diffusion Risk 3: Network Link is a known interface but not a module. Telemetry and SafetyAlert depend on Network Link availability. Recommend explicit SLA and fallback behavior."
+      ],
+      "containment_notes": "Vehicle containment score (0.85) is acceptable for local perception and model generation. Safety Services containment score (0.60) reflects shared responsibility for hazard inference; recommend clarifying interface contract. Diffusion to cloud model service (not a candidate module) is acceptable at this level; recommend decomposing cloud service in next iteration."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible via integration testing: (1) Deploy Vehicle with LiDAR/camera on test site; (2) Verify local model generation (terrain, obstacles) against ground truth survey; (3) Verify Telemetry publication (sensor streams, pose, model snapshots); (4) Verify SafetyAlert reception and operator alert triggering; (5) Verify model accessibility to planning subsystem. Acceptance criteria (fidelity, latency, recall) are measurable.",
+      "allocation_clarity": "Allocation is clear: Vehicle owns onboard perception and local model; Safety Services owns hazard inference and alert routing; Planning subsystem (not a candidate module) owns global model integration and path planning. Recommend documenting this allocation in system architecture document and interface control documents (ICDs) for Telemetry and SafetyAlert."
+    },
+    "recommended_revisions": [
+      "Revision 1: Add 'Cloud Model Service' or 'Planning Backend' as a candidate module to explicitly assign global model integration and multi-vehicle fusion responsibilities.",
+      "Revision 2: Define Telemetry schema (sensor streams, local model format, confidence metadata, timestamps) in an ICD to clarify Vehicle-to-cloud interface.",
+      "Revision 3: Define SafetyAlert schema (hazard type, location, confidence, recommended action) in an ICD to clarify Safety Services-to-vehicle interface.",
+      "Revision 4: Specify onboard compute requirements (GPU, memory, storage) for Vehicle to ensure local SLAM and obstacle detection are feasible.",
+      "Revision 5: Specify network SLA (bandwidth, latency, availability) for Telemetry and SafetyAlert to ensure real-time model updates and hazard alerts."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "CR-NGHE-006 is not atomic; it decomposes into five sub-FRs (sensor acquisition, data processing, dynamic hazard detection, model maintenance, model distribution). Each sub-FR requires further refinement and DP selection. Additionally, the assigned IM (Vehicle) reveals diffusion to cloud services (global model integration, multi-vehicle fusion) that are not explicitly represented as candidate modules. Recommend decomposing sub-FRs and adding cloud service modules before proceeding to detailed design.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire worksite sensor data (LiDAR, camera, GNSS) with sufficient coverage and resolution.",
+      "CR-NGHE-006.2: Process sensor data to extract terrain elevation and static obstacles via local SLAM and obstacle detection.",
+      "CR-NGHE-006.3: Detect and track dynamic hazards (personnel, moving equipment) in real-time via cloud-based inference.",
+      "CR-NGHE-006.4: Maintain and update worksite model with temporal consistency and confidence metadata.",
+      "CR-NGHE-006.5: Distribute worksite model to planning, execution, and safety subsystems via standardized Telemetry interface."
+    ],
+    "revise": {
+      "target": "IM",
+      "why": "Current IM assignment (Vehicle + Safety Services) is incomplete. Global model integration and multi-vehicle fusion are diffused to an unnamed cloud service. Recommend adding 'Cloud Model Service' or 'Planning Backend' as a candidate module and re-assigning sub-FRs to clarify ownership boundaries."
+    },
+    "record": {
+      "assumptions": [
+        "Vehicle has sufficient onboard compute (GPU) for real-time LiDAR + camera fusion.",
+        "Network link (Telemetry) has sufficient bandwidth and latency (<500 ms round-trip) for model updates.",
+        "Cloud service can ingest and fuse multi-vehicle telemetry without race conditions.",
+        "Safety-critical hazard detection achieves >99% recall.",
+        "Worksite model fidelity requirements (terrain error <0.5 m RMS, obstacle detection recall >95%) are achievable with commercial LiDAR and camera sensors."
+      ],
+      "open_risks": [
+        "Risk: Onboard compute limitations could degrade local model quality and increase cloud inference burden.",
+        "Risk: Network link loss could cause model staleness and reduce planning confidence.",
+        "Risk: Cloud model service race conditions could corrupt global model.",
+        "Risk: Missed hazard detections could lead to collision or injury.",
+        "Risk: Diffusion of global model integration to unnamed cloud service could lead to unclear ownership and integration issues."
+      ],
+      "evidence_needed": [
+        "Evidence 1: Onboard compute specifications and performance benchmarks for SLAM and obstacle detection.",
+        "Evidence 2: Network SLA (bandwidth, latency, availability) for Telemetry and SafetyAlert.",
+        "Evidence 3: Cloud model service architecture and multi-vehicle fusion algorithm.",
+        "Evidence 4: Hazard detection algorithm performance (recall, precision, latency) on representative test data.",
+        "Evidence 5: Integration test results for Vehicle-to-cloud Telemetry and SafetyAlert interfaces.",
+        "Evidence 6: Acceptance test results for worksite model fidelity (terrain error, obstacle detection recall, work-zone boundary accuracy)."
+      ]
+    }
+  }
+}

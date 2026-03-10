@@ -1,0 +1,163 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current equipment state, environmental conditions, and operational events with p95 latency ≤ 1.0 s for all supported update scenarios (teleoperation, autonomous, manual modes) under nominal network and computational load conditions.",
+    "rationale": "CR-NGHE-007 requires explicit scoping of update scenarios, latency percentile definition, and load assumptions. The original statement lacks specificity on what constitutes 'worksite model' (equipment pose, sensor fusion state, task progress, safety state), which update paths are in scope, and under what conditions the latency target applies. High safety criticality demands clarity on whether latency failures trigger safe degradation or are hard requirements.",
+    "verification_idea": "Instrument telemetry pipeline with end-to-end latency measurement from sensor/event generation through worksite model persistence. Measure p95 latency across representative scenarios (e.g., equipment position update via GNSS, obstacle detection via LiDAR, operator command acknowledgment). Validate under nominal and degraded network conditions (latency, packet loss, jitter).",
+    "sub_frs": [
+      "FR-007.1: Acquire and transmit equipment state telemetry (position, orientation, operational status) with bounded acquisition-to-transmission latency.",
+      "FR-007.2: Receive and validate telemetry and tasking updates at the worksite model with bounded network transit latency.",
+      "FR-007.3: Fuse and persist received updates into the worksite model with bounded processing and storage latency.",
+      "FR-007.4: Detect and alert on latency violations or model staleness that may impact safety."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Distributed edge-compute architecture with local model caching on vehicle and central worksite model; asynchronous telemetry push with priority queuing; eventual consistency model with conflict resolution.",
+      "DP-B: Centralized worksite model server with synchronous request-response for all updates; blocking acknowledgment from server before state change; single source of truth enforced via locking.",
+      "DP-C: Hybrid publish-subscribe architecture with vehicle-local model replica, central authoritative model, and delta-sync protocol; bounded staleness via periodic full sync and event-driven incremental updates.",
+      "DP-D: Real-time middleware (e.g., DDS, ROS 2) with QoS policies (deadline, latency budget) and network-aware scheduling; deterministic latency bounds via priority inversion prevention."
+    ],
+    "selected_dp": "DP-C: Hybrid publish-subscribe architecture with vehicle-local model replica, central authoritative model, and delta-sync protocol; bounded staleness via periodic full sync and event-driven incremental updates.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "DP-C couples worksite model update latency to network reliability (packet loss, jitter) and subscriber availability; requires careful design of retry logic and timeout handling to avoid cascading delays.",
+        "DP-C introduces coupling between vehicle-local replica consistency and central model consistency; conflict resolution logic must be deterministic and safety-aware.",
+        "DP-C couples latency performance to message serialization/deserialization overhead; requires efficient encoding (e.g., Protocol Buffers, MessagePack) to meet p95 ≤ 1.0 s target."
+      ],
+      "notes": "DP-C balances availability (local replica enables offline operation) with consistency (periodic sync and event-driven updates reduce staleness). Coupling is manageable via explicit protocol design and network QoS provisioning. DP-B (synchronous) would introduce tighter coupling to network latency and server availability, risking hard failures. DP-A (eventual consistency) risks unbounded staleness. DP-D (real-time middleware) is viable but adds complexity and may not be necessary if DP-C is properly engineered."
+    },
+    "assumptions_risks": [
+      "Assumption: Network latency (vehicle-to-server round-trip) is ≤ 500 ms under nominal conditions; if exceeded, p95 ≤ 1.0 s target becomes infeasible without local caching.",
+      "Assumption: Worksite model update frequency is bounded (e.g., ≤ 10 Hz for position updates); unbounded update rates will exceed network bandwidth and processing capacity.",
+      "Risk: Conflict resolution between vehicle-local replica and central model may introduce non-deterministic delays if resolution logic is complex (e.g., multi-way merge).",
+      "Risk: Message loss or reordering in publish-subscribe may cause model divergence; requires explicit sequence numbering and idempotent update semantics.",
+      "Risk: Safety-critical updates (e.g., emergency stop) may be delayed by non-critical updates in the same queue; requires priority-based message routing."
+    ],
+    "recommended_revision": "Refine DP-C to explicitly specify: (1) delta-sync protocol (e.g., timestamp-based, sequence-number-based, or CRDTs); (2) priority levels for different update types (safety-critical vs. informational); (3) network QoS requirements (latency budget, packet loss tolerance); (4) conflict resolution strategy (last-write-wins, vector clocks, or application-specific logic); (5) fallback behavior if latency target is exceeded (e.g., degrade to lower-fidelity model, alert operator)."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Teleoperation module owns the worksite model update pipeline for teleoperated equipment, including telemetry acquisition from vehicle, network transmission, model fusion, and persistence. Includes local model replica on vehicle and integration with central worksite model via publish-subscribe protocol."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Receives equipment state telemetry (position, orientation, operational status, sensor readings) from Vehicle module at bounded frequency (e.g., 10 Hz). Telemetry includes timestamp and sequence number for ordering and staleness detection."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Sends task commands and model updates to Vehicle module to synchronize local replica with central worksite model. Includes delta updates and periodic full sync."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Sends alerts to Safety Services module if worksite model latency exceeds threshold or staleness is detected, enabling safety-aware degradation of autonomy or operator intervention."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Uses Network Link to transmit telemetry and tasking messages between Vehicle and central worksite model. Network Link provides best-effort delivery; Teleoperation module implements reliability and ordering semantics."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "NGHE Solution is the top-level system; worksite model update is a system-level concern that spans multiple modules (Vehicle, Teleoperation, Safety Services). Assigning to NGHE Solution would diffuse responsibility and obscure ownership of latency performance."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Vehicle module owns telemetry acquisition and local model replica, but does not own central worksite model or network transmission logic. Assigning worksite model update to Vehicle would couple vehicle firmware to central system architecture, reducing modularity."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.85,
+        "diffusion_score": 0.15,
+        "notes": "Teleoperation module is responsible for real-time synchronization between vehicle and operator/central system. Worksite model update is a core teleoperation concern: operator situational awareness depends on timely model updates. Teleoperation owns the publish-subscribe protocol, network transmission, and model fusion logic. Clear ownership boundary."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Safety Services owns safety monitoring and alerting, not model update mechanics. Assigning worksite model update to Safety Services would conflate data pipeline with safety logic, reducing separation of concerns."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "Teleoperation module is the natural owner of worksite model update latency because: (1) teleoperation is fundamentally about real-time synchronization of operator view with equipment state; (2) latency directly impacts operator situational awareness and safety; (3) Teleoperation owns the network protocol and message routing logic; (4) Vehicle module provides telemetry input, Safety Services consumes latency alerts, but Teleoperation orchestrates the pipeline.",
+    "containment_risks": [
+      "Risk: If autonomous mode (without teleoperation) also requires worksite model updates, Teleoperation module ownership may not scale. Mitigation: Define worksite model update as a shared service owned by Teleoperation but consumed by multiple modes; or refactor to a separate 'Model Synchronization' module at a higher level.",
+      "Risk: Central worksite model persistence (database, file system) may be owned by a different module (e.g., Infrastructure, Cloud Services). Teleoperation module must have clear interface contract for model persistence latency. Mitigation: Explicitly specify model persistence SLA in Tasking interface.",
+      "Risk: Network Link module may introduce variable latency due to congestion, packet loss, or QoS degradation. Teleoperation module must not be held solely responsible for end-to-end latency if Network Link fails to meet its SLA. Mitigation: Define network latency budget as a constraint on Teleoperation DP; escalate to Safety Services if budget is exceeded."
+    ],
+    "recommended_revision": "Clarify ownership boundary: Teleoperation module owns the worksite model update pipeline from telemetry acquisition (Vehicle interface) through model fusion and persistence (Tasking interface). Central worksite model storage and conflict resolution logic should be explicitly assigned to a named module (e.g., 'Worksite Model Service') with a clear interface contract. Network Link SLA (latency, packet loss) must be specified as a constraint on Teleoperation DP."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid publish-subscribe with delta-sync) directly addresses FR-007 requirement for bounded worksite model update latency. DP-C enables local caching to reduce latency variance, event-driven updates to minimize staleness, and periodic sync to ensure consistency. Coupling analysis shows manageable dependencies on network reliability and message serialization. DP-C is implementable and testable."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Diffusion Risk: Teleoperation module ownership of worksite model update couples teleoperation-specific logic (e.g., operator command latency) with model synchronization logic (e.g., sensor fusion). Mitigation: Clearly separate concerns via internal module architecture (e.g., 'TelemetryPipeline' and 'ModelSync' sub-components within Teleoperation).",
+        "Diffusion Risk: If autonomous mode also requires worksite model updates, Teleoperation module may not be the right owner. Mitigation: Defer to next decomposition level; if autonomous mode is in scope, consider refactoring to a shared 'Model Synchronization' service."
+      ],
+      "containment_notes": "Teleoperation module has high containment score (0.85) for worksite model update latency. External interfaces (Telemetry, Tasking, SafetyAlert, Network Link) are all defined and available. Ownership boundary is clear: Teleoperation orchestrates the pipeline, Vehicle provides input, Safety Services consumes alerts. No new modules or interfaces required."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "FR-007 is verifiable via instrumentation of the telemetry pipeline (end-to-end latency measurement) and load testing under nominal and degraded network conditions. Acceptance criteria (p95 ≤ 1.0 s) is measurable and testable. Teleoperation module boundary enables clear allocation of latency budget to sub-components (telemetry acquisition, network transmission, model fusion, persistence).",
+      "allocation_clarity": "FR-007 is allocated to Teleoperation module with clear sub-FRs (FR-007.1 through FR-007.4) that map to pipeline stages. Each sub-FR can be further decomposed and allocated to sub-components or external modules (e.g., Vehicle for telemetry acquisition, Network Link for transmission, Safety Services for alerting)."
+    },
+    "recommended_revisions": [
+      "Refine DP-C to specify delta-sync protocol, priority-based message routing, and conflict resolution strategy before detailed design.",
+      "Clarify ownership of central worksite model storage and persistence latency; define interface contract with Teleoperation module.",
+      "Define network latency budget and QoS requirements for Network Link module; establish SLA for packet loss, jitter, and round-trip latency.",
+      "Assess whether autonomous mode (if in scope) requires worksite model updates; if yes, consider refactoring to a shared 'Model Synchronization' service at a higher level."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-007 is not atomic and has been refined into four sub-FRs (FR-007.1 through FR-007.4) that represent distinct pipeline stages. Each sub-FR requires further decomposition to allocate latency budget, specify interface contracts, and assign ownership to sub-components or external modules. DP-C is sound and implementable, but requires detailed protocol design (delta-sync, priority routing, conflict resolution) before implementation. Teleoperation module is the correct owner, but internal architecture (sub-components) must be designed to manage coupling between teleoperation-specific logic and model synchronization logic.",
+    "next_level_sub_frs": [
+      "FR-007.1: Acquire and transmit equipment state telemetry (position, orientation, operational status) with bounded acquisition-to-transmission latency (e.g., ≤ 100 ms).",
+      "FR-007.2: Receive and validate telemetry and tasking updates at the worksite model with bounded network transit latency (e.g., ≤ 500 ms p95).",
+      "FR-007.3: Fuse and persist received updates into the worksite model with bounded processing and storage latency (e.g., ≤ 400 ms p95).",
+      "FR-007.4: Detect and alert on latency violations or model staleness that may impact safety (e.g., alert if p95 latency exceeds 1.0 s or model age exceeds 2.0 s)."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Network latency (vehicle-to-server round-trip) is ≤ 500 ms under nominal conditions.",
+        "Worksite model update frequency is bounded (e.g., ≤ 10 Hz for position updates).",
+        "Teleoperation module owns the publish-subscribe protocol and message routing logic.",
+        "Central worksite model storage is owned by a separate module with a defined persistence SLA.",
+        "Safety Services module consumes latency alerts and triggers safety-aware degradation if needed.",
+        "High safety criticality implies that latency violations must be detected and reported, not silently tolerated."
+      ],
+      "open_risks": [
+        "Conflict resolution between vehicle-local replica and central model may introduce non-deterministic delays.",
+        "Message loss or reordering in publish-subscribe may cause model divergence.",
+        "Safety-critical updates may be delayed by non-critical updates in the same queue.",
+        "Autonomous mode (if in scope) may require worksite model updates, necessitating refactoring of ownership.",
+        "Network Link module may not meet latency SLA, causing end-to-end latency to exceed 1.0 s target."
+      ],
+      "evidence_needed": [
+        "Network latency measurements under nominal and degraded conditions (latency, packet loss, jitter).",
+        "Worksite model update frequency analysis across supported scenarios (teleoperation, autonomous, manual modes).",
+        "Message serialization/deserialization overhead analysis (Protocol Buffers, MessagePack, JSON).",
+        "Conflict resolution algorithm design and performance analysis (latency impact of different strategies).",
+        "Safety-critical update prioritization and routing design (e.g., priority queue, separate channel).",
+        "Load testing results for worksite model update pipeline under peak load (e.g., 10 Hz position updates + sensor fusion)."
+      ]
+    }
+  }
+}

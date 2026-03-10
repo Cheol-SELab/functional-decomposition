@@ -1,0 +1,170 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall establish and maintain end-to-end teleoperation communication with p95 latency ≤ 150 ms under agreed network conditions to enable safe remote operation by tele-operators.",
+    "rationale": "CR-NGHE-008 addresses a critical safety and operational requirement. Teleoperation latency directly impacts operator situational awareness, control responsiveness, and safety margins. The p95 percentile metric ensures consistent performance under variable network conditions rather than optimistic average-case assumptions. High safety criticality demands explicit latency budgeting and verification.",
+    "verification_idea": "Measure end-to-end latency (command transmission → vehicle sensor acquisition → telemetry reception at operator console) across representative network conditions (bandwidth, jitter, packet loss) using instrumented test harnesses. Collect p95 statistics over minimum 1000 samples per condition. Correlate with operator feedback on control responsiveness and safety margins.",
+    "sub_frs": [
+      "FR-NGHE-008.1: Acquire and encode vehicle state (sensors, position, orientation, operational status) with minimal capture-to-transmission latency.",
+      "FR-NGHE-008.2: Transmit telemetry data from vehicle to operator console over network link with bounded latency and reliability.",
+      "FR-NGHE-008.3: Receive and decode operator commands at vehicle with minimal reception-to-actuation latency.",
+      "FR-NGHE-008.4: Monitor and report end-to-end latency metrics to operator and safety systems for real-time awareness.",
+      "FR-NGHE-008.5: Enforce safety constraints (e.g., command timeout, failsafe actions) when latency exceeds safe thresholds."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Implement low-latency telemetry pipeline with hardware-accelerated sensor acquisition, edge compression, and priority-queued network transmission; implement command reception with interrupt-driven processing and minimal buffering.",
+      "DP-B: Deploy dual-path communication (primary + redundant) with automatic failover to minimize latency variance; use predictive buffering and jitter compensation.",
+      "DP-C: Implement adaptive codec selection and dynamic payload sizing based on network conditions; use real-time latency feedback loop to adjust transmission parameters.",
+      "DP-D: Establish dedicated low-latency network slice (if available) with QoS guarantees; implement hardware timestamping for latency measurement and synchronization."
+    ],
+    "selected_dp": "DP-A with DP-D integration: Implement a low-latency telemetry pipeline combining hardware-accelerated sensor acquisition, edge compression, and priority-queued network transmission for vehicle-to-operator path; implement interrupt-driven command reception with minimal buffering for operator-to-vehicle path. Integrate hardware timestamping (DP-D) for accurate latency measurement and real-time monitoring. This approach prioritizes deterministic latency reduction through architectural choices (hardware acceleration, priority queuing, interrupt-driven processing) and measurement transparency rather than relying on redundancy or adaptive algorithms that may introduce additional latency variance.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Network link capacity and QoS configuration (external dependency, not coupled to DP logic)",
+        "Sensor hardware acquisition speed (external dependency, mitigated by hardware acceleration selection)",
+        "Operator console processing capability (external dependency, mitigated by efficient encoding/decoding)"
+      ],
+      "notes": "DP-A exhibits low coupling to other system functions. Telemetry encoding/decoding is decoupled from vehicle control logic. Command reception is decoupled from command execution. Hardware timestamping (DP-D) is non-invasive. Primary risk is network link performance, which is a constraint boundary condition, not a design coupling."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Network link provides minimum bandwidth and QoS sufficient for telemetry payload at required frequency (e.g., 50 Hz sensor updates).",
+      "ASSUMPTION: Vehicle hardware supports hardware timestamping or sufficiently precise software timing (microsecond-level accuracy).",
+      "ASSUMPTION: Operator console can process and render telemetry at ≥ 30 Hz without introducing additional latency.",
+      "RISK: Edge compression algorithms may introduce variable latency if not carefully tuned; recommend fixed-latency compression (e.g., hardware codec) over adaptive algorithms.",
+      "RISK: Priority queuing may starve non-critical telemetry if not properly configured; recommend explicit queue depth limits and overflow handling.",
+      "RISK: Interrupt-driven command reception may conflict with other high-priority vehicle tasks; recommend dedicated command processing thread/core."
+    ],
+    "recommended_revision": "Refine DP-A to explicitly specify: (1) sensor acquisition frequency and encoding format (e.g., 50 Hz, 8-bit quantization), (2) compression algorithm and fixed latency budget (e.g., hardware H.264, ≤5 ms), (3) network transmission priority level and queue depth, (4) command reception interrupt priority and processing latency budget (e.g., ≤10 ms). Add explicit latency budget allocation: sensor acquisition (≤5 ms) + encoding (≤5 ms) + network transmission (≤100 ms) + decoding (≤5 ms) + command processing (≤10 ms) + actuation (≤20 ms) = ≤145 ms, leaving 5 ms margin for p95 variance."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Encapsulates all teleoperation-specific logic: telemetry acquisition and transmission pipeline (sensor encoding, compression, network transmission), command reception and decoding, latency monitoring and reporting, and safety constraint enforcement (command timeout, failsafe actions). Owns the telemetry and tasking interfaces to external systems. Does NOT own vehicle control execution, network link hardware, or operator console rendering."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Telemetry module outputs encoded vehicle state (position, orientation, sensor readings, operational status, latency metrics) to operator console via Network Link. Frequency: ≥30 Hz. Payload: variable (depends on compression), target ≤1 KB per frame."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Teleoperation module receives operator commands (movement, tool actuation, mode changes) from operator console via Network Link. Frequency: variable (operator-driven), target ≤100 ms command latency. Payload: variable, target ≤256 bytes per command."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Teleoperation module outputs safety alerts to Safety Services when latency exceeds safe thresholds or command timeout occurs. Triggers failsafe actions (e.g., stop vehicle, disengage tools). Frequency: event-driven. Payload: alert type, timestamp, latency measurement."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Teleoperation module uses Network Link for bidirectional communication with operator console. Depends on network QoS, bandwidth, and latency characteristics. Teleoperation module does NOT own Network Link hardware; it consumes Network Link as a service."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "Teleoperation is the natural owner of telemetry pipeline, command reception, and latency monitoring. All three sub-functions (FR-NGHE-008.1, 008.3, 008.4) are cohesive and belong in this module. Diffusion risk: latency monitoring may require hooks in Vehicle module for sensor timestamps, but this is minimal and well-defined."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Vehicle module owns vehicle control execution and sensor hardware. Teleoperation latency pipeline could theoretically be embedded in Vehicle, but this would couple teleoperation-specific logic (compression, network transmission, command timeout) to vehicle control, violating separation of concerns. High diffusion risk if teleoperation logic is scattered across Vehicle."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 15,
+        "diffusion_score": 85,
+        "notes": "Safety Services owns safety constraint enforcement and failsafe actions. Latency monitoring and threshold enforcement could be delegated to Safety Services, but this would require Safety Services to own telemetry pipeline logic, which is not a safety-specific concern. Teleoperation module should monitor latency and trigger SafetyAlert interface; Safety Services consumes the alert."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 10,
+        "diffusion_score": 90,
+        "notes": "NGHE Solution is the top-level system container. Teleoperation latency pipeline should not be implemented at this level; it would be too diffuse and lack clear ownership."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the optimal owner of DP-A (low-latency telemetry pipeline with hardware acceleration and priority queuing). Teleoperation has high cohesion with telemetry encoding/decoding, command reception, and latency monitoring. It has clear external interfaces (Telemetry, Tasking, SafetyAlert, Network Link) and minimal diffusion risk. Vehicle module provides sensor data and receives commands but does not own the teleoperation-specific pipeline logic.",
+    "containment_risks": [
+      "RISK: Teleoperation module may require low-level access to vehicle sensor hardware (e.g., raw sensor timestamps) to achieve latency targets. This could create tight coupling to Vehicle hardware interface. MITIGATION: Define a clear sensor data interface (e.g., timestamped sensor frames) that Vehicle module provides; Teleoperation consumes this interface without knowing hardware details.",
+      "RISK: Latency monitoring requires synchronized clocks between vehicle and operator console. Clock skew could invalidate latency measurements. MITIGATION: Implement hardware timestamping (DP-D) on both vehicle and operator console; use NTP or similar for clock synchronization.",
+      "RISK: Command timeout and failsafe actions require coordination with Vehicle control module. If Vehicle does not respond to timeout signals, failsafe may not execute. MITIGATION: Define explicit failsafe interface (e.g., emergency stop command) that Teleoperation sends to Vehicle; Vehicle must guarantee execution within bounded latency."
+    ],
+    "recommended_revision": "Refine Teleoperation module scope to explicitly exclude: (1) vehicle sensor hardware acquisition (owned by Vehicle), (2) network link hardware and QoS configuration (owned by infrastructure), (3) operator console rendering (owned by operator interface). Refine external interfaces to include: (1) a sensor data interface from Vehicle (e.g., 'SensorFrame' with timestamp), (2) an emergency stop interface to Vehicle (e.g., 'EmergencyStop' command), (3) a clock synchronization interface for latency measurement accuracy. Add ownership responsibility: Teleoperation owns end-to-end latency measurement and reporting; Vehicle owns sensor acquisition latency; operator console owns rendering latency."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-A (low-latency telemetry pipeline with hardware acceleration and priority queuing) directly addresses FR-NGHE-008 (teleoperation latency ≤150 ms p95). The DP specifies concrete mechanisms (hardware acceleration, priority queuing, interrupt-driven processing, hardware timestamping) that logically reduce latency. The latency budget allocation (sensor 5ms + encoding 5ms + network 100ms + decoding 5ms + command 10ms + actuation 20ms = 145ms) is feasible and leaves margin for p95 variance. No decoupling or independence violations detected."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Sensor acquisition latency depends on Vehicle module's hardware and driver implementation. Teleoperation module must define a clear sensor data interface (e.g., timestamped frames) to avoid tight coupling.",
+        "Command execution latency depends on Vehicle control module's responsiveness. Teleoperation module must define a clear command interface and timeout mechanism to ensure failsafe execution.",
+        "Network link performance is external to both Teleoperation and Vehicle modules. Teleoperation module must monitor and report latency metrics; network configuration is a constraint boundary condition."
+      ],
+      "containment_notes": "Teleoperation module is the optimal owner of DP-A. Telemetry pipeline (encoding, compression, transmission) is cohesive and teleoperation-specific. Command reception and latency monitoring are also cohesive. Minimal diffusion risk if interfaces to Vehicle and Network Link are well-defined. Recommend explicit interface contracts (sensor data format, command format, latency measurement protocol) to minimize coupling."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "FR-NGHE-008 is verifiable via instrumented testing: measure end-to-end latency (command transmission → vehicle sensor acquisition → telemetry reception) under representative network conditions. Collect p95 statistics over ≥1000 samples. Teleoperation module can be tested in isolation by mocking Vehicle sensor data and Network Link latency. Verification is feasible and does not require full system integration.",
+      "allocation_clarity": "Allocation of latency budget is clear: Teleoperation module owns telemetry pipeline latency (encoding, compression, transmission, decoding) and command reception latency. Vehicle module owns sensor acquisition latency and command execution latency. Network Link owns transmission latency. Operator console owns rendering latency. Each module has a defined latency budget and can be verified independently."
+    },
+    "recommended_revisions": [
+      "Refine FR-NGHE-008 to explicitly allocate latency budget across sub-functions: sensor acquisition (≤5 ms), encoding (≤5 ms), network transmission (≤100 ms), decoding (≤5 ms), command processing (≤10 ms), actuation (≤20 ms). This enables independent verification of each sub-function.",
+      "Refine DP-A to specify concrete hardware acceleration mechanisms (e.g., GPU for compression, dedicated network processor) and priority queuing configuration (e.g., queue depth, overflow handling). This enables design review and trade-off analysis.",
+      "Refine Teleoperation module scope to explicitly define interfaces to Vehicle (sensor data format, command format, emergency stop) and Network Link (QoS requirements, bandwidth, jitter tolerance). This enables interface verification and integration testing.",
+      "Add explicit safety constraint: if latency exceeds 150 ms for >N consecutive samples, Teleoperation module shall trigger SafetyAlert and Vehicle shall execute failsafe (e.g., stop). This ensures safety criticality is addressed in design."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-NGHE-008 is not atomic; it decomposes into five sub-functions (FR-NGHE-008.1 through 008.5) with distinct design concerns: sensor acquisition, network transmission, command reception, latency monitoring, and safety constraint enforcement. Each sub-function requires further refinement and DP selection. DP-A is sound and addresses the primary latency reduction mechanisms, but it must be decomposed into sub-DPs for each sub-function. Teleoperation module is the correct owner, but its scope and interfaces must be refined before implementation. Recommend proceeding to next decomposition level for each sub-FR.",
+    "next_level_sub_frs": [
+      "FR-NGHE-008.1: Acquire and encode vehicle state (sensors, position, orientation, operational status) with minimal capture-to-transmission latency (target: ≤10 ms).",
+      "FR-NGHE-008.2: Transmit telemetry data from vehicle to operator console over network link with bounded latency and reliability (target: ≤100 ms p95).",
+      "FR-NGHE-008.3: Receive and decode operator commands at vehicle with minimal reception-to-actuation latency (target: ≤20 ms).",
+      "FR-NGHE-008.4: Monitor and report end-to-end latency metrics to operator and safety systems for real-time awareness (target: latency measurement accuracy ≤1 ms).",
+      "FR-NGHE-008.5: Enforce safety constraints (e.g., command timeout, failsafe actions) when latency exceeds safe thresholds (target: failsafe execution within ≤50 ms of timeout detection)."
+    ],
+    "revise": {
+      "target": "FR",
+      "why": "FR-NGHE-008 should be refined to explicitly allocate latency budget across sub-functions and define acceptance criteria for each sub-function. Current FR is too coarse-grained for detailed design and verification. Refined FR should specify: (1) end-to-end latency target (p95 ≤150 ms), (2) sub-function latency budgets (sensor 5ms, encoding 5ms, network 100ms, decoding 5ms, command 10ms, actuation 20ms), (3) latency measurement accuracy requirement (≤1 ms), (4) failsafe timeout threshold and execution latency (≤50 ms). This enables independent verification of each sub-function and clearer allocation to design modules."
+    },
+    "record": {
+      "assumptions": [
+        "Network link provides minimum bandwidth and QoS sufficient for telemetry payload at required frequency (e.g., 50 Hz sensor updates).",
+        "Vehicle hardware supports hardware timestamping or sufficiently precise software timing (microsecond-level accuracy).",
+        "Operator console can process and render telemetry at ≥30 Hz without introducing additional latency.",
+        "Vehicle control module can execute emergency stop command within ≤20 ms of reception.",
+        "Safety Services module can process SafetyAlert and trigger failsafe actions within ≤30 ms of reception."
+      ],
+      "open_risks": [
+        "Network latency variance (jitter) may exceed p95 budget if network QoS is not properly configured. Recommend network QoS verification as part of system integration testing.",
+        "Clock skew between vehicle and operator console may invalidate latency measurements. Recommend hardware timestamping and NTP synchronization as part of implementation.",
+        "Sensor acquisition latency may exceed budget if vehicle hardware is not optimized for low-latency data capture. Recommend sensor hardware selection and driver optimization as part of vehicle design.",
+        "Command timeout and failsafe execution may not be reliable if Vehicle control module is not designed for real-time responsiveness. Recommend Vehicle control module design review and real-time testing.",
+        "Teleoperation module may introduce unexpected latency if compression algorithms or network transmission logic are not carefully tuned. Recommend latency profiling and optimization as part of implementation."
+      ],
+      "evidence_needed": [
+        "Network QoS configuration and latency characteristics under agreed network conditions (bandwidth, jitter, packet loss).",
+        "Vehicle hardware specifications (sensor acquisition frequency, timestamping capability, processor speed).",
+        "Operator console specifications (rendering frequency, processing latency).",
+        "Vehicle control module design and real-time responsiveness characteristics.",
+        "Compression algorithm latency profile (fixed vs. variable latency, hardware vs. software implementation).",
+        "Instrumented latency measurements from prototype or simulation (end-to-end latency distribution, p95 percentile, latency variance).",
+        "Safety analysis and failsafe mechanism verification (command timeout detection, failsafe execution latency, safety margin validation)."
+      ]
+    }
+  }
+}

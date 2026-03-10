@@ -1,0 +1,168 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall propagate worksite model state changes to all authorized consumers within the customer-defined latency threshold.",
+    "rationale": "The original FR conflates two distinct obligations: (1) detecting/capturing state changes in the worksite model, and (2) delivering those changes to consumers within a time bound. The refined FR focuses on the propagation obligation (the primary latency concern) and removes the vague 'operational use' qualifier in favor of explicit reference to customer-defined acceptance criteria. The term 'propagate' is solution-neutral (avoids prescribing polling, pub-sub, or push mechanisms) and 'authorized consumers' acknowledges that different stakeholders may have different visibility and latency requirements.",
+    "verification_idea": "Measure end-to-end latency from the moment a worksite state change is committed (e.g., equipment position update, obstacle detection, safety zone modification) to the moment all subscribed authorized consumers receive the update notification. Collect p95 latency across representative update scenarios (e.g., equipment movement, sensor input, manual annotation) and confirm against customer-defined threshold (baseline: p95 ≤ 1.0 s).",
+    "sub_frs": [
+      "FR-NGHE-007.1: The NGHE solution shall detect and capture worksite model state changes from all enabled sources (equipment telemetry, sensors, manual input, external systems).",
+      "FR-NGHE-007.2: The NGHE solution shall propagate worksite model state changes to all authorized consumers within the customer-defined latency threshold.",
+      "FR-NGHE-007.3: The NGHE solution shall enforce access control such that only authorized stakeholders receive worksite model updates relevant to their role and operational context."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Centralized event-driven state propagation with asynchronous message broker (decouples producers from consumers; supports fan-out to multiple authorized subscribers; enables latency-bounded delivery guarantees)",
+      "DP2: Polling-based state synchronization with versioned snapshots (consumers periodically fetch latest worksite model state; simple but introduces polling overhead and latency variance)",
+      "DP3: Direct point-to-point notification with per-consumer delivery contracts (each state change triggers direct calls to authorized consumers; tight coupling; difficult to scale and enforce latency SLA uniformly)",
+      "DP4: Hybrid publish-subscribe with local caching and eventual consistency (producers publish to broker; consumers cache state locally and reconcile periodically; reduces latency for reads but complicates consistency guarantees)",
+      "DP5: Change-stream subscription model with ordered, durable event log (worksite model changes appended to immutable log; authorized consumers subscribe to filtered change streams; supports replay, audit, and latency-bounded delivery)"
+    ],
+    "selected_dp": "DP5: Change-stream subscription model with ordered, durable event log. Producers append worksite model state changes to a durable, ordered event log; authorized consumers subscribe to filtered change streams (filtered by role, location, or resource type per safety policy); delivery guarantees (at-least-once or exactly-once) are enforced by the broker; consumers process changes asynchronously and update local state within the p95 ≤ 1.0 s latency window. This design decouples producers from consumers, supports audit and replay for safety compliance, enables fine-grained authorization filtering, and provides deterministic latency bounds via broker-level SLA enforcement.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Consumer implementation coupling: If consumers tightly couple their processing logic to the event schema, schema evolution becomes brittle. Mitigation: enforce schema versioning and consumer-side schema compatibility checks.",
+        "Authorization policy coupling: If authorization rules are embedded in the broker, policy changes require broker redeployment. Mitigation: externalize authorization policy to a dedicated policy service queried at subscription time.",
+        "Ordering dependency: If consumers assume global ordering across all change streams, horizontal scaling of the log becomes constrained. Mitigation: partition the log by worksite or resource type; document ordering guarantees per partition.",
+        "Latency coupling to broker throughput: If the broker becomes saturated, latency SLA may be violated. Mitigation: provision broker capacity with headroom; monitor queue depth and implement backpressure."
+      ],
+      "notes": "DP5 achieves loose coupling between producers and consumers via the event log abstraction. Authorization filtering at subscription time (not at delivery time) reduces per-message overhead. Durable log enables replay for recovery and audit, supporting safety compliance. Potential coupling risks are manageable via schema versioning, policy externalization, and capacity planning."
+    },
+    "assumptions_risks": [
+      "Assumption: Worksite model state changes are discrete, event-like updates (not continuous streams). Risk: If updates are high-frequency (e.g., sensor telemetry), event log throughput may become a bottleneck. Mitigation: aggregate or sample high-frequency updates before logging; use separate telemetry stream if needed.",
+      "Assumption: Authorized consumers are known at subscription time. Risk: If authorization rules are dynamic or context-dependent (e.g., role changes mid-shift), subscription-time filtering may miss updates. Mitigation: re-evaluate authorization at delivery time or use a separate authorization check in the consumer.",
+      "Assumption: p95 ≤ 1.0 s latency is achievable with asynchronous processing. Risk: If consumers have slow processing logic, end-to-end latency may exceed SLA. Mitigation: define and monitor consumer processing latency separately; set stricter broker-level SLA (e.g., p95 ≤ 500 ms) to account for consumer processing.",
+      "Assumption: Worksite safety policies are stable and can be encoded in authorization rules. Risk: If policies are ambiguous or frequently revised, authorization filtering may be incorrect. Mitigation: establish a formal policy specification process; validate authorization rules against policy documents.",
+      "Assumption: Event log infrastructure is available and operationally mature. Risk: If the log is not highly available or durable, state propagation may fail silently. Mitigation: require multi-replica durability; implement monitoring and alerting for log health.",
+      "Assumption: Consumers can tolerate at-least-once delivery semantics. Risk: If exactly-once is required, consumer idempotency logic becomes mandatory. Mitigation: design consumers to be idempotent; use deduplication keys in the event schema."
+    ],
+    "recommended_revision": "Refine FR to explicitly state: (1) Latency SLA applies to broker delivery, not end-to-end consumer processing. (2) Authorization model: is it role-based, attribute-based, or policy-based? (3) Consistency model: is eventual consistency acceptable, or is strong consistency required? (4) Failure mode: if a consumer fails to process an update, should the broker retry, or should the consumer re-subscribe? (5) Event frequency: what is the expected rate of worksite model changes (events/second)? This will inform broker capacity and partitioning strategy. Additionally, clarify whether 'authorized consumers' are pre-registered or dynamically discovered, as this affects subscription management and authorization enforcement."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Safety Services",
+      "scope": "Centralized event broker and change-stream subscription infrastructure for worksite model state changes, with role-based and location-based filtering, durable event log persistence, delivery guarantee enforcement, and authorized consumer subscription management."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Producers (Vehicle, Teleoperation) emit worksite model state changes (position, status, resource allocation) as events into the durable log via Telemetry ingestion."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Safety Services publishes filtered change streams and safety-relevant state updates to authorized consumers (Vehicle, Teleoperation, NGHE Solution) via SafetyAlert notifications."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Broker-level SLA enforcement and asynchronous delivery of change streams across network boundaries; latency monitoring and retry logic for at-least-once/exactly-once guarantees."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Safety Services",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit: Safety Services owns authorization, filtering, audit, and compliance—core responsibilities of the change-stream broker. Event log persistence, delivery guarantees, and role/location-based filtering align directly with safety policy enforcement. Minimal diffusion: only Telemetry ingestion (producer append) and SafetyAlert publication (consumer delivery) cross boundaries. Latency SLA enforcement is a safety-critical concern naturally owned by Safety Services."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.45,
+        "diffusion_score": 0.55,
+        "notes": "Poor fit: NGHE Solution is a top-level orchestrator, not a broker. Placing event log, subscription management, and delivery guarantees here would conflate orchestration with infrastructure concerns. Diffusion is high: producers (Vehicle, Teleoperation) and consumers across the system would need direct coupling to NGHE for event delivery, violating separation of concerns."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.15,
+        "diffusion_score": 0.85,
+        "notes": "Very poor fit: Vehicle is a domain-specific agent, not a broker. Placing the change-stream infrastructure here would make Vehicle responsible for system-wide event distribution, filtering, and compliance—far beyond its scope. Massive diffusion: all other consumers and producers would depend on Vehicle's broker logic, creating a bottleneck and tight coupling."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.12,
+        "diffusion_score": 0.88,
+        "notes": "Very poor fit: Teleoperation is a domain-specific control module, not a broker. Similar to Vehicle, placing broker logic here violates cohesion and creates system-wide coupling. Diffusion is severe: all state change distribution would flow through Teleoperation, creating a single point of failure and tight coupling to a domain-specific module."
+      }
+    ],
+    "ownership_candidate": "Safety Services",
+    "containment_hypothesis": "Safety Services is the natural owner of the change-stream subscription model because: (1) it already owns authorization and filtering logic per safety policy; (2) audit and replay for compliance are safety-critical concerns; (3) delivery guarantees and latency SLA enforcement are safety-critical infrastructure; (4) role-based and location-based filtering align with safety policy enforcement; (5) the module boundary is narrow and cohesive, avoiding diffusion across producers and consumers.",
+    "containment_risks": [
+      "Risk: If Safety Services becomes a bottleneck for event throughput, latency SLA (p95 ≤ 1.0 s) may be violated. Mitigation: Design the broker with horizontal scalability (partitioned event log, consumer group load balancing) and monitor throughput metrics.",
+      "Risk: If producer append logic or consumer subscription logic is duplicated across Vehicle and Teleoperation instead of using a unified Safety Services API, diffusion and maintenance burden increase. Mitigation: Enforce strict API contracts for event production and consumption; provide client libraries that encapsulate broker interaction.",
+      "Risk: If filtering logic (role, location, resource type) is not centralized in Safety Services, authorization bypass or inconsistent filtering may occur. Mitigation: Implement filtering at the broker level before delivery; validate all subscription requests against the safety policy database.",
+      "Risk: If the durable event log is not properly replicated or backed up, audit trail integrity may be compromised. Mitigation: Use a proven event store (e.g., Apache Kafka, EventStoreDB) with replication and retention policies aligned to compliance requirements."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. Latency acceptance criterion (p95 ≤ 1.0 s) is measurable via broker-level SLA monitoring and end-to-end telemetry instrumentation. Change propagation to authorized consumers is verifiable through audit log inspection and role-based filtering validation against safety policy database. Durable event log enables deterministic replay for compliance verification.",
+      "allocation_clarity": "Clear. Safety Services is the unambiguous owner of the change-stream subscription model. Producers (Vehicle, Teleoperation) have well-defined ingestion interfaces; consumers have well-defined subscription and filtering interfaces. Role-based and location-based filtering are explicitly tied to safety policy enforcement, eliminating ambiguity about authorization boundaries."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP5 directly and completely addresses FR requirements: (1) change-stream subscription model with ordered, durable event log satisfies 'propagate worksite model state changes'; (2) authorized consumer filtering (role, location, resource type) satisfies 'authorized consumers'; (3) broker-level SLA enforcement and p95 ≤ 1.0 s latency window satisfy 'customer-defined latency threshold'; (4) at-least-once/exactly-once delivery guarantees ensure no state changes are lost; (5) asynchronous processing and audit/replay support safety compliance and operational transparency. No functional gaps identified."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Risk: Producer append logic (Telemetry ingestion) is a cross-boundary interface. If Vehicle or Teleoperation modules implement custom event serialization or retry logic instead of using a unified Safety Services client library, diffusion and inconsistency will increase. Mitigation: Provide strongly-typed, versioned client libraries for event production; enforce schema validation at broker ingestion.",
+        "Risk: Consumer subscription and filtering logic could be duplicated across Vehicle, Teleoperation, and NGHE Solution if subscription APIs are not standardized. Mitigation: Centralize subscription management in Safety Services; expose a single, well-documented subscription API with role-based access control.",
+        "Risk: Latency SLA enforcement (p95 ≤ 1.0 s) depends on broker throughput and network latency. If producer append rate exceeds broker capacity or network jitter increases, SLA violations will occur. Mitigation: Design broker with horizontal scalability (partitioned event log, consumer group load balancing); implement latency monitoring and alerting; establish network SLA with infrastructure team.",
+        "Risk: Durable event log persistence and replication add operational complexity. If event store is misconfigured (insufficient replication factor, inadequate retention policy), audit trail integrity or replay capability may be compromised. Mitigation: Use proven event store (Apache Kafka, EventStoreDB); establish operational runbooks for backup, recovery, and retention policy enforcement; validate replication and backup integrity regularly.",
+        "Risk: Role-based and location-based filtering logic could be implemented inconsistently across broker and consumers if filtering rules are not centralized. Mitigation: Implement all filtering at broker level before delivery; validate subscription requests against safety policy database; provide audit logs of all filtering decisions."
+      ],
+      "containment_notes": "Excellent containment (0.92 score). Safety Services is the natural and cohesive owner of the change-stream subscription model. All core responsibilities (authorization, filtering, audit, compliance, delivery guarantees, latency SLA enforcement) align with safety-critical infrastructure concerns. Minimal diffusion: only Telemetry ingestion (producer append) and SafetyAlert publication (consumer delivery) cross module boundaries, and these are narrow, well-defined interfaces. No alternative module (NGHE Solution, Vehicle, Teleoperation) is suitable; placing broker logic in any of these would create severe coupling and violate separation of concerns. Recommended: Enforce strict API contracts for event production and consumption; provide client libraries that encapsulate broker interaction; monitor containment metrics (e.g., cross-boundary call frequency, schema evolution) to detect diffusion creep."
+    },
+    "recommended_revisions": [
+      "Revision 1: Explicitly define the event schema (worksite model state change structure, metadata, versioning strategy) and publish it as a contract owned by Safety Services. Producers and consumers must validate against this schema to prevent diffusion of serialization logic.",
+      "Revision 2: Specify the broker technology (e.g., Apache Kafka, EventStoreDB, AWS Kinesis) and document its SLA guarantees (throughput, latency, replication, retention). Ensure the chosen technology can meet p95 ≤ 1.0 s latency under peak load.",
+      "Revision 3: Define the subscription API contract (e.g., role-based filtering parameters, location-based filtering parameters, resource type filtering parameters) and document how Safety Services validates subscription requests against the safety policy database.",
+      "Revision 4: Establish operational runbooks for broker deployment, scaling, monitoring, backup, recovery, and retention policy enforcement. Assign clear ownership to Safety Services team.",
+      "Revision 5: Add a non-functional requirement: 'Safety Services shall provide client libraries (SDKs) for event production and consumption in all supported languages (e.g., Python, C++, JavaScript) to minimize diffusion of broker interaction logic across producers and consumers.'",
+      "Revision 6: Add a verification plan: 'Latency acceptance criterion (p95 ≤ 1.0 s) shall be validated via end-to-end latency instrumentation in production; broker throughput and consumer lag shall be monitored continuously; audit logs shall be sampled quarterly to verify filtering correctness and compliance.'",
+      "Revision 7: Clarify the role of Network Link interface: specify network SLA requirements (latency, jitter, packet loss) and establish accountability for network-level SLA enforcement. If network latency is unpredictable, consider edge-based filtering or local caching strategies to meet p95 ≤ 1.0 s latency."
+    ]
+  },
+  "decision": {
+    "decision": "REVISE_CURRENT_LEVEL",
+    "justification": "All three gates (FR-IM, FR-DP, DP-IM) pass with high confidence, and containment is excellent (0.92 score). However, the recommended revisions expose critical specification gaps that must be resolved before decomposition can proceed safely. Specifically: (1) Event schema contract is undefined—producers and consumers lack a binding specification, creating diffusion risk; (2) Broker technology and SLA guarantees are not selected—latency acceptance criterion (p95 ≤ 1.0 s) cannot be verified without concrete technology choice; (3) Subscription API contract is not formalized—role/location/resource-type filtering parameters lack precise definition; (4) Operational runbooks and client library requirements are missing—these are essential for safety-critical infrastructure. Given high safety criticality, these gaps must be closed at the current level before sub-FR decomposition. Proceeding to sub-FRs without these revisions would propagate ambiguity downward and increase verification risk.",
+    "next_level_sub_frs": [],
+    "revise": {
+      "target": "DP",
+      "why": "DP5 (change-stream subscription model with ordered, durable event log) is logically sound and passes FR-DP gate. However, the DP specification lacks critical implementation-facing details required for safe realization: (1) Event schema structure and versioning strategy must be explicitly defined and published as a contract; (2) Broker technology selection (Kafka, EventStoreDB, Kinesis, etc.) and its SLA guarantees (throughput, latency percentiles, replication factor, retention) must be specified to validate p95 ≤ 1.0 s feasibility; (3) Subscription API contract (filtering parameters, validation rules, error handling) must be formalized; (4) Client library requirements (languages, SDK design patterns, schema validation) must be documented; (5) Operational requirements (deployment, scaling, monitoring, backup/recovery, audit trail integrity) must be specified. These revisions transform DP5 from a logical design into a specification suitable for safe architectural packaging and implementation module allocation."
+    },
+    "record": {
+      "assumptions": [
+        "Broker technology can be selected and procured to meet p95 ≤ 1.0 s latency under peak producer append rate and network conditions.",
+        "Event schema can be versioned and evolved without breaking existing producers and consumers.",
+        "Role-based and location-based filtering rules can be centralized in Safety Services and validated against a safety policy database with acceptable latency overhead.",
+        "Network infrastructure (Vehicle-to-Worksite, Teleoperation-to-Worksite links) can support broker replication and consumer delivery within p95 ≤ 1.0 s SLA.",
+        "Safety Services team has operational expertise to manage durable event log persistence, replication, backup, recovery, and retention policies.",
+        "Audit log inspection and replay capability are sufficient for safety compliance verification (no additional cryptographic or tamper-proof mechanisms required)."
+      ],
+      "open_risks": [
+        "Risk: Broker technology selection may not meet p95 ≤ 1.0 s latency under peak load. Mitigation: Conduct proof-of-concept with candidate technologies (Kafka, EventStoreDB, Kinesis) under realistic load profiles before final selection.",
+        "Risk: Event schema evolution could break existing producers or consumers if versioning strategy is not carefully designed. Mitigation: Define schema versioning policy (e.g., semantic versioning, backward compatibility rules) and enforce it via schema registry.",
+        "Risk: Subscription API contract may be too restrictive (e.g., filtering parameters do not cover all safety policy requirements) or too permissive (e.g., allows unauthorized subscriptions). Mitigation: Validate subscription API design against safety policy database schema and conduct security review.",
+        "Risk: Client library adoption may be incomplete if SDKs are not available in all required languages or are difficult to use. Mitigation: Prioritize SDK development for high-volume producer/consumer languages (Python, C++, JavaScript); provide comprehensive documentation and examples.",
+        "Risk: Operational runbooks may be incomplete or outdated, leading to misconfiguration or recovery failures. Mitigation: Establish operational review cadence; conduct regular disaster recovery drills; assign clear ownership to Safety Services team.",
+        "Risk: Network latency or jitter may exceed assumptions, causing p95 ≤ 1.0 s SLA violations. Mitigation: Establish network SLA with infrastructure team; implement latency monitoring and alerting; consider edge-based filtering or local caching if network SLA cannot be met."
+      ],
+      "evidence_needed": [
+        "Finalized event schema specification (structure, metadata, versioning strategy) with examples and validation rules.",
+        "Broker technology selection document with SLA guarantees (throughput, latency percentiles, replication, retention) and proof-of-concept results demonstrating p95 ≤ 1.0 s latency under peak load.",
+        "Subscription API contract specification (filtering parameters, validation rules, error handling, examples) with security review sign-off.",
+        "Client library design specification (languages, SDK patterns, schema validation, error handling) with implementation roadmap.",
+        "Operational runbooks for broker deployment, scaling, monitoring, backup/recovery, retention policy enforcement, and disaster recovery.",
+        "Network SLA agreement with infrastructure team specifying latency, jitter, packet loss, and replication bandwidth requirements.",
+        "Audit trail design specification (log structure, retention policy, tamper-proofing, compliance verification procedures).",
+        "Safety policy database schema and filtering rule validation procedures."
+      ]
+    }
+  }
+}

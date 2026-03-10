@@ -1,0 +1,171 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and designated work zones with sufficient fidelity to support autonomous path planning, collision avoidance, and operator situational awareness.",
+    "rationale": "The original FR was vague on fidelity requirements, update frequency, and intended consumers. Refinement clarifies that the worksite model must be dynamic (not static), support both autonomous and tele-operated modes, and be accessible to planning and execution subsystems. High safety criticality demands explicit hazard representation and real-time capability.",
+    "verification_idea": "Acceptance test: (1) Model accuracy vs. ground truth survey within ±0.5 m for terrain and obstacles; (2) Update latency ≤ 2 s for dynamic hazards; (3) Model accessible via standardized interface to path planner and operator display; (4) Hazard detection coverage ≥ 95% for personnel within work zone.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire terrain and obstacle data from onboard sensors (LiDAR, camera, IMU).",
+      "CR-NGHE-006.2: Fuse multi-sensor data into a unified 3D spatial representation.",
+      "CR-NGHE-006.3: Detect and track dynamic hazards (personnel, moving equipment) in real-time.",
+      "CR-NGHE-006.4: Publish worksite model to planning and execution subsystems via standardized interface.",
+      "CR-NGHE-006.5: Validate model integrity and flag degraded sensor conditions to Safety Services."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized perception stack (LiDAR + stereo camera fusion) running on vehicle compute, publishing occupancy grid and object list via ROS/middleware to planning and safety subsystems.",
+      "DP-B: Distributed edge perception (vehicle sensors + cloud-based SLAM) with periodic model synchronization to vehicle and tele-operator.",
+      "DP-C: Hybrid: onboard real-time occupancy grid for collision avoidance; cloud-based detailed reconstruction for planning and archival."
+    ],
+    "selected_dp": "DP-C: Hybrid architecture—onboard real-time occupancy grid (LiDAR + IMU fusion) for immediate collision avoidance and safety; cloud-based detailed 3D reconstruction (photogrammetry + LiDAR point cloud) for mission planning, operator situational awareness, and post-mission analysis. Model synchronization via Telemetry interface at 2 Hz; safety-critical occupancy updates at 10 Hz.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between sensor acquisition (CR-NGHE-006.1) and fusion logic (CR-NGHE-006.2) is acceptable—both are perception-domain functions.",
+        "Coupling between real-time occupancy (safety-critical) and cloud reconstruction (planning-domain) is mitigated by clear interface separation: Telemetry carries both streams with distinct message types.",
+        "Dependency on network link for cloud sync is explicit and managed via fallback to onboard model if link degrades."
+      ],
+      "notes": "DP-C avoids over-coupling by separating safety-critical real-time perception (onboard) from planning-domain detailed reconstruction (cloud). This aligns with safety criticality constraint and supports both autonomous and tele-operated modes."
+    },
+    "assumptions_risks": [
+      "Assumption: Onboard compute (vehicle) has sufficient GPU/CPU for real-time LiDAR + IMU fusion at 10 Hz. Risk: If compute is undersized, occupancy grid latency may exceed 2 s, violating safety requirement. Mitigation: Specify compute platform early; prototype fusion algorithm.",
+      "Assumption: Network link (Telemetry) is available and reliable for cloud sync. Risk: If link is intermittent, cloud model may become stale, degrading planning quality. Mitigation: Implement local buffering and graceful degradation; operator notified of model staleness.",
+      "Assumption: Sensor calibration and extrinsic alignment (LiDAR-to-IMU-to-vehicle frame) is maintained. Risk: Miscalibration causes systematic errors in occupancy grid, leading to collision or missed hazards. Mitigation: Implement online calibration check; flag degradation to Safety Services.",
+      "Assumption: Cloud infrastructure (storage, compute) is available and meets latency SLA. Risk: Cloud outage or congestion delays detailed reconstruction, impacting planning. Mitigation: Fallback to onboard model; operator can request expedited processing."
+    ],
+    "recommended_revision": "Clarify compute platform specification (GPU model, memory, OS) and network SLA (bandwidth, latency, availability) before detailed design. Define fallback behavior and operator notification protocol if cloud link degrades. Specify sensor calibration procedure and online health check algorithm."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "Onboard real-time perception stack: LiDAR driver, IMU fusion, occupancy grid generation, sensor health monitoring. Includes compute platform (GPU/CPU), sensor interfaces, and local storage for buffering. Does NOT include cloud reconstruction or tele-operator display logic."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle publishes occupancy grid (10 Hz, safety-critical) and sensor health status (1 Hz) to planning and safety subsystems. Also publishes raw sensor data (LiDAR point cloud, IMU) at reduced rate (2 Hz) for cloud reconstruction."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives sensor configuration commands (e.g., LiDAR range, camera exposure) and model update requests from planning subsystem. Used to adapt perception to mission phase."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Vehicle publishes occupancy grid anomalies, sensor degradation warnings, and collision-imminent alerts to Safety Services. Triggers emergency stop if hazard confidence exceeds threshold."
+      },
+      {
+        "name": "Network Link",
+        "direction": "out",
+        "details": "Vehicle transmits raw sensor data and occupancy grid snapshots to cloud for detailed reconstruction and archival. Operates asynchronously; loss of link does not degrade onboard safety."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Vehicle is the natural home for onboard real-time perception. LiDAR and IMU are vehicle-mounted sensors; fusion and occupancy grid generation are core vehicle autonomy functions. Minimal diffusion: only Telemetry and SafetyAlert interfaces cross module boundary. Compute platform is vehicle-resident."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.65,
+        "diffusion_score": 0.35,
+        "notes": "NGHE Solution is the system-level container, but assigning perception to it would diffuse responsibility across multiple subsystems (vehicle, teleoperation, safety). Not recommended as primary owner; better as orchestrator of Vehicle + cloud services."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.15,
+        "diffusion_score": 0.85,
+        "notes": "Teleoperation is for remote operator control and situational awareness, not sensor fusion. Assigning perception to Teleoperation would create tight coupling between operator display and safety-critical occupancy grid. Not appropriate."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Safety Services consumes occupancy grid and hazard alerts but does not generate them. Assigning perception to Safety Services would violate separation of concerns: Safety Services should validate and respond to hazards, not produce them. Not appropriate."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module owns onboard real-time perception (LiDAR + IMU fusion, occupancy grid). Cloud-based detailed reconstruction is a separate service (not assigned to any of the four available modules; assumed to be external infrastructure). Vehicle publishes occupancy grid and sensor health via Telemetry; Safety Services consumes and validates. This assignment minimizes diffusion and aligns with vehicle autonomy responsibilities.",
+    "containment_risks": [
+      "Risk: If Vehicle module compute is undersized or overloaded, occupancy grid latency may degrade, violating safety requirement. Mitigation: Specify compute platform with margin; implement priority scheduling for safety-critical perception tasks.",
+      "Risk: If sensor calibration drifts over time, occupancy grid accuracy degrades silently. Mitigation: Implement online calibration check (e.g., compare LiDAR-derived terrain to IMU-derived slope); flag degradation to Safety Services.",
+      "Risk: If Vehicle module is responsible for both real-time occupancy and cloud data transmission, network congestion may starve occupancy grid updates. Mitigation: Implement separate threads/processes; prioritize occupancy grid; buffer cloud data locally.",
+      "Risk: Tight coupling between Vehicle perception and Safety Services validation may create circular dependency if Safety Services needs to configure sensors. Mitigation: Use Tasking interface for sensor configuration; Safety Services requests changes via planning subsystem, not directly to Vehicle."
+    ],
+    "recommended_revision": "Explicitly define compute platform specification (GPU, CPU, memory, OS) and allocate sufficient resources to guarantee occupancy grid latency ≤ 2 s under worst-case sensor load. Implement sensor health monitoring and online calibration check; publish health status via Telemetry at 1 Hz. Define fallback behavior if compute is overloaded (e.g., reduce cloud data transmission rate, maintain occupancy grid). Clarify that cloud reconstruction is external to the four available modules; Vehicle publishes raw sensor data for cloud processing."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid onboard + cloud) directly addresses all sub-FRs: (1) onboard LiDAR + IMU acquisition, (2) real-time fusion for occupancy grid, (3) dynamic hazard detection via occupancy grid, (4) publication via Telemetry, (5) sensor health monitoring to Safety Services. DP-C is traceable to refined FR and supports both autonomous and tele-operated modes. No independence violations detected."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Diffusion risk: Cloud reconstruction is not assigned to any of the four available modules. This is acceptable because cloud services are external infrastructure, but it creates a gap in the module hierarchy. Mitigation: Document cloud reconstruction as external dependency; ensure Vehicle publishes sufficient raw data for cloud processing.",
+        "Diffusion risk: Telemetry interface carries both safety-critical occupancy grid (10 Hz) and planning-domain sensor data (2 Hz). This is acceptable because Telemetry is a known interface designed for multi-purpose data streaming, but it requires careful message prioritization. Mitigation: Define message priority and QoS in Telemetry specification.",
+        "Diffusion risk: SafetyAlert interface is used for both occupancy grid anomalies and sensor degradation. This is acceptable because both are safety-relevant, but it requires clear alert taxonomy. Mitigation: Define alert severity levels and response procedures in Safety Services specification."
+      ],
+      "containment_notes": "Vehicle module contains onboard perception stack with high cohesion (LiDAR, IMU, fusion, occupancy grid are all vehicle-resident). External interfaces (Telemetry, Tasking, SafetyAlert, Network Link) are well-defined and minimize diffusion. Cloud reconstruction is external; Vehicle publishes raw data for cloud processing. Overall containment is strong."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification of CR-NGHE-006 is feasible: (1) Occupancy grid accuracy can be tested against ground truth survey (±0.5 m tolerance). (2) Update latency can be measured via instrumentation (timestamp occupancy grid generation and publication). (3) Model accessibility can be verified by querying Telemetry interface and confirming message format. (4) Hazard detection coverage can be tested in controlled scenarios with known personnel/obstacles. All verification methods are standard and implementable.",
+      "allocation_clarity": "Allocation is clear: Vehicle owns onboard perception; Safety Services owns hazard validation and response; Planning subsystem owns path planning (consumes occupancy grid). Interfaces are explicit (Telemetry, Tasking, SafetyAlert, Network Link). Ownership boundaries are well-defined. No ambiguity detected."
+    },
+    "recommended_revisions": [
+      "Clarify cloud reconstruction as external service; document data flow from Vehicle to cloud and back to planning subsystem.",
+      "Define Telemetry message format and priority for occupancy grid (safety-critical, 10 Hz) vs. sensor data (planning-domain, 2 Hz).",
+      "Specify SafetyAlert taxonomy: occupancy grid anomalies, sensor degradation, collision-imminent alerts. Define response procedures for each alert type.",
+      "Document fallback behavior if Network Link is unavailable: Vehicle continues to publish occupancy grid locally; cloud reconstruction is deferred.",
+      "Specify compute platform (GPU, CPU, memory, OS) and allocate resources to guarantee occupancy grid latency ≤ 2 s."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "CR-NGHE-006 is not atomic; it decomposes into five sub-FRs (sensor acquisition, fusion, dynamic hazard detection, publication, health monitoring). Each sub-FR requires further design detail. DP-C is sound and well-justified, but implementation risks (compute platform, sensor calibration, network reliability) require explicit mitigation at the next level. Vehicle module assignment is appropriate, but cloud reconstruction dependency must be clarified. Proceeding to next decomposition level is necessary to address sub-FRs and mitigate risks.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire terrain and obstacle data from onboard sensors (LiDAR, camera, IMU).",
+      "CR-NGHE-006.2: Fuse multi-sensor data into a unified 3D spatial representation (occupancy grid).",
+      "CR-NGHE-006.3: Detect and track dynamic hazards (personnel, moving equipment) in real-time.",
+      "CR-NGHE-006.4: Publish worksite model to planning and execution subsystems via Telemetry interface.",
+      "CR-NGHE-006.5: Validate model integrity and flag degraded sensor conditions to Safety Services via SafetyAlert interface."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Onboard compute (Vehicle) has sufficient GPU/CPU for real-time LiDAR + IMU fusion at 10 Hz.",
+        "Network link (Telemetry) is available and reliable for cloud sync at 2 Hz.",
+        "Sensor calibration and extrinsic alignment (LiDAR-to-IMU-to-vehicle frame) is maintained throughout mission.",
+        "Cloud infrastructure (storage, compute) is available and meets latency SLA for detailed reconstruction.",
+        "Safety Services is responsible for validating occupancy grid and triggering emergency stop if hazard confidence exceeds threshold.",
+        "Planning subsystem consumes occupancy grid and generates collision-free paths.",
+        "Tele-operator receives occupancy grid visualization via Teleoperation module (not assigned in this decomposition)."
+      ],
+      "open_risks": [
+        "Compute platform undersizing: If Vehicle compute is insufficient, occupancy grid latency may exceed 2 s, violating safety requirement. Mitigation: Specify compute platform early; prototype fusion algorithm.",
+        "Sensor calibration drift: Miscalibration causes systematic errors in occupancy grid, leading to collision or missed hazards. Mitigation: Implement online calibration check; flag degradation to Safety Services.",
+        "Network link degradation: If Telemetry link is intermittent, cloud model becomes stale, degrading planning quality. Mitigation: Implement local buffering and graceful degradation; operator notified of model staleness.",
+        "Cloud infrastructure unavailability: Cloud outage delays detailed reconstruction, impacting planning. Mitigation: Fallback to onboard model; operator can request expedited processing.",
+        "Hazard detection false negatives: Occupancy grid may miss small obstacles or personnel in shadows/occlusion. Mitigation: Implement multi-sensor fusion (LiDAR + camera); validate detection coverage in testing.",
+        "Occupancy grid memory footprint: High-resolution 3D occupancy grid may exceed Vehicle compute memory. Mitigation: Implement adaptive resolution; use octree or other sparse representation."
+      ],
+      "evidence_needed": [
+        "Compute platform specification (GPU model, CPU cores, memory, OS) with performance benchmarks for LiDAR + IMU fusion.",
+        "Sensor calibration procedure and online health check algorithm.",
+        "Telemetry interface specification: message format, priority, QoS for occupancy grid and sensor data.",
+        "SafetyAlert interface specification: alert taxonomy, severity levels, response procedures.",
+        "Network SLA for cloud link: bandwidth, latency, availability requirements.",
+        "Fallback behavior specification: what happens if compute is overloaded, network link is down, or sensors degrade.",
+        "Hazard detection coverage test plan: scenarios, acceptance criteria, test data.",
+        "Occupancy grid accuracy test plan: ground truth survey, tolerance (±0.5 m), test locations.",
+        "Latency measurement plan: instrumentation, timestamp sources, acceptable variance."
+      ]
+    }
+  }
+}

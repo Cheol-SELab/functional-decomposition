@@ -1,0 +1,166 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and work-zone boundaries, with sufficient fidelity to support autonomous path planning and operator situational awareness.",
+    "rationale": "The original FR was vague on fidelity requirements, update frequency, and the distinction between static and dynamic features. Refinement clarifies that the model must serve both planning (path generation) and execution (real-time awareness) functions, and must distinguish hazard types to enable safety-critical decision-making. High safety criticality demands explicit hazard representation.",
+    "verification_idea": "Acceptance test: (1) Worksite model generated within 5 minutes of site entry; (2) Terrain elevation accuracy ±0.5 m over 95% of mapped area; (3) Static obstacles detected and represented with ≥90% recall; (4) Dynamic hazards (personnel) detected and updated at ≥2 Hz; (5) Model accessible to planning and execution subsystems via agreed interface; (6) Safety Manager can review model before operations commence.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire terrain elevation data from onboard sensors (LiDAR, stereo camera, IMU) and fuse into elevation map.",
+      "CR-NGHE-006.2: Detect and classify static obstacles (rocks, structures, vegetation) and represent as 3D point clouds or voxel grids.",
+      "CR-NGHE-006.3: Detect and track dynamic hazards (personnel, other equipment) in real-time and update hazard layer.",
+      "CR-NGHE-006.4: Define and enforce work-zone boundaries (geofences) based on site plan input.",
+      "CR-NGHE-006.5: Expose worksite model to planning and execution functions via standardized data interface.",
+      "CR-NGHE-006.6: Provide Safety Manager with model visualization and validation tools for pre-operation sign-off."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized mapping service (onboard or cloud-based) that ingests multi-sensor telemetry (LiDAR, camera, IMU), performs sensor fusion and SLAM (Simultaneous Localization and Mapping), outputs a unified 3D worksite model accessible via REST API or message queue.",
+      "DP-B: Distributed sensor processing where each sensor (LiDAR, camera) runs local feature extraction and publishes raw features; a lightweight aggregator on the vehicle collects features and builds a local map; map is pushed to cloud for archival and Safety Manager review.",
+      "DP-C: Hybrid approach: onboard lightweight mapping (elevation grid + obstacle layer) for real-time path planning; parallel cloud-based high-fidelity reconstruction for Safety Manager review and post-operation analysis."
+    ],
+    "selected_dp": "DP-C: Hybrid onboard/cloud mapping. Rationale: (1) Onboard lightweight model ensures low-latency availability for autonomous path planning and operator awareness, meeting real-time safety requirements. (2) Cloud-based high-fidelity reconstruction provides Safety Manager with detailed pre-operation validation and post-operation audit trail, satisfying governance and safety criticality. (3) Hybrid approach decouples real-time execution from archival/review, reducing latency coupling and enabling graceful degradation if cloud link fails. (4) Aligns with teleoperation architecture (cloud-based tele-operator oversight) without creating single point of failure for onboard autonomy.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Sensor fusion algorithm (elevation + obstacle detection) must be deterministic and low-latency; risk of tight coupling between LiDAR and camera processing if not modularized.",
+        "Cloud uplink bandwidth: high-resolution point clouds may saturate network; mitigation: compress/downsample before transmission.",
+        "Synchronization between onboard and cloud models: if network latency is high, Safety Manager may review stale model; mitigation: timestamp all model updates and flag staleness."
+      ],
+      "notes": "DP-C avoids tight coupling to a single sensor or processing location. Onboard and cloud components can evolve independently. Sensor fusion is localized to onboard processing, reducing distributed coupling. Cloud component is asynchronous, decoupling from real-time constraints."
+    },
+    "assumptions_risks": [
+      "Assumption: Onboard compute (GPU/CPU) is sufficient for real-time SLAM and obstacle detection at vehicle speed (assume ≤5 m/s). Risk: If compute is undersized, latency will exceed safety thresholds. Mitigation: Specify compute budget (e.g., <200 ms end-to-end latency for obstacle detection).",
+      "Assumption: Network link (4G/5G or private radio) provides ≥2 Mbps uplink for cloud model sync. Risk: If bandwidth is limited, cloud model lags behind onboard model. Mitigation: Implement adaptive compression and prioritize critical features (hazards) over terrain detail.",
+      "Assumption: Safety Manager has tools to visualize and validate cloud model before operations. Risk: If tools are missing or non-intuitive, Safety Manager cannot effectively sign off. Mitigation: Specify visualization requirements and user acceptance testing.",
+      "Assumption: Worksite features (terrain, obstacles) are static or change slowly during a work session. Risk: If site is highly dynamic (e.g., active excavation), model may become stale. Mitigation: Implement continuous re-mapping and change detection."
+    ],
+    "recommended_revision": "Refine DP-C to specify: (1) Onboard model update frequency (e.g., 10 Hz for obstacle layer, 1 Hz for terrain); (2) Cloud sync frequency and compression strategy; (3) Fallback behavior if cloud link is lost (e.g., continue with onboard model only); (4) Model versioning and timestamp conventions to support Safety Manager review and audit."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "The Vehicle module owns the onboard lightweight worksite mapping subsystem, including sensor acquisition (LiDAR, camera, IMU), real-time sensor fusion, SLAM, and local 3D model generation. The Vehicle module exposes the worksite model via internal interfaces (Telemetry) to planning and execution subsystems. The Vehicle module also publishes model updates to the cloud via the Network Link interface for archival and Safety Manager review."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle publishes worksite model state (elevation grid, obstacle layer, hazard positions, geofence status) to planning/execution subsystems and to Teleoperation module. Frequency: 10 Hz for obstacle layer, 1 Hz for terrain. Format: JSON or protobuf with timestamp and model version."
+      },
+      {
+        "name": "Network Link",
+        "direction": "out",
+        "details": "Vehicle uploads compressed worksite model snapshots to cloud backend for Safety Manager review and post-operation analysis. Frequency: 1 Hz or on-demand. Includes metadata (timestamp, GPS location, model confidence scores)."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives work-zone boundary definitions (geofences) and site plan updates from planning subsystem. Used to initialize and update geofence layer in worksite model."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.95,
+        "diffusion_score": 0.05,
+        "notes": "Vehicle is the natural owner of onboard sensor acquisition and real-time mapping. Sensors are physically mounted on vehicle. Real-time SLAM and obstacle detection are tightly coupled to vehicle motion and sensor calibration. Minimal diffusion: only external interface is Telemetry (model output) and Tasking (geofence input), both well-defined. Network Link is a publish interface, not a tight coupling."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.6,
+        "diffusion_score": 0.4,
+        "notes": "NGHE Solution is the system-level container. If mapping is assigned here, it would need to delegate to Vehicle for sensor acquisition and to cloud services for archival. This creates diffusion across multiple sub-modules and external services. Not recommended as primary owner; better as orchestrator."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Teleoperation is cloud-based and focused on remote operator control. Worksite mapping is primarily onboard and real-time. Assigning mapping to Teleoperation would create tight coupling between cloud and vehicle, and would require Teleoperation to own sensors it does not physically control. Not recommended."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Safety Services is responsible for safety policies and alerts. Worksite mapping is a data source for Safety Services (e.g., to detect hazards and generate SafetyAlerts), but Safety Services should not own the mapping subsystem itself. Mapping is a data acquisition and processing function, not a safety policy function. Recommended: Safety Services consumes Telemetry from Vehicle and generates SafetyAlerts based on model analysis."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module is the optimal owner of the onboard worksite mapping subsystem because: (1) Sensors are physically integrated into the vehicle; (2) Real-time SLAM and obstacle detection are tightly coupled to vehicle kinematics and sensor calibration; (3) Onboard model is a core input to vehicle autonomy and path planning; (4) Minimal external diffusion: Telemetry and Tasking interfaces are well-defined and loosely coupled. Cloud-based archival and Safety Manager review are handled via Network Link, which is asynchronous and does not block onboard operations.",
+    "containment_risks": [
+      "Risk: Vehicle module may become overloaded if it also owns path planning, motion control, and other autonomy functions. Mitigation: Ensure clear separation of concerns within Vehicle (e.g., Mapping subsystem, Planning subsystem, Control subsystem as internal components with defined interfaces).",
+      "Risk: If onboard compute is shared between mapping and other functions, resource contention may cause latency spikes. Mitigation: Allocate dedicated compute resources (e.g., separate GPU for SLAM) and implement priority scheduling.",
+      "Risk: Sensor calibration and fusion algorithms are complex and may require frequent updates. If tightly coupled to Vehicle, updates may require vehicle firmware release cycles. Mitigation: Implement modular sensor fusion pipeline with pluggable algorithms; consider over-the-air update capability.",
+      "Risk: Cloud-based Safety Manager review depends on Network Link availability. If link is down, Safety Manager cannot validate model before operations. Mitigation: Implement local validation tools on vehicle (e.g., operator can review onboard model via HMI) as fallback."
+    ],
+    "recommended_revision": "Refine IM assignment to specify: (1) Internal architecture of Vehicle module: Mapping subsystem (sensor acquisition, fusion, SLAM), Planning subsystem (path generation), Control subsystem (motion execution). (2) Interfaces between subsystems (e.g., Planning consumes Telemetry from Mapping). (3) Compute resource allocation and priority scheduling. (4) Fallback behavior if onboard compute is overloaded (e.g., reduce SLAM update frequency, simplify obstacle detection). (5) Over-the-air update strategy for sensor fusion algorithms."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid onboard/cloud mapping) directly addresses all sub-FRs: (1) Onboard sensor fusion acquires terrain and obstacles (FR 006.1, 006.2); (2) Onboard real-time tracking detects dynamic hazards (FR 006.3); (3) Geofence layer enforces work-zone boundaries (FR 006.4); (4) Telemetry interface exposes model to planning/execution (FR 006.5); (5) Cloud-based high-fidelity model supports Safety Manager review (FR 006.6). No functional gaps. Coupling is acceptable (sensor fusion is localized, cloud is asynchronous). Assumptions and risks are documented and mitigable."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Onboard mapping subsystem is tightly coupled to vehicle sensors and kinematics. If sensors are added/removed or vehicle geometry changes, mapping algorithms may need recalibration. Mitigation: Implement sensor abstraction layer and parameterized calibration.",
+        "Cloud-based archival depends on Network Link. If link is unavailable, Safety Manager cannot review model. Mitigation: Implement local fallback (operator HMI) and asynchronous sync when link recovers.",
+        "Telemetry interface carries high-frequency model updates (10 Hz). If planning/execution subsystems are slow consumers, buffer overflow may occur. Mitigation: Implement ring buffer or message queue with backpressure."
+      ],
+      "containment_notes": "Vehicle is the clear owner of onboard mapping. Diffusion is minimal: Telemetry and Tasking are well-defined interfaces. Network Link is a publish interface (asynchronous). Safety Services will consume Telemetry and generate SafetyAlerts, but does not own mapping. Teleoperation will consume Telemetry for operator awareness, but does not own mapping. Clear separation of concerns."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible: (1) Onboard model can be tested in simulation (synthetic sensor data) and in field trials (real sensors). (2) Cloud model can be tested with recorded telemetry. (3) Safety Manager review can be tested with mock visualization tools. (4) Acceptance criteria (terrain accuracy, obstacle recall, hazard detection latency) are measurable and testable.",
+      "allocation_clarity": "Allocation is clear: Vehicle owns onboard mapping and publishes Telemetry. Safety Services consumes Telemetry and generates SafetyAlerts. Teleoperation consumes Telemetry for operator awareness. Planning subsystem (within Vehicle or as separate module) consumes Telemetry for path generation. No ambiguity in ownership or interface contracts."
+    },
+    "recommended_revisions": [
+      "Refine DP-C to specify onboard compute budget (e.g., <200 ms latency for obstacle detection) and fallback strategies if budget is exceeded.",
+      "Refine IM assignment to specify internal architecture of Vehicle module (Mapping, Planning, Control subsystems) and interfaces between them.",
+      "Specify Safety Manager review workflow: when is model reviewed (before operations, during operations, post-operation)? What is the sign-off process?",
+      "Specify network link requirements: minimum bandwidth, latency, availability SLA for cloud sync.",
+      "Specify sensor calibration and update strategy: how are sensors calibrated? How are fusion algorithms updated?"
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "CR-NGHE-006 is not atomic and has been refined into 6 sub-FRs (006.1 through 006.6). Each sub-FR requires further decomposition to specify design parameters and implementation modules. For example, FR 006.1 (terrain acquisition) requires selection of sensor types (LiDAR vs. stereo), fusion algorithms (EKF vs. graph-based SLAM), and implementation (onboard vs. cloud processing). FR 006.3 (dynamic hazard detection) requires selection of detection algorithms (CNN-based, Kalman filtering) and real-time processing strategy. Proceeding to next level of decomposition is necessary to achieve sufficient design detail for implementation.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire terrain elevation data from onboard sensors (LiDAR, stereo camera, IMU) and fuse into elevation map.",
+      "CR-NGHE-006.2: Detect and classify static obstacles (rocks, structures, vegetation) and represent as 3D point clouds or voxel grids.",
+      "CR-NGHE-006.3: Detect and track dynamic hazards (personnel, other equipment) in real-time and update hazard layer.",
+      "CR-NGHE-006.4: Define and enforce work-zone boundaries (geofences) based on site plan input.",
+      "CR-NGHE-006.5: Expose worksite model to planning and execution functions via standardized data interface.",
+      "CR-NGHE-006.6: Provide Safety Manager with model visualization and validation tools for pre-operation sign-off."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Onboard compute (GPU/CPU) is sufficient for real-time SLAM and obstacle detection at vehicle speed ≤5 m/s.",
+        "Network link (4G/5G or private radio) provides ≥2 Mbps uplink for cloud model sync.",
+        "Safety Manager has tools to visualize and validate cloud model before operations.",
+        "Worksite features (terrain, obstacles) are static or change slowly during a work session.",
+        "Sensors (LiDAR, camera, IMU) are calibrated and mounted on vehicle with known extrinsic parameters.",
+        "Planning and execution subsystems can consume Telemetry at 10 Hz without buffer overflow.",
+        "Safety Services can consume Telemetry and generate SafetyAlerts based on hazard detection."
+      ],
+      "open_risks": [
+        "Onboard compute may be undersized for real-time SLAM + obstacle detection. Mitigation: Specify compute budget and test in field.",
+        "Network link may be unavailable or low-bandwidth. Mitigation: Implement adaptive compression and local fallback.",
+        "Safety Manager review tools may be missing or non-intuitive. Mitigation: Specify visualization requirements and conduct user acceptance testing.",
+        "Sensor calibration may drift over time. Mitigation: Implement online calibration and periodic recalibration.",
+        "Fusion algorithms may be brittle to sensor failures (e.g., LiDAR occlusion). Mitigation: Implement multi-sensor redundancy and graceful degradation.",
+        "Cloud-based archival may not scale to large worksites or long work sessions. Mitigation: Implement data compression and tiered storage (hot/cold)."
+      ],
+      "evidence_needed": [
+        "Onboard compute performance benchmarks (latency, throughput) for SLAM and obstacle detection algorithms.",
+        "Network link performance characterization (bandwidth, latency, availability) in representative field conditions.",
+        "Safety Manager review workflow and tool requirements (e.g., visualization, annotation, sign-off process).",
+        "Sensor calibration procedures and drift characterization over time.",
+        "Field trial results demonstrating terrain accuracy, obstacle recall, and hazard detection latency.",
+        "Cloud storage and sync performance for representative worksite models (size, update frequency).",
+        "Safety criticality analysis: how does worksite model accuracy impact safety? What are acceptable error bounds?"
+      ]
+    }
+  }
+}

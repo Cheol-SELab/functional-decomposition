@@ -1,0 +1,182 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall propagate worksite model state changes to all authorized consumers within the customer-defined latency threshold.",
+    "rationale": "The original FR conflates two distinct obligations: (1) detecting/capturing state changes in the worksite model, and (2) delivering those changes to consumers within a time bound. The refined FR focuses on the propagation obligation (the primary latency concern) and removes the vague 'operational use' qualifier in favor of explicit reference to customer-defined acceptance criteria. The term 'propagate' is solution-neutral (avoids prescribing polling, pub-sub, or push mechanisms) and 'authorized consumers' acknowledges that different stakeholders (operator, tele-operator, safety manager) may have different visibility and latency requirements.",
+    "verification_idea": "Measure end-to-end latency from the moment a worksite state change is committed (e.g., equipment position update, hazard detection, task completion) to the moment that change is available to each authorized consumer role. Validate against customer-defined p95 threshold (e.g., ≤1.0 s) across supported update scenarios (position updates, safety events, task state transitions). Verify that unauthorized consumers do not receive restricted state changes.",
+    "sub_frs": [
+      "FR-NGHE-007.1: The NGHE solution shall detect and capture worksite model state changes (position, task status, hazard events, resource availability) from all authorized sources.",
+      "FR-NGHE-007.2: The NGHE solution shall deliver worksite model state changes to authorized consumers with latency meeting the customer-defined threshold.",
+      "FR-NGHE-007.3: The NGHE solution shall enforce access control such that only authorized consumers receive worksite model state changes relevant to their role."
+    ],
+    "is_atomic": false,
+    "note": "The refined FR is more atomic than the original, but the three sub-FRs represent the true atomic decomposition. The refined FR itself remains a composite requirement that should be traced to these sub-FRs for detailed design and verification."
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Centralized event-driven state propagation with asynchronous message broker (decouples producers from consumers, enables selective subscription by authorization context)",
+      "DP2: Synchronous request-response state synchronization with polling intervals (simple but introduces latency variance and tight coupling between state owner and consumers)",
+      "DP3: Hybrid push-pull model with event notification + on-demand state fetch (balances latency guarantees with consumer autonomy, adds complexity)",
+      "DP4: Replicated state store with eventual consistency and conflict resolution (distributes state ownership, requires reconciliation logic and bounded divergence guarantees)",
+      "DP5: Direct peer-to-peer state propagation with consumer-side filtering (eliminates intermediary, but couples authorization logic to each consumer and complicates audit trails)"
+    ],
+    "selected_dp": "DP1: Centralized event-driven state propagation with asynchronous message broker. Producers emit worksite model change events to a durable, ordered message broker. Authorized consumers subscribe to event streams filtered by their authorization context. Broker guarantees delivery ordering and latency SLA enforcement through configurable retention, replay, and priority queuing. State changes are immutable events; consumers maintain derived state views.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Authorization filtering logic: If authorization rules are embedded in the broker, coupling increases. Mitigation: externalize authorization as a separate service queried at subscription time and cached with TTL.",
+        "Event schema evolution: Tight coupling between event producers and consumers on schema. Mitigation: use versioned, backward-compatible event schemas with schema registry.",
+        "Latency SLA enforcement: If broker implementation is tightly coupled to specific transport (e.g., only Kafka), portability suffers. Mitigation: define DP as transport-agnostic; IM layer selects concrete broker technology.",
+        "Consumer state consistency: Consumers may diverge if they miss events or replay out of order. Mitigation: enforce idempotent event processing and provide state snapshot endpoints for catch-up.",
+        "Worksite model ownership: If multiple producers emit conflicting state changes, no single source of truth. Mitigation: designate a single authoritative state owner (e.g., worksite service) that emits all change events; other services request changes via API."
+      ],
+      "notes": "DP1 achieves loose coupling by inverting dependency: consumers pull from broker rather than producers pushing to each consumer. Authorization is decoupled from transport. Event immutability and ordering reduce state reconciliation complexity. Latency is bounded by broker throughput and network propagation, both measurable and tunable."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: A single authoritative worksite model service exists or can be established. RISK: If multiple services own disjoint parts of worksite state, event sourcing becomes complex; recommend clarifying ownership boundaries before IM selection.",
+      "ASSUMPTION: p95 ≤ 1.0 s latency is achievable with in-process or local-network message broker. RISK: If consumers are geographically distributed or network latency is high, SLA may be unmet; recommend latency budget breakdown (producer → broker, broker → consumer) and network topology analysis.",
+      "ASSUMPTION: Authorized consumers can be identified and filtered at subscription time (static or semi-static). RISK: If authorization context changes frequently (e.g., per-message dynamic ACLs), filtering overhead may violate latency SLA; recommend caching authorization decisions with bounded TTL.",
+      "ASSUMPTION: Event ordering is required for correctness (e.g., 'model created' before 'model updated'). RISK: If ordering is not enforced by broker, consumers may apply events out of sequence; recommend explicit ordering guarantees in DP or IM specification.",
+      "ASSUMPTION: Worksite model updates are infrequent enough that event replay for new consumers is feasible. RISK: If update rate is very high (>1000 events/sec), replay and storage costs may be prohibitive; recommend event compaction or snapshot strategies.",
+      "ASSUMPTION: Customer-defined latency threshold is known at design time or can be parameterized. RISK: If threshold is undefined or varies by update scenario, SLA acceptance criteria cannot be validated; recommend explicit latency budget per scenario (e.g., safety-critical updates vs. metadata updates)."
+    ],
+    "recommended_revision": "FR should be refined to specify: (1) Latency budget breakdown: producer processing time, broker ingestion/delivery time, consumer processing time. (2) Update scenarios with distinct SLAs (e.g., safety plan changes ≤ 500 ms, operational metadata ≤ 1.0 s). (3) Authorization model: static role-based, dynamic attribute-based, or per-message. (4) Worksite model ownership: single authoritative service or federated. (5) Failure modes: what happens if a consumer misses an event or broker is unavailable? (6) Scale assumptions: number of producers, consumers, events/sec, and geographic distribution. DP1 is robust to these variations, but IM selection and latency validation depend on clarification."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "Centralized event broker infrastructure and event stream management layer that mediates all worksite model state changes across the system. Owns the message broker, event schema definitions, subscription management, authorization filtering, retention policies, and replay mechanisms."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Receives worksite model change events (sensor readings, position updates, environmental state) from Vehicle and Teleoperation subsystems; broker ingests and orders these events."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Publishes filtered event streams to authorized task consumers (Vehicle, Teleoperation, Safety Services); consumers derive task-relevant state views from event replay and subscriptions."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "Safety Services consumes safety-critical state change events; Safety Services emits safety constraint violation events back to broker for propagation to other authorized consumers."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Broker uses Network Link for durable persistence, inter-node replication (if distributed), and latency SLA enforcement through configurable QoS and priority queuing."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit. NGHE Solution is the system-level integration layer responsible for cross-subsystem coordination. The centralized event broker is a natural fit for this role: it owns the event schema, broker infrastructure, authorization context filtering, and retention/replay policies. All state propagation logic resides here. Minimal diffusion: Vehicle, Teleoperation, and Safety Services remain decoupled producers/consumers; they depend only on event contracts (Telemetry, Tasking, SafetyAlert interfaces), not on broker internals."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.15,
+        "diffusion_score": 0.85,
+        "notes": "Poor fit. Vehicle is a domain-specific subsystem focused on vehicle control, navigation, and onboard telemetry. Placing a system-wide event broker here violates separation of concerns and creates tight coupling: Teleoperation and Safety Services would depend on Vehicle for state propagation, creating circular dependencies and making Vehicle responsible for cross-system coordination logic it should not own."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.12,
+        "diffusion_score": 0.88,
+        "notes": "Poor fit. Teleoperation is a domain-specific subsystem for remote operator control. The event broker is not a teleoperation concern; placing it here creates the same coupling and responsibility diffusion as Vehicle. Teleoperation should be a consumer of state events, not the owner of the broker infrastructure."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.18,
+        "diffusion_score": 0.82,
+        "notes": "Poor fit. Safety Services is a specialized subsystem for safety monitoring and constraint enforcement. While it is a critical consumer of state events, it should not own the broker infrastructure. Placing the broker here would make Vehicle and Teleoperation depend on Safety Services for state propagation, violating domain separation and creating unacceptable coupling."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "The NGHE Solution module is the system-level integration and coordination layer. It is the natural owner of cross-subsystem state propagation infrastructure because: (1) it has no domain-specific responsibilities that would conflict with broker ownership; (2) it is already responsible for mediating interactions between Vehicle, Teleoperation, and Safety Services; (3) placing the broker here keeps domain subsystems decoupled and focused on their core concerns; (4) the event broker is a system-wide architectural pattern, not a domain-specific feature. All producers and consumers (Vehicle, Teleoperation, Safety Services) interact with the broker through well-defined event contracts (Telemetry, Tasking, SafetyAlert), minimizing coupling and enabling independent evolution.",
+    "containment_risks": [
+      "NGHE Solution may become a bottleneck if the event broker is not designed for high throughput and low latency. Mitigation: ensure broker is optimized for message ordering, replay, and priority queuing; consider distributed broker topology if needed.",
+      "Authorization filtering logic in the broker must be kept generic and policy-agnostic to avoid domain-specific logic leaking into NGHE Solution. Mitigation: define authorization context as a first-class event attribute; use pluggable policy engines.",
+      "Event schema evolution and versioning must be managed carefully to avoid breaking changes. Mitigation: adopt schema versioning strategy; support multiple schema versions in parallel during transitions.",
+      "If Safety Services requires ultra-low-latency event delivery (e.g., <10ms), the broker's asynchronous design may introduce unacceptable latency. Mitigation: implement priority queuing and dedicated lanes for safety-critical events; measure end-to-end latency empirically.",
+      "Diffusion risk: if domain subsystems (Vehicle, Teleoperation, Safety Services) begin to depend on broker internals (e.g., direct topic subscriptions, custom serialization), containment will degrade. Mitigation: enforce strict interface contracts; use adapter patterns to isolate broker details."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP1 (centralized event-driven state propagation with asynchronous message broker) directly and sufficiently addresses FR (propagate worksite model state changes to all authorized consumers within customer-defined latency threshold). The DP specifies: (1) durable, ordered message broker as the propagation mechanism; (2) authorization filtering by consumer context; (3) latency SLA enforcement through configurable retention, replay, and priority queuing; (4) immutable event semantics for state consistency. All functional requirements are mapped. No logical gaps detected."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "CRITICAL: Latency SLA enforcement (p95 ≤ 1.0s) is a DP responsibility but realization depends on broker implementation details (message ordering, replay performance, priority queue scheduling) that may be distributed across NGHE Solution internals. Risk: if broker internals are not tightly integrated or if replay mechanisms introduce variable latency, SLA guarantees may not be met. Mitigation: define latency budget allocation within NGHE Solution; measure end-to-end latency empirically during integration; establish broker performance baselines.",
+        "MODERATE: Authorization filtering logic is specified in DP but ownership boundary in IM is vague on policy engine location. If authorization policies are defined externally (e.g., in a separate policy service), the broker becomes dependent on external state, creating a diffusion point. Risk: authorization context changes may not propagate synchronously, causing stale filtering. Mitigation: clarify whether authorization context is embedded in event metadata (owned by NGHE Solution) or fetched from external service; if external, define synchronization SLA.",
+        "MODERATE: Event schema versioning and evolution are implicit in DP but not explicitly owned in IM. Risk: if schema management is distributed (e.g., producers define schemas independently), event contract integrity degrades. Mitigation: assign explicit ownership of event schema registry and versioning policy to NGHE Solution; enforce schema validation at broker ingress.",
+        "MODERATE: Safety-critical event delivery (SafetyAlert interface, inout direction) creates bidirectional coupling. If Safety Services emits constraint violation events back to broker, and broker re-propagates to other consumers, latency accumulates. Risk: end-to-end latency for safety-critical loops may exceed SLA. Mitigation: implement dedicated priority lanes for safety events; measure safety event round-trip latency separately; consider direct Safety Services -> Vehicle/Teleoperation bypass for ultra-critical constraints if latency exceeds threshold.",
+        "LOW: Diffusion risk if Vehicle, Teleoperation, or Safety Services begin to implement custom event filtering or caching logic instead of relying on broker subscriptions. Risk: state consistency degrades; multiple derived state views diverge. Mitigation: enforce strict interface contracts; prohibit direct topic subscriptions outside broker API; use adapter patterns to isolate broker details from domain subsystems."
+      ],
+      "containment_notes": "NGHE Solution containment score of 0.92 is well-justified. The centralized event broker is a system-level architectural pattern, not a domain-specific feature, and NGHE Solution is the appropriate system integration layer. All four external interfaces (Telemetry in, Tasking out, SafetyAlert inout, Network Link inout) are correctly scoped to NGHE Solution. Domain subsystems (Vehicle, Teleoperation, Safety Services) remain decoupled producers/consumers, interacting only through event contracts. No circular dependencies detected. However, containment quality depends critically on: (1) broker implementation being tightly integrated within NGHE Solution (not delegated to external services); (2) authorization filtering remaining policy-agnostic and generic; (3) event schema registry being owned and versioned by NGHE Solution; (4) latency SLA enforcement being measurable and traceable to broker design decisions. If any of these leak into domain subsystems, containment will degrade toward 0.70-0.80 range."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "HIGH. Acceptance criterion (p95 latency ≤ 1.0s) is measurable and testable. Verification approach: (1) instrument broker with latency probes at ingress (event received), ordering (event queued), filtering (authorization applied), and egress (event delivered to consumer); (2) replay test scenarios with representative worksite model change rates (e.g., 100 events/sec, 1000 events/sec); (3) measure p95 latency across all producer-consumer pairs; (4) validate under network link degradation (packet loss, jitter) to ensure SLA holds in realistic conditions. Feasibility is high because latency is a system-level property that can be measured end-to-end without requiring detailed knowledge of internal broker algorithms.",
+      "allocation_clarity": "GOOD. FR is clearly allocated to DP (event-driven propagation with broker), and DP is clearly allocated to IM (NGHE Solution owns broker infrastructure and event stream management). However, allocation clarity could be improved by explicitly specifying: (1) which broker technology (e.g., Apache Kafka, RabbitMQ, custom) will be used and why it meets latency SLA; (2) how authorization context is sourced and synchronized (embedded in events vs. external policy service); (3) how event schema versioning will be managed (schema registry, version negotiation); (4) how latency budget is allocated across broker components (ingress, ordering, filtering, egress, network link); (5) how safety-critical event delivery will be prioritized and isolated from best-effort events. These details are necessary to close the gap between DP (logical design) and IM (concrete realization)."
+    },
+    "recommended_revisions": [
+      "CRITICAL: Add explicit latency budget allocation to DP. Specify: (1) target latency for each broker component (ingress <10ms, ordering <50ms, filtering <20ms, egress <50ms, network link <800ms, total <1.0s); (2) how priority queuing will isolate safety-critical events from best-effort events; (3) how replay latency will be bounded to prevent SLA violations during state recovery.",
+      "CRITICAL: Clarify authorization filtering mechanism in DP. Specify: (1) whether authorization context is embedded in event metadata (owned by NGHE Solution) or fetched from external policy service; (2) if external, define synchronization SLA and fallback behavior if policy service is unavailable; (3) how authorization policies are versioned and evolved without breaking event contracts.",
+      "HIGH: Add event schema management to DP. Specify: (1) schema registry ownership (NGHE Solution); (2) versioning strategy (semantic versioning, backward compatibility rules); (3) schema validation at broker ingress; (4) how producers and consumers negotiate schema versions during deployment.",
+      "HIGH: Extend IM boundary description to explicitly include: (1) broker technology selection and justification (e.g., Kafka for ordering and replay, RabbitMQ for priority queuing); (2) distributed broker topology (if applicable) and replication strategy; (3) event schema registry as a contained artifact; (4) authorization policy engine (embedded or external); (5) latency monitoring and alerting infrastructure.",
+      "MODERATE: Add safety-critical event handling to DP. Specify: (1) how SafetyAlert events are prioritized and isolated from other events; (2) whether safety-critical loops require direct Vehicle/Teleoperation bypass for ultra-low-latency constraints; (3) how end-to-end latency for safety event round-trips will be measured and validated against SLA.",
+      "MODERATE: Define interface contracts explicitly. For each external interface (Telemetry, Tasking, SafetyAlert, Network Link), specify: (1) event schema (structure, required fields, optional fields); (2) delivery guarantees (at-least-once, exactly-once, best-effort); (3) latency SLA per interface; (4) authorization filtering rules; (5) error handling and retry logic.",
+      "LOW: Add diffusion risk mitigation to IM. Specify: (1) enforcement mechanisms to prevent domain subsystems from implementing custom event filtering or caching (e.g., code review checklist, architectural guardrails); (2) adapter patterns to isolate broker details from domain subsystems; (3) periodic audits to detect unauthorized broker dependencies."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass with high confidence, but the gate results expose critical diffusion risks and allocation clarity gaps that must be resolved through sub-FR decomposition before proceeding to detailed design. The DP is logically sound (centralized event-driven state propagation), but its realization depends on several sub-problems that are not yet explicitly owned or bounded: (1) latency SLA enforcement across broker components (CRITICAL diffusion risk); (2) authorization filtering mechanism and policy synchronization (MODERATE diffusion risk); (3) event schema versioning and registry management (MODERATE diffusion risk); (4) safety-critical event prioritization and isolation (MODERATE diffusion risk, high safety criticality). These sub-problems are architectural in nature and must be decomposed into explicit sub-FRs to clarify ownership boundaries (IM), verify feasibility, and mitigate diffusion risks. The recommended revisions in the gate output are too numerous and detailed to address at the current level; they signal that the DP is under-specified for implementation. Decomposition will force explicit design decisions on latency budgeting, authorization architecture, schema governance, and safety event handling—all of which are necessary to maintain the containment score of 0.92 and ensure SLA compliance.",
+    "next_level_sub_frs": [
+      "FR1.1: Enforce end-to-end latency SLA (p95 ≤ 1.0s) for worksite model state propagation across all producer-consumer pairs, with explicit latency budget allocation to broker ingress, ordering, filtering, egress, and network link components.",
+      "FR1.2: Filter and authorize event delivery to consumers based on customer-defined access policies, ensuring authorization context is synchronized and consistent across all broker instances without introducing external service dependencies that degrade latency.",
+      "FR1.3: Manage event schema versioning, validation, and evolution to maintain event contract integrity across producers and consumers, preventing schema drift and ensuring backward compatibility during rolling deployments.",
+      "FR1.4: Prioritize and isolate safety-critical events (SafetyAlert interface) from best-effort events, ensuring safety event round-trip latency (emission, propagation, constraint enforcement, re-propagation) remains within acceptable bounds for real-time vehicle control.",
+      "FR1.5: Provide durable, ordered message persistence and replay capability to recover worksite model state after broker or consumer failures, with bounded replay latency that does not violate SLA during state recovery."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "The current DP (centralized event-driven state propagation with asynchronous message broker) is logically correct but under-specified for implementation. The gate results identify five critical/moderate diffusion risks that stem from vague ownership boundaries and missing design decisions in the DP. Specifically: (1) latency SLA enforcement is assigned to DP but realization depends on broker internals (ordering, replay, priority queuing) that are not explicitly designed; (2) authorization filtering is specified in DP but ownership of policy engine location is vague; (3) event schema versioning is implicit but not explicitly owned; (4) safety-critical event handling is not addressed; (5) replay latency is not budgeted. These gaps must be closed by decomposing the DP into sub-DPs that address each sub-FR. The current DP should be revised to explicitly state: (a) latency budget allocation across broker components; (b) authorization architecture (embedded vs. external); (c) schema registry ownership and versioning strategy; (d) safety event prioritization mechanism; (e) replay latency bounds. This revision will clarify the DP-IM mapping and reduce diffusion risk from CRITICAL/MODERATE to LOW/NEGLIGIBLE."
+    },
+    "record": {
+      "assumptions": [
+        "Latency SLA (p95 ≤ 1.0s) is achievable with a centralized event broker if latency budget is explicitly allocated and broker technology is selected to meet component-level targets (e.g., Kafka for ordering, priority queues for safety events).",
+        "Authorization context can be embedded in event metadata (owned by NGHE Solution) rather than fetched from external policy service, avoiding external service dependencies and latency accumulation.",
+        "Event schema versioning can be managed by NGHE Solution through a centralized schema registry with semantic versioning and backward compatibility rules, preventing schema drift across producers and consumers.",
+        "Safety-critical events (SafetyAlert) can be isolated from best-effort events through dedicated priority lanes in the broker, ensuring safety event latency is bounded separately from general state propagation.",
+        "Replay latency can be bounded by limiting replay scope (e.g., last N events, time window) and using optimized replay mechanisms (e.g., snapshot + delta replay) rather than full event stream replay.",
+        "NGHE Solution containment (0.92) is maintained if broker implementation is tightly integrated within NGHE Solution and domain subsystems (Vehicle, Teleoperation, Safety Services) interact only through event contracts without direct topic subscriptions or custom filtering logic."
+      ],
+      "open_risks": [
+        "CRITICAL: Latency SLA enforcement depends on broker technology selection and configuration. If broker is not optimized for low-latency ordering and filtering, SLA may not be achievable. Mitigation: decompose FR1.1 to explicitly design latency budget allocation and broker technology selection.",
+        "CRITICAL: Authorization filtering mechanism is not yet decided (embedded vs. external). If external policy service is required, latency accumulation and synchronization issues may violate SLA. Mitigation: decompose FR1.2 to explicitly design authorization architecture and synchronization strategy.",
+        "MODERATE: Safety-critical event handling is not addressed in current DP. If safety events are not prioritized and isolated, safety event round-trip latency may exceed acceptable bounds for real-time vehicle control. Mitigation: decompose FR1.4 to explicitly design safety event prioritization and isolation mechanism.",
+        "MODERATE: Event schema versioning is implicit and not owned. If schema management is distributed across producers and consumers, event contract integrity degrades. Mitigation: decompose FR1.3 to explicitly design schema registry ownership and versioning strategy.",
+        "MODERATE: Replay latency is not budgeted. If replay mechanisms introduce variable latency, SLA guarantees may not be met during state recovery. Mitigation: decompose FR1.5 to explicitly design replay latency bounds and optimization strategies.",
+        "LOW: Diffusion risk if domain subsystems implement custom event filtering or caching logic instead of relying on broker subscriptions. Mitigation: enforce strict interface contracts and architectural guardrails during detailed design."
+      ],
+      "evidence_needed": [
+        "Latency budget allocation: Specify target latency for each broker component (ingress, ordering, filtering, egress, network link) and justify how total latency remains ≤ 1.0s p95 under representative workload (100-1000 events/sec).",
+        "Broker technology selection: Evaluate candidate technologies (Kafka, RabbitMQ, custom) against latency SLA, ordering guarantees, replay capability, and priority queuing requirements. Provide performance benchmarks.",
+        "Authorization architecture: Decide whether authorization context is embedded in event metadata or fetched from external policy service. If external, define synchronization SLA and fallback behavior.",
+        "Event schema management: Define schema registry ownership, versioning strategy (semantic versioning, backward compatibility rules), and schema validation mechanism at broker ingress.",
+        "Safety event handling: Design priority lanes or dedicated broker instances for safety-critical events. Measure safety event round-trip latency empirically and validate against acceptable bounds for real-time vehicle control.",
+        "Replay mechanism: Design replay strategy (snapshot + delta, time window, event count limit) and measure replay latency under representative failure scenarios. Ensure replay latency does not violate SLA.",
+        "Interface contracts: For each external interface (Telemetry, Tasking, SafetyAlert, Network Link), specify event schema, delivery guarantees, latency SLA, authorization filtering rules, and error handling logic.",
+        "Containment validation: Verify that broker implementation is tightly integrated within NGHE Solution and domain subsystems do not implement custom event filtering or caching logic. Conduct architectural audit to detect unauthorized broker dependencies."
+      ]
+    }
+  }
+}

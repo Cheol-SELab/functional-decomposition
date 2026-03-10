@@ -1,0 +1,166 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and designated work zones with sufficient fidelity to support autonomous path planning, collision avoidance, and operator situational awareness.",
+    "rationale": "The original FR was vague on fidelity requirements, update frequency, and intended consumers. Refinement clarifies that the worksite model must be dynamic (not static), support both autonomous and tele-operated modes, and be accessible to planning and execution subsystems. High safety criticality demands explicit hazard representation and real-time capability.",
+    "verification_idea": "Acceptance test: (1) Model accuracy within ±0.5 m for terrain and obstacles in a 500 m² test area; (2) Update latency ≤ 2 s for dynamic hazards; (3) Model accessible via standardized interface to planning and safety subsystems; (4) Hazard detection and representation verified against ground truth survey.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire worksite sensor data (LiDAR, camera, GNSS, IMU) and fuse into unified coordinate frame.",
+      "CR-NGHE-006.2: Detect, classify, and track static terrain and obstacles (elevation, geometry, material properties).",
+      "CR-NGHE-006.3: Detect, classify, and track dynamic hazards (personnel, equipment, moving objects) with safety-critical latency.",
+      "CR-NGHE-006.4: Represent work zones, exclusion zones, and operational boundaries in the worksite model.",
+      "CR-NGHE-006.5: Publish worksite model state to planning, execution, and safety subsystems via standardized interface.",
+      "CR-NGHE-006.6: Validate model consistency and detect sensor degradation or fusion failures."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized perception pipeline (sensor fusion engine) running on vehicle compute platform, publishing model updates via Telemetry interface to planning and safety services.",
+      "DP-B: Distributed perception with edge processing on vehicle sensors, cloud-based fusion and model storage, accessed by planning/safety via Network Link.",
+      "DP-C: Hybrid: vehicle-resident sensor fusion for real-time hazard detection (safety-critical path), cloud-based terrain modeling and long-term map persistence for planning."
+    ],
+    "selected_dp": "DP-C: Hybrid perception architecture with vehicle-resident real-time hazard detection (LiDAR + camera fusion for dynamic obstacles, latency ≤ 500 ms) and cloud-based terrain/static obstacle modeling (fused with GNSS/IMU, update cycle 5–10 s). Hazard state published via Telemetry (safety-critical); terrain model published via Network Link (planning-critical). Decouples safety-critical latency from planning fidelity.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between vehicle compute (hazard detection) and cloud backend (terrain model) via Network Link—mitigated by independent update cycles and fallback to onboard terrain cache.",
+        "Coupling between Telemetry (hazard alerts) and Tasking (path planning)—acceptable; planning subsystem must respect safety alerts.",
+        "Coupling between sensor calibration and model accuracy—managed via validation subsystem (CR-NGHE-006.6)."
+      ],
+      "notes": "DP-C avoids tight coupling of safety-critical and planning-critical paths by separating real-time hazard detection (vehicle) from long-term mapping (cloud). Reduces risk of cloud latency affecting collision avoidance."
+    },
+    "assumptions_risks": [
+      "Assumption: Vehicle compute platform has sufficient processing capacity (GPU/FPGA) for real-time LiDAR + camera fusion. Risk: If compute is undersized, hazard detection latency may exceed 500 ms safety threshold.",
+      "Assumption: Network Link provides reliable connectivity for terrain model updates. Risk: If connectivity is intermittent, planning subsystem may operate on stale terrain data; mitigated by onboard cache and conservative planning margins.",
+      "Assumption: Sensor calibration and extrinsic parameters are stable or auto-calibrated. Risk: Miscalibration degrades model accuracy; requires validation subsystem.",
+      "Assumption: Cloud backend can ingest and fuse multi-vehicle sensor streams. Risk: Scalability and data consistency challenges at high vehicle density; requires careful database design."
+    ],
+    "recommended_revision": "Clarify compute platform specifications (GPU/FPGA availability, memory, power budget) and Network Link SLA (bandwidth, latency, availability) before finalizing DP-C. If vehicle compute is severely constrained, revert to DP-B (cloud-centric) with acceptance of higher latency for hazard detection, or DP-A (simpler, vehicle-only) with reduced terrain fidelity."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "Vehicle-resident perception and sensor fusion subsystem, including real-time hazard detection (LiDAR, camera, fusion engine), onboard terrain cache, and Telemetry publisher for safety-critical hazard alerts. Does NOT include cloud backend or planning/safety services."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle publishes real-time hazard state (detected obstacles, personnel, dynamic objects) and model quality metrics to planning and safety subsystems. Update frequency ≥ 2 Hz for safety-critical hazards."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Vehicle uploads raw sensor streams (LiDAR point clouds, camera frames, IMU/GNSS) to cloud backend for terrain modeling; receives fused terrain model updates and map corrections. Update frequency 0.1–0.2 Hz (5–10 s cycle)."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives path planning commands and operational mode directives (autonomous vs. tele-operated). Hazard detection subsystem validates planned paths against real-time model before execution."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.85,
+        "diffusion_score": 0.15,
+        "notes": "Vehicle is the natural home for real-time hazard detection (LiDAR, camera, fusion engine) due to latency and safety criticality. Terrain modeling and cloud fusion are diffused to cloud backend (not a candidate IM here), but onboard cache and validation logic remain in Vehicle. High containment score reflects tight coupling of sensor hardware and real-time processing."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Teleoperation module is primarily for remote operator control and video streaming, not perception/modeling. Hazard detection and model generation are orthogonal to tele-op; would create unnecessary coupling if placed here. Low containment score."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Safety Services consumes hazard alerts and enforces safety policies, but does not generate the worksite model. Placing perception/modeling in Safety Services would blur responsibility boundaries and couple safety policy enforcement to sensor fusion logic. Hazard detection should be in Vehicle; Safety Services subscribes via Telemetry."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "NGHE Solution is the top-level system container. Worksite modeling is a subsystem function, not a solution-level concern. Assigning to NGHE Solution would be too coarse and would not clarify ownership or interfaces."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "Real-time hazard detection (LiDAR, camera, fusion) is tightly coupled to vehicle sensors and compute platform and must reside in Vehicle for latency and safety reasons. Terrain modeling and cloud fusion are logically separate (diffused to cloud backend, not modeled as an IM candidate here). Vehicle module owns the perception pipeline and publishes hazard state via Telemetry; Safety Services and planning subsystems consume this state.",
+    "containment_risks": [
+      "Risk: Vehicle module may become overloaded if compute platform is undersized. Mitigation: Specify compute platform SLA (GPU/FPGA, memory, power) and validate via simulation before integration.",
+      "Risk: Tight coupling between sensor hardware (LiDAR, camera) and fusion algorithm may make algorithm updates difficult. Mitigation: Encapsulate fusion logic in a well-defined interface (e.g., abstract sensor driver layer) to allow algorithm swaps.",
+      "Risk: Onboard terrain cache may become stale if Network Link is unavailable. Mitigation: Implement cache invalidation logic and conservative planning margins; Safety Services must alert operator if terrain model age exceeds threshold.",
+      "Risk: Hazard detection latency may exceed 500 ms if vehicle compute is shared with other subsystems (e.g., tele-op video processing). Mitigation: Allocate dedicated compute resources or implement priority scheduling for hazard detection."
+    ],
+    "recommended_revision": "Confirm that Vehicle module has dedicated compute resources (GPU/FPGA, memory, power) for real-time hazard detection and that sensor drivers are abstracted to allow algorithm updates. Define explicit SLA for Telemetry publish frequency (≥ 2 Hz) and latency (≤ 500 ms). Clarify ownership of cloud backend (terrain modeling, map fusion) as a separate system component (not assigned to a candidate IM here, but should be documented in system architecture)."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid perception) directly addresses all sub-FRs: (1) sensor fusion on vehicle, (2) real-time hazard detection, (3) terrain modeling via cloud, (4) work zone representation, (5) model publication via Telemetry/Network Link, (6) validation subsystem. DP-C decouples safety-critical and planning-critical paths, reducing coupling and risk. No independence violations detected."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Diffusion Risk 1: Terrain modeling logic is diffused to cloud backend (not assigned to a candidate IM). This is acceptable because cloud backend is a separate system component; however, the architecture document must explicitly define cloud backend ownership and interfaces.",
+        "Diffusion Risk 2: Sensor calibration and validation logic may be split between Vehicle (onboard validation) and cloud backend (offline calibration). Mitigation: Define clear responsibility boundaries and data flow for calibration updates.",
+        "Diffusion Risk 3: Onboard terrain cache in Vehicle may diverge from cloud model if Network Link is unavailable. Mitigation: Implement cache invalidation and conservative planning margins."
+      ],
+      "containment_notes": "Vehicle module contains real-time hazard detection and onboard cache; cloud backend (not a candidate IM) contains terrain modeling and long-term map persistence. This split is intentional and reduces latency coupling. Interfaces (Telemetry, Network Link, Tasking) are well-defined and minimize diffusion."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible: (1) Hazard detection latency can be measured via instrumentation on vehicle compute platform; (2) Model accuracy can be validated against ground truth survey; (3) Interface compliance (Telemetry, Network Link) can be tested via integration tests; (4) Safety criticality can be verified via FMEA and fault injection testing.",
+      "allocation_clarity": "Allocation is clear: Vehicle owns real-time hazard detection and onboard cache; Safety Services and planning subsystems consume hazard state via Telemetry; cloud backend (separate component) owns terrain modeling. Ownership boundaries are explicit and testable."
+    },
+    "recommended_revisions": [
+      "Revision 1: Explicitly define cloud backend as a system component (not assigned to a candidate IM here) and document its ownership, interfaces, and SLA in the system architecture.",
+      "Revision 2: Specify compute platform SLA for Vehicle (GPU/FPGA, memory, power, thermal) and validate via simulation before integration.",
+      "Revision 3: Define Telemetry publish frequency (≥ 2 Hz) and latency SLA (≤ 500 ms) for hazard detection; define Network Link SLA (bandwidth, latency, availability) for terrain model updates.",
+      "Revision 4: Clarify sensor calibration and validation procedures; define responsibility boundaries between Vehicle (onboard validation) and cloud backend (offline calibration).",
+      "Revision 5: Document fallback behavior if Network Link is unavailable (e.g., use onboard cache, alert operator, reduce planning horizon)."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "CR-NGHE-006 is not atomic; it decomposes into six sub-FRs (sensor acquisition, obstacle detection, hazard tracking, work zone representation, model publication, validation). Each sub-FR requires further refinement and DP selection. DP-C (hybrid perception) is sound and well-coupled, and Vehicle is the correct IM boundary for real-time hazard detection. However, sub-FRs 1–6 must be decomposed to the next level to clarify sensor selection, fusion algorithms, work zone representation, and validation logic. Proceeding to next level is necessary to achieve atomic FRs and detailed design.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire worksite sensor data (LiDAR, camera, GNSS, IMU) and fuse into unified coordinate frame.",
+      "CR-NGHE-006.2: Detect, classify, and track static terrain and obstacles (elevation, geometry, material properties).",
+      "CR-NGHE-006.3: Detect, classify, and track dynamic hazards (personnel, equipment, moving objects) with safety-critical latency ≤ 500 ms.",
+      "CR-NGHE-006.4: Represent work zones, exclusion zones, and operational boundaries in the worksite model.",
+      "CR-NGHE-006.5: Publish worksite model state to planning, execution, and safety subsystems via standardized interface.",
+      "CR-NGHE-006.6: Validate model consistency and detect sensor degradation or fusion failures."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Vehicle compute platform has sufficient processing capacity (GPU/FPGA) for real-time LiDAR + camera fusion at ≥ 2 Hz.",
+        "Network Link provides reliable connectivity (SLA TBD) for terrain model updates at 0.1–0.2 Hz.",
+        "Sensor calibration and extrinsic parameters are stable or auto-calibrated.",
+        "Cloud backend (separate system component) can ingest and fuse multi-vehicle sensor streams.",
+        "Planning and safety subsystems can consume hazard state via Telemetry and terrain model via Network Link.",
+        "Worksite features (terrain, obstacles, work zones) are representable in a unified coordinate frame (GNSS + local odometry)."
+      ],
+      "open_risks": [
+        "Risk: Vehicle compute platform may be undersized for real-time hazard detection. Mitigation: Specify compute SLA and validate via simulation.",
+        "Risk: Network Link may be unavailable or high-latency, causing stale terrain model. Mitigation: Implement onboard cache, cache invalidation, and conservative planning margins.",
+        "Risk: Sensor calibration drift may degrade model accuracy over time. Mitigation: Implement auto-calibration and validation subsystem.",
+        "Risk: High vehicle density may overwhelm cloud backend for terrain modeling. Mitigation: Design cloud backend for scalability (e.g., distributed database, edge processing).",
+        "Risk: Hazard detection latency may exceed 500 ms if vehicle compute is shared with other subsystems. Mitigation: Allocate dedicated compute resources or implement priority scheduling.",
+        "Risk: Safety criticality (high) requires fault tolerance and redundancy in hazard detection. Mitigation: Implement sensor redundancy (e.g., dual LiDAR) and fusion fault detection."
+      ],
+      "evidence_needed": [
+        "Evidence 1: Compute platform specifications (GPU/FPGA, memory, power, thermal) and performance benchmarks for LiDAR + camera fusion.",
+        "Evidence 2: Network Link SLA (bandwidth, latency, availability) and fallback procedures.",
+        "Evidence 3: Sensor calibration procedures and auto-calibration algorithms.",
+        "Evidence 4: Cloud backend architecture and scalability analysis.",
+        "Evidence 5: Hazard detection latency measurements and fault injection test results.",
+        "Evidence 6: Model accuracy validation against ground truth survey.",
+        "Evidence 7: Safety FMEA and fault tolerance analysis for perception subsystem.",
+        "Evidence 8: Integration test plan for Telemetry, Network Link, and Tasking interfaces."
+      ]
+    }
+  }
+}

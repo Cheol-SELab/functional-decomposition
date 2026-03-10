@@ -1,0 +1,161 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current equipment state, environmental conditions, and operational events with a p95 latency not exceeding the customer-defined target (baseline 1.0 s) across all supported update scenarios.",
+    "rationale": "CR-NGHE-007 requires clarification of scope (what constitutes 'worksite model'), measurement basis (p95 latency across which scenarios), and customer-specific acceptance criteria. The refined FR explicitly bounds the latency requirement to a statistical percentile and acknowledges customer tailoring, critical for high-safety-criticality systems where deterministic guarantees matter.",
+    "verification_idea": "Instrument worksite model update pipeline with end-to-end latency telemetry; measure p95 latency across representative scenarios (equipment state change, sensor event, tele-operator command, safety alert); compare against customer acceptance criteria; validate under nominal and degraded network conditions.",
+    "sub_frs": [
+      "FR-NGHE-007.1: Capture and transmit equipment state changes (position, orientation, operational mode) with minimal local processing delay.",
+      "FR-NGHE-007.2: Receive and integrate state updates into the worksite model with bounded processing and storage latency.",
+      "FR-NGHE-007.3: Distribute updated worksite model to all authorized consumers (Site Manager, Tele-operator, Safety Services) within latency budget.",
+      "FR-NGHE-007.4: Prioritize safety-critical updates (SafetyAlert events) to meet stricter latency targets than routine telemetry."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized worksite model server with synchronous update-on-change protocol; all state changes pushed to central repository; subscribers poll or receive broadcast updates.",
+      "DP-B: Distributed edge-cached worksite model with eventual consistency; equipment publishes state to local edge node; edge node propagates to central and to subscribers asynchronously with conflict resolution.",
+      "DP-C: Hybrid hierarchical model: safety-critical updates (SafetyAlert) routed through low-latency Safety Services channel; routine telemetry through standard Telemetry channel with separate SLA.",
+      "DP-D: Real-time publish-subscribe middleware (e.g., DDS, MQTT with QoS levels) with topic-based filtering; equipment publishes to topics; worksite model subscribers receive filtered updates with configurable latency guarantees."
+    ],
+    "selected_dp": "DP-C: Hybrid hierarchical model with dual-channel update strategy—safety-critical updates (SafetyAlert) routed through Safety Services with strict latency SLA (e.g., p95 ≤ 200 ms); routine telemetry through Telemetry channel with relaxed SLA (p95 ≤ 1.0 s). This decouples safety-critical path from bulk telemetry, reducing coupling and enabling independent optimization.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between SafetyAlert and Telemetry channels if both update the same model state—mitigated by clear ownership: Safety Services owns safety-critical state; Telemetry owns operational state.",
+        "Coupling between worksite model update logic and network transport—mitigated by abstracting transport behind Telemetry and SafetyAlert interfaces.",
+        "Coupling between update latency and model consistency—acceptable trade-off: safety updates prioritized; routine updates eventual-consistent."
+      ],
+      "notes": "DP-C exhibits low coupling because it separates concerns by criticality and uses well-defined interface boundaries (SafetyAlert, Telemetry). Potential coupling risk is model state fragmentation if safety and operational updates conflict; mitigation requires clear ownership rules and conflict resolution policy."
+    },
+    "assumptions_risks": [
+      "Assumption: Customer accepts eventual consistency for non-safety-critical state (e.g., equipment position may lag by up to 1.0 s).",
+      "Assumption: Safety Services infrastructure is available and can guarantee SafetyAlert latency SLA.",
+      "Risk: If SafetyAlert and Telemetry channels update overlapping state (e.g., equipment mode), race conditions or stale reads are possible; requires synchronization mechanism.",
+      "Risk: Dual-channel architecture increases operational complexity; requires monitoring and failover logic.",
+      "Risk: Customer may not accept two different latency SLAs; requires explicit negotiation."
+    ],
+    "recommended_revision": "Clarify with customer whether safety-critical and routine updates can have different SLAs. If not, revert to DP-D (unified publish-subscribe with QoS levels). If yes, proceed with DP-C but add explicit conflict resolution policy for overlapping state updates."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "Top-level system integration module responsible for orchestrating worksite model updates across all subsystems. Owns the hybrid dual-channel update strategy (SafetyAlert via Safety Services; Telemetry via Telemetry channel). Integrates Vehicle telemetry, Teleoperation commands, and Safety Services alerts into a unified worksite model."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Receives equipment state updates (position, orientation, operational mode, sensor readings) from Vehicle. Carries routine operational telemetry with p95 latency target ≤ 1.0 s."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "in",
+        "details": "Receives safety-critical events from Safety Services (e.g., collision risk, operator override, emergency stop). Carries high-priority updates with stricter latency SLA (p95 ≤ 200 ms, customer-tailored)."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Sends updated worksite model state to Teleoperation and Site Manager interfaces. Enables remote operators and site managers to view current worksite state with bounded latency."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Underlying transport for Telemetry, SafetyAlert, and Tasking. NGHE Solution depends on Network Link availability and latency characteristics to meet end-to-end update SLAs."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "NGHE Solution is the natural top-level owner of worksite model update orchestration. It integrates inputs from Vehicle (Telemetry), Safety Services (SafetyAlert), and Teleoperation (Tasking). Minimal diffusion: update logic is centralized; only external interfaces are diffused to subsystems."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 40,
+        "diffusion_score": 60,
+        "notes": "Vehicle could own local worksite model caching and edge-side update logic, but primary responsibility is equipment state capture and transmission. Assigning worksite model update ownership to Vehicle would diffuse responsibility and couple Vehicle to model schema, violating separation of concerns."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 30,
+        "diffusion_score": 70,
+        "notes": "Teleoperation is a consumer of worksite model updates, not an owner. Assigning update responsibility to Teleoperation would create circular dependency (Teleoperation receives updates from NGHE Solution, but also owns update logic) and high diffusion."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 50,
+        "diffusion_score": 50,
+        "notes": "Safety Services owns SafetyAlert generation and routing. It could own the safety-critical update channel, but worksite model integration (merging SafetyAlert with Telemetry) is better owned by NGHE Solution to maintain clear separation between safety event generation and model state management."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "NGHE Solution is the appropriate owner because: (1) it is the top-level system integration point; (2) worksite model is a system-level artifact, not a subsystem artifact; (3) it can orchestrate dual-channel updates (SafetyAlert and Telemetry) without creating circular dependencies; (4) it minimizes diffusion by centralizing update logic and exposing only well-defined interfaces (Telemetry, SafetyAlert, Tasking, Network Link).",
+    "containment_risks": [
+      "Risk: If NGHE Solution becomes a bottleneck for all worksite model updates, latency SLA may be violated under high-frequency update scenarios. Mitigation: implement asynchronous update processing and queue management within NGHE Solution.",
+      "Risk: NGHE Solution may accumulate too many responsibilities (update orchestration, model storage, conflict resolution, distribution). Mitigation: decompose into sub-modules at next level (e.g., WorksiteModelManager, UpdateDispatcher, ConflictResolver).",
+      "Risk: Tight coupling between NGHE Solution and Network Link latency characteristics. If network degrades, latency SLA is violated regardless of NGHE Solution logic. Mitigation: implement adaptive update prioritization and graceful degradation policies."
+    ],
+    "recommended_revision": "Proceed with NGHE Solution as IM boundary. At next decomposition level, introduce sub-modules for worksite model management, update dispatch, and conflict resolution to reduce monolithic responsibility and improve testability."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid dual-channel model) directly addresses FR-NGHE-007 by separating safety-critical updates (SafetyAlert, p95 ≤ 200 ms) from routine telemetry (Telemetry, p95 ≤ 1.0 s). The DP is feasible, testable, and aligns with high-safety-criticality constraint. No coupling issues identified that would prevent implementation."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Diffusion risk: Update logic may be scattered across Vehicle (state capture), Safety Services (alert generation), and NGHE Solution (model integration). Mitigation: enforce clear interface contracts (Telemetry, SafetyAlert) to localize update logic in NGHE Solution.",
+        "Diffusion risk: Network Link is a shared dependency for both SafetyAlert and Telemetry channels. If network fails, both channels degrade. Mitigation: implement redundant network paths or fallback mechanisms (out of scope for this level)."
+      ],
+      "containment_notes": "NGHE Solution is the appropriate IM boundary with containment score 95. It owns the dual-channel update orchestration logic and integrates inputs from Vehicle, Safety Services, and Teleoperation via well-defined interfaces. Minimal diffusion of update responsibility across modules."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible: instrument Telemetry and SafetyAlert channels with latency telemetry; measure p95 latency end-to-end (from equipment state change to worksite model update); validate against customer-defined SLA. Requires test scenarios covering nominal and degraded network conditions.",
+      "allocation_clarity": "Allocation is clear: NGHE Solution owns worksite model update orchestration; Vehicle owns state capture; Safety Services owns alert generation; Teleoperation owns model consumption. Interfaces (Telemetry, SafetyAlert, Tasking, Network Link) are well-defined and traceable."
+    },
+    "recommended_revisions": [
+      "Clarify customer acceptance criteria for worksite model update latency: is p95 ≤ 1.0 s a hard requirement or a baseline? Are different SLAs acceptable for safety-critical vs. routine updates?",
+      "Define conflict resolution policy for overlapping state updates (e.g., if SafetyAlert and Telemetry both update equipment mode). Assign ownership to NGHE Solution or Safety Services.",
+      "Specify worksite model schema and update semantics (e.g., last-write-wins, vector clocks, operational transformation) to ensure consistency under concurrent updates.",
+      "Plan for next-level decomposition of NGHE Solution into sub-modules (WorksiteModelManager, UpdateDispatcher, ConflictResolver) to reduce monolithic responsibility."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-NGHE-007 is not atomic; it decomposes into four sub-FRs (state capture, model integration, distribution, safety prioritization). DP-C is sound and well-coupled to the refined FR. NGHE Solution is the appropriate IM boundary with high containment score (95) and minimal diffusion. All gates pass. Proceed to next decomposition level to refine sub-FRs and assign ownership to sub-modules within NGHE Solution.",
+    "next_level_sub_frs": [
+      "FR-NGHE-007.1: Capture and transmit equipment state changes (position, orientation, operational mode) with minimal local processing delay.",
+      "FR-NGHE-007.2: Receive and integrate state updates into the worksite model with bounded processing and storage latency.",
+      "FR-NGHE-007.3: Distribute updated worksite model to all authorized consumers (Site Manager, Tele-operator, Safety Services) within latency budget.",
+      "FR-NGHE-007.4: Prioritize safety-critical updates (SafetyAlert events) to meet stricter latency targets than routine telemetry."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Customer accepts eventual consistency for non-safety-critical worksite model state (p95 ≤ 1.0 s latency is acceptable for routine telemetry).",
+        "Safety Services infrastructure is available and can guarantee SafetyAlert latency SLA (p95 ≤ 200 ms, customer-tailored).",
+        "Network Link provides sufficient bandwidth and reliability to support dual-channel update strategy without saturation.",
+        "Worksite model schema is stable and does not change frequently; updates are additive or overwrite-based (no complex merging logic required).",
+        "Teleoperation and Site Manager interfaces can tolerate eventual-consistent worksite model state."
+      ],
+      "open_risks": [
+        "Risk: Dual-channel architecture increases operational complexity; requires monitoring, failover logic, and conflict resolution policy. Mitigation: define conflict resolution policy at next level; implement health monitoring for both channels.",
+        "Risk: SafetyAlert and Telemetry channels may update overlapping state (e.g., equipment mode), causing race conditions or stale reads. Mitigation: assign clear ownership for each state attribute; use atomic updates or versioning.",
+        "Risk: Network Link latency variability may cause p95 SLA violations. Mitigation: implement adaptive update prioritization; measure network latency and adjust update frequency accordingly.",
+        "Risk: NGHE Solution may become a bottleneck if update frequency is high. Mitigation: implement asynchronous processing, queue management, and load shedding policies.",
+        "Risk: Customer may not accept two different latency SLAs (safety vs. routine). Mitigation: clarify customer requirements; if unified SLA required, revert to DP-D (publish-subscribe with QoS levels)."
+      ],
+      "evidence_needed": [
+        "Customer acceptance criteria for worksite model update latency (p95 target, acceptable SLA variance for safety vs. routine updates).",
+        "Network Link latency and bandwidth characteristics (baseline, p95, p99 latency; available bandwidth for Telemetry and SafetyAlert channels).",
+        "Worksite model schema and update semantics (state attributes, update frequency, conflict resolution rules).",
+        "Safety Services latency SLA and alert generation frequency (how often SafetyAlert events occur; what is acceptable latency for safety-critical updates).",
+        "Test scenarios and acceptance criteria for worksite model update verification (nominal conditions, degraded network, high-frequency updates, concurrent updates)."
+      ]
+    }
+  }
+}

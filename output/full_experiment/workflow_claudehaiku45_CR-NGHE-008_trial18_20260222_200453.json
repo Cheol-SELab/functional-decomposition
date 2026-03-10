@@ -1,0 +1,167 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall enable end-to-end teleoperation communication with latency that permits safe remote operation by the tele-operator.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting teleoperation capability, and (2) ensuring latency is compatible with safety. The refined version separates the functional intent (enable teleoperation communication) from the performance constraint (latency compatible with safety). The phrase 'compatible with safe remote operation' remains in the FR because it defines the functional boundary—the system must deliver latency sufficient for the tele-operator to safely command the equipment—without prescribing the specific latency threshold (which belongs in acceptance criteria, not the FR itself). This keeps the FR solution-neutral while anchoring it to the safety domain requirement.",
+    "verification_idea": "Measure end-to-end latency (sensor-to-display and command-to-actuation) under agreed network conditions. Validate through tele-operator acceptance testing that latency permits safe command execution and situational awareness. Cross-reference against worksite safety plan operational policies to confirm compatibility.",
+    "sub_frs": [
+      "FR-NGHE-008.1: The NGHE solution shall transmit tele-operator commands to remote equipment actuators.",
+      "FR-NGHE-008.2: The NGHE solution shall transmit equipment sensor data and state to the tele-operator interface.",
+      "FR-NGHE-008.3: The NGHE solution shall maintain end-to-end communication latency within bounds that permit safe tele-operator decision-making and equipment control."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Implement a deterministic, low-latency communication pipeline with end-to-end latency budgeting across acquisition, encoding, transmission, decoding, and actuation stages, with active monitoring and adaptive quality-of-service controls to maintain p95 ≤ 150 ms under specified network conditions.",
+      "DP2: Establish a dual-channel architecture (primary + fallback) where the primary channel optimizes for latency via direct, minimal-processing pathways, and the fallback channel provides safety-critical command redundancy with independent routing to ensure operator control authority is never lost.",
+      "DP3: Decompose the teleoperation pipeline into independent functional stages (sensor acquisition, state encoding, network transport, state decoding, command execution) with explicit latency budgets per stage, allowing each stage to be optimized and monitored independently without cross-stage coupling.",
+      "DP4: Employ a time-synchronized, event-driven architecture where operator commands and remote state updates are timestamped and processed in strict causal order, with jitter compensation and predictive state interpolation to mask network variability while preserving safety semantics."
+    ],
+    "selected_dp": "DP3 (with DP2 safety overlay): Decompose the teleoperation pipeline into independent functional stages (sensor acquisition, state encoding, network transport, state decoding, command execution) with explicit latency budgets per stage, allowing each stage to be optimized and monitored independently without cross-stage coupling. Overlay a dual-channel safety architecture (DP2) for command redundancy and fallback authority.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Stage interdependency: Encoding stage output format is tightly coupled to decoding stage input; mitigation: define a stable, versioned interface contract between encoding and decoding modules.",
+        "Network transport coupling: Latency budget for transport stage depends on network conditions (assumed stable); risk: if network conditions degrade beyond assumptions, other stages cannot compensate; mitigation: define explicit network SLA assumptions and trigger fallback/graceful degradation policies.",
+        "Feedback loop coupling: Remote state updates (sensor feedback) must be synchronized with command execution to prevent operator confusion; mitigation: enforce strict causal ordering and timestamp-based reconciliation.",
+        "Dual-channel overhead: Maintaining two independent channels increases complexity and potential for state divergence; mitigation: define clear ownership and synchronization protocol between primary and fallback channels."
+      ],
+      "notes": "DP3 achieves good logical independence by isolating stages, but physical realization (IM layer) will introduce coupling through shared network infrastructure, clock synchronization, and state consistency requirements. DP2 overlay adds safety redundancy but increases architectural complexity; trade-off is justified by safety criticality. Identified couplings are addressable through explicit interface contracts, SLA monitoring, and synchronization protocols."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Network conditions remain stable and within the agreed SLA (latency, jitter, packet loss bounds); RISK: If network degrades, p95 ≤ 150 ms may be violated; MITIGATION: Define network monitoring and fallback policies.",
+      "ASSUMPTION: Operator cognitive load and reaction time are compatible with 150 ms round-trip latency; RISK: If operator requires sub-100 ms latency for safe operation, requirement is unachievable; MITIGATION: Validate acceptance criteria through operator trials and safety analysis.",
+      "ASSUMPTION: Sensor acquisition, encoding, and decoding stages can collectively consume ≤ 50 ms (leaving ~100 ms for network transport); RISK: If hardware or codec performance is worse than assumed, latency budget is exceeded; MITIGATION: Establish and validate per-stage latency budgets early in design.",
+      "ASSUMPTION: Worksite safety plan permits remote operation with 150 ms latency; RISK: Safety plan may impose stricter latency or require additional safeguards (e.g., operator override, autonomous safety zones); MITIGATION: Align DP with safety plan requirements explicitly.",
+      "ASSUMPTION: Dual-channel architecture can be implemented without introducing new failure modes (e.g., channel desynchronization, conflicting commands); RISK: Fallback channel may mask primary channel failures, leading to unsafe state; MITIGATION: Define clear channel arbitration and health-check protocols.",
+      "ASSUMPTION: Time synchronization across distributed components is achievable within acceptable bounds; RISK: Clock drift or synchronization failures may violate causal ordering; MITIGATION: Use NTP or similar with bounded error bounds."
+    ],
+    "recommended_revision": "FR (refined): The NGHE solution shall enable end-to-end teleoperation communication with latency that permits safe remote operation by the tele-operator, such that: (1) p95 round-trip latency ≤ 150 ms under agreed network conditions; (2) operator commands are delivered with at least dual-channel redundancy to ensure safety authority is never lost; (3) remote state feedback is causally ordered and synchronized to prevent operator confusion; (4) each functional stage (acquisition, encoding, transport, decoding, execution) has an explicit latency budget and is independently monitorable; (5) graceful degradation policies are triggered if network conditions degrade beyond SLA bounds; (6) the design is compatible with the worksite safety plan and operational policies (to be detailed in safety analysis). DP3 + DP2 satisfies these requirements with acceptable coupling trade-offs."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Encapsulates the complete teleoperation pipeline (sensor acquisition → state encoding → network transport → state decoding → command execution) with integrated dual-channel safety overlay. Owns latency budgeting, stage monitoring, and safety command arbitration."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Exports sensor-acquired and encoded state data to external consumers (e.g., monitoring, logging). Latency-tagged per pipeline stage."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives high-level task commands from external task planners. Decoded and arbitrated through dual-channel safety logic before execution dispatch."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Emits safety violations, fallback activations, and channel disagreement alerts. Triggers external safety services if needed."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Bidirectional network transport abstraction. Teleoperation owns encoding/decoding; Network Link owns transmission reliability and latency characteristics."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "Excellent fit. DP3 is explicitly a teleoperation pipeline decomposition with latency budgets and stage independence. Dual-channel safety (DP2 overlay) is naturally owned here as command arbitration logic. All five pipeline stages (sensor → encode → transport → decode → execute) are internal to this module. Minimal diffusion: only Network Link abstraction and SafetyAlert escalation cross boundary."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 35,
+        "diffusion_score": 65,
+        "notes": "Poor fit for primary containment. Safety Services should own safety policy and escalation logic, but the teleoperation pipeline stages themselves (sensor acquisition, encoding, decoding, execution) are not safety-specific and would diffuse across Teleoperation and Vehicle modules. Dual-channel command arbitration is a safety concern but is tightly coupled to the execution stage, making it awkward to separate."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Very poor fit. Vehicle owns physical actuators and low-level command execution, but the teleoperation pipeline (especially sensor acquisition, encoding, network transport, decoding) is logically upstream and would be scattered across Teleoperation, Vehicle, and Network Link. Latency budgeting and stage monitoring would diffuse significantly."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 15,
+        "diffusion_score": 85,
+        "notes": "Very poor fit. NGHE Solution is a top-level system container. Placing DP3 here would bypass architectural layering and force all pipeline stages and safety logic to diffuse into child modules without clear ownership or cohesion."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the natural and correct boundary for DP3 because: (1) it owns all five pipeline stages as a cohesive functional unit; (2) latency budgeting and per-stage monitoring are internal concerns of the pipeline; (3) the dual-channel safety overlay (DP2) is command arbitration logic that sits at the execution boundary, which is part of the teleoperation pipeline; (4) external interfaces (Telemetry, Tasking, SafetyAlert, Network Link) cleanly separate concerns without forcing diffusion. This design respects the principle that a DP should be contained in a single module to avoid cross-module coupling and enable independent optimization.",
+    "containment_risks": [
+      "Risk: If Safety Services is expected to own all safety logic, there may be tension over who owns the dual-channel command arbitration (DP2 overlay). Mitigation: Clarify that Safety Services owns safety policy and escalation; Teleoperation owns safety-aware command arbitration as part of the execution stage.",
+      "Risk: If Vehicle module owns low-level command execution, the boundary between Teleoperation's decoded commands and Vehicle's actuator control must be crisp. Mitigation: Define a clear interface (e.g., 'ExecutionCommand') that Teleoperation exports and Vehicle consumes.",
+      "Risk: Latency monitoring and per-stage budgeting may require instrumentation that crosses module boundaries (e.g., timestamps from Vehicle sensors, network latency from Network Link). Mitigation: Teleoperation owns the latency budget logic and aggregates telemetry from external modules via Telemetry interface.",
+      "Risk: If sensor acquisition is physically located on the Vehicle, there may be confusion about whether it is part of Teleoperation or Vehicle. Mitigation: Clarify that Teleoperation owns the logical sensor acquisition stage (data interpretation and encoding); Vehicle owns physical sensor hardware and raw data collection."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The FR specifies a quantitative acceptance criterion (p95 ≤ 150 ms latency) and a qualitative safety requirement (safe remote operation). The Teleoperation IM boundary owns latency budgeting and per-stage monitoring, enabling direct measurement against the p95 threshold. Safety compliance is verifiable through dual-channel arbitration logic and SafetyAlert interface emissions. Worksite safety plan integration is delegable to Safety Services via the SafetyAlert escalation path.",
+      "allocation_clarity": "Clear. The FR maps unambiguously to DP3 (pipeline decomposition with latency budgets) and DP2 (dual-channel safety overlay). Both DPs are contained within the Teleoperation IM boundary with explicit ownership of the five pipeline stages and command arbitration logic. External interfaces (Telemetry, Tasking, SafetyAlert, Network Link) establish clean responsibility boundaries without ambiguity about who owns what."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP3 + DP2 directly addresses the FR. DP3 decomposes the teleoperation pipeline into independent stages with explicit latency budgets, enabling optimization and monitoring to meet the p95 ≤ 150 ms criterion. DP2 overlays dual-channel safety logic to ensure command redundancy and fallback authority, satisfying the 'safe remote operation' requirement. The combination is logically sound and complete."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Risk: Dual-channel command arbitration (DP2 overlay) sits at the execution boundary. If Vehicle module owns low-level actuator control, there is a potential ownership ambiguity between Teleoperation (command arbitration) and Vehicle (command execution). Mitigation: Define a crisp ExecutionCommand interface that Teleoperation exports (post-arbitration) and Vehicle consumes (pre-actuation). Teleoperation owns arbitration logic; Vehicle owns actuation.",
+        "Risk: Sensor acquisition stage may be physically distributed across Vehicle hardware and Teleoperation software logic. If Vehicle owns raw sensor hardware and Teleoperation owns data interpretation/encoding, the boundary must be explicit. Mitigation: Clarify that Teleoperation owns the logical sensor acquisition stage (interpretation, encoding, timestamping); Vehicle owns physical sensor hardware and raw data collection. Define a SensorData interface that Vehicle exports and Teleoperation consumes.",
+        "Risk: Latency monitoring and per-stage budgeting require instrumentation (timestamps, network latency telemetry) that originates in Vehicle and Network Link modules. If these modules do not cooperate with Teleoperation's latency aggregation, monitoring will diffuse. Mitigation: Teleoperation owns latency budget logic and aggregates telemetry from external modules via the Telemetry interface. Require Vehicle and Network Link to emit latency-tagged data.",
+        "Risk: SafetyAlert escalation to Safety Services may create a secondary ownership concern if Safety Services expects to own all safety-related logic. Mitigation: Clarify that Teleoperation owns safety-aware command arbitration (DP2 overlay) as part of the execution stage; Safety Services owns safety policy, escalation logic, and integration with worksite safety plan."
+      ],
+      "containment_notes": "Excellent containment (95% score). DP3 and DP2 are naturally owned by the Teleoperation module. All five pipeline stages (sensor acquisition, state encoding, network transport, state decoding, command execution) are logically cohesive and internal to this boundary. Dual-channel safety arbitration is tightly coupled to the execution stage and belongs here. External interfaces cleanly separate concerns: Telemetry exports state data, Tasking imports commands, SafetyAlert escalates violations, Network Link abstracts transport. Minimal diffusion: only Network Link abstraction (owned by Network module) and SafetyAlert escalation (owned by Safety Services) cross the boundary. The module respects the principle that a DP should be contained in a single module to avoid cross-module coupling and enable independent optimization."
+    },
+    "recommended_revisions": [
+      "Explicitly define the SensorData interface between Vehicle and Teleoperation. Specify that Vehicle exports raw sensor data with timestamps; Teleoperation consumes and interprets/encodes it. This clarifies the sensor acquisition stage boundary.",
+      "Explicitly define the ExecutionCommand interface between Teleoperation and Vehicle. Specify that Teleoperation exports arbitrated commands (post-dual-channel safety logic); Vehicle consumes and actuates. This clarifies the command execution stage boundary.",
+      "Require Vehicle and Network Link modules to emit latency-tagged telemetry (e.g., sensor acquisition timestamp, network round-trip time) to Teleoperation via the Telemetry interface. Teleoperation aggregates these to compute per-stage latency and validate against the p95 ≤ 150 ms budget.",
+      "Clarify the ownership boundary between Teleoperation (safety-aware command arbitration, DP2 overlay) and Safety Services (safety policy, escalation, worksite plan integration). Document that Teleoperation emits SafetyAlert events (channel disagreement, fallback activation) and Safety Services consumes them for policy enforcement and external escalation.",
+      "Add a latency monitoring and alerting mechanism within Teleoperation that tracks per-stage latency against budgets and emits alerts if any stage exceeds its allocation. This enables real-time detection of latency violations and supports the p95 ≤ 150 ms acceptance criterion.",
+      "Document the fallback authority logic: when dual-channel disagreement occurs, which channel (primary or secondary) has authority? Specify the decision logic and ensure it is testable and auditable for safety compliance."
+    ]
+  },
+  "decision": {
+    "decision": "REVISE_CURRENT_LEVEL",
+    "justification": "All three gates (FR-IM, FR-DP, DP-IM) pass with high confidence, indicating the current FR and DP pair are logically sound and well-contained. However, the DP-IM gate identifies five concrete diffusion risks and ownership ambiguities that must be resolved before proceeding to sub-level decomposition. Given the high safety criticality of this teleoperation system, these boundary clarifications are non-negotiable prerequisites. Revising the current level to explicitly define interfaces (SensorData, ExecutionCommand, latency telemetry contract) and ownership boundaries (Teleoperation vs. Vehicle vs. Safety Services) will eliminate ambiguity and enable clean sub-level decomposition. Proceeding to ZIGZAG_DOWN without these revisions risks propagating ownership confusion into lower-level FRs, creating rework and safety compliance gaps.",
+    "next_level_sub_frs": [],
+    "revise": {
+      "target": "DP",
+      "why": "The DP pair (DP3: pipeline decomposition with latency budgets; DP2: dual-channel safety overlay) is logically correct but insufficiently detailed in its interface and ownership specifications. Revise DP3 and DP2 to explicitly include: (1) SensorData interface contract (Vehicle exports raw sensor data with timestamps; Teleoperation consumes and interprets); (2) ExecutionCommand interface contract (Teleoperation exports arbitrated commands post-dual-channel logic; Vehicle consumes and actuates); (3) Latency telemetry contract (Vehicle and Network Link emit latency-tagged data to Teleoperation via Telemetry interface; Teleoperation aggregates and validates against per-stage budgets); (4) SafetyAlert escalation contract (Teleoperation emits safety events; Safety Services consumes for policy enforcement); (5) Fallback authority logic (explicit decision rule for dual-channel disagreement, testable and auditable). These revisions transform DP from a logical blueprint into an implementable specification that eliminates the five identified diffusion risks."
+    },
+    "record": {
+      "assumptions": [
+        "Vehicle module owns physical sensor hardware and raw data collection; Teleoperation owns logical sensor acquisition stage (interpretation, encoding, timestamping).",
+        "Teleoperation owns safety-aware command arbitration (DP2 overlay) as part of the execution stage; Safety Services owns safety policy, escalation logic, and worksite plan integration.",
+        "Network Link module abstracts transport; Teleoperation owns latency budget aggregation and per-stage monitoring.",
+        "Dual-channel command arbitration has a well-defined fallback authority rule (primary or secondary channel precedence) that is deterministic and auditable.",
+        "Vehicle and Network Link modules are willing and able to emit latency-tagged telemetry to support Teleoperation's latency monitoring."
+      ],
+      "open_risks": [
+        "Ownership ambiguity between Teleoperation (command arbitration) and Vehicle (command execution) at the execution boundary. Mitigation: Define crisp ExecutionCommand interface.",
+        "Sensor acquisition stage may be physically distributed across Vehicle hardware and Teleoperation software. Mitigation: Clarify logical vs. physical ownership and define SensorData interface.",
+        "Latency monitoring diffusion if Vehicle and Network Link do not cooperate with telemetry emission. Mitigation: Require latency-tagged telemetry contract in DP revision.",
+        "SafetyAlert escalation may create secondary ownership concern with Safety Services. Mitigation: Clarify that Teleoperation owns arbitration logic; Safety Services owns policy and external escalation.",
+        "Fallback authority logic not yet specified; dual-channel disagreement resolution is ambiguous. Mitigation: Document explicit decision rule in DP revision and make it testable.",
+        "High safety criticality demands that all interface contracts and ownership boundaries be formally specified and verified before implementation. Current DP lacks this rigor."
+      ],
+      "evidence_needed": [
+        "Formal interface specifications (SensorData, ExecutionCommand, latency telemetry contract, SafetyAlert) with data types, timing constraints, and ownership semantics.",
+        "Fallback authority decision logic: explicit rule for resolving dual-channel disagreement (e.g., 'primary channel has authority unless secondary detects safety violation'; 'voting majority'; 'safe-state default'). Must be testable and auditable.",
+        "Latency budget allocation across five pipeline stages with justification for each stage's allocation (e.g., sensor acquisition: 20 ms, state encoding: 10 ms, network transport: 80 ms, state decoding: 10 ms, command execution: 30 ms = 150 ms p95 target).",
+        "Safety compliance matrix: map DP2 (dual-channel safety overlay) to relevant safety standards (e.g., IEC 61508, ISO 13849-1) and document how arbitration logic, fallback authority, and SafetyAlert escalation satisfy safety requirements.",
+        "Module interaction diagram showing Teleoperation, Vehicle, Network Link, Safety Services, and external interfaces (Telemetry, Tasking, SafetyAlert) with explicit ownership of each interface and data flow.",
+        "Test plan for latency monitoring: how will per-stage latency be measured, aggregated, and validated against budgets? What instrumentation is required in Vehicle and Network Link modules?"
+      ]
+    }
+  }
+}

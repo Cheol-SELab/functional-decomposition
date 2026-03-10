@@ -1,0 +1,166 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall enable execution of the load→travel→dump cycle within the customer-defined cycle time target.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting/enabling the capability to achieve cycle time, and (2) actually achieving the measured KPI. The refined FR is atomic and solution-neutral by focusing on the functional obligation—enabling the cycle to execute within the time envelope—without prescribing how (e.g., via speed optimization, path planning, operator training, or equipment design). The actual achievement of p95 ≤ CT_target is a verification criterion tied to duty cycle and site conditions, not a functional requirement of the system itself. This separation allows DPs to address enablement (e.g., responsive controls, efficient hydraulics, predictable motion) independently of operational performance measurement.",
+    "verification_idea": "Demonstrate that under nominal duty cycle and representative site conditions, the NGHE solution's subsystems (propulsion, actuation, control response, load handling) do not introduce artificial delays or constraints that prevent the cycle from completing within CT_target. Measure end-to-end cycle time in controlled trials; confirm that any shortfall vs. CT_target is attributable to operator technique, site conditions, or load variability—not system design limitations.",
+    "sub_frs": [
+      "FR-NGHE-002.1: The NGHE solution shall execute the load phase (bucket fill, material consolidation) without introducing artificial time delays.",
+      "FR-NGHE-002.2: The NGHE solution shall execute the travel phase (loaded and empty transit) without introducing artificial time delays.",
+      "FR-NGHE-002.3: The NGHE solution shall execute the dump phase (material discharge, bucket return to load position) without introducing artificial time delays.",
+      "FR-NGHE-002.4: The NGHE solution shall provide responsive control inputs (operator or tele-operator commands) with latency and fidelity sufficient to support cycle time execution."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Decompose the load→travel→dump cycle into sequential sub-operations (load, travel, dump) with independent timing budgets that sum to CT_target, and allocate execution control to a supervisory coordinator that sequences these operations based on state transitions and sensor feedback.",
+      "DP2: Implement a parallel execution model where load, travel, and dump operations overlap where physically feasible (e.g., travel begins while final load elements are being positioned), with a real-time scheduler that enforces hard timing constraints and detects conflicts.",
+      "DP3: Design a fixed-sequence state machine with pre-calculated operation durations calibrated to site conditions (terrain, load mass, distance), where each state transition is triggered by completion signals from actuators, and cycle time is guaranteed by design-time validation against CT_target.",
+      "DP4: Establish a feedback-driven adaptive cycle controller that monitors actual operation durations in real-time, compares against CT_target, and dynamically adjusts operational parameters (speed, acceleration profiles) within safety and equipment limits to maintain p95 ≤ CT_target."
+    ],
+    "selected_dp": "DP3: Design a fixed-sequence state machine with pre-calculated operation durations calibrated to site conditions (terrain, load mass, distance), where each state transition is triggered by completion signals from actuators, and cycle time is guaranteed by design-time validation against CT_target.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "DP3 assumes tight coupling between actuator completion signals and state transitions; if sensor reliability is poor, false transitions could corrupt cycle timing.",
+        "DP3 requires offline calibration for each site condition; changes in terrain or load mass distribution may invalidate pre-calculated durations, necessitating re-validation.",
+        "DP3 does not accommodate dynamic obstacles or operational anomalies; if an unexpected delay occurs (e.g., ground subsidence during travel), the state machine cannot adapt, risking cycle time violation.",
+        "Coupling between load mass estimation and travel duration calculation; inaccurate mass sensing propagates to travel timing budget."
+      ],
+      "notes": "DP3 exhibits low internal coupling (state machine is modular and testable) but moderate external coupling to site conditions and sensor reliability. The design is deterministic and analyzable, making it suitable for safety-critical acceptance testing. However, it trades adaptability for predictability."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Site conditions (terrain, distance, load mass range) are known and stable during the duty cycle. RISK: Unplanned site changes (e.g., mud, slope variation) invalidate pre-calculated durations; mitigation: periodic re-calibration protocol.",
+      "ASSUMPTION: Actuator completion signals (load arm fully raised, travel distance reached, dump gate fully open) are reliable and unambiguous. RISK: Sensor drift, noise, or failure causes false state transitions; mitigation: redundant sensing or timeout-based fallback.",
+      "ASSUMPTION: CT_target is achievable given equipment performance limits (max speed, acceleration, load capacity). RISK: If CT_target is set below physically realizable time, no DP can satisfy it; mitigation: validate CT_target against equipment datasheets and site trials.",
+      "ASSUMPTION: Worksite safety plan permits deterministic, non-adaptive operation (no dynamic re-routing or emergency stops mid-cycle). RISK: If safety plan requires real-time obstacle avoidance or emergency halt, DP3 cannot respond; mitigation: integrate emergency stop as orthogonal safety function outside state machine.",
+      "ASSUMPTION: Load mass and distribution are consistent across cycles. RISK: Highly variable loads (e.g., loose aggregate vs. compacted soil) cause timing variance; mitigation: implement load mass sensing and adjust travel speed accordingly (hybrid of DP3 + DP4).",
+      "ASSUMPTION: p95 acceptance criterion is measured under nominal conditions; outliers due to equipment malfunction are excluded. RISK: If p95 includes failure modes, cycle time target may be unachievable; mitigation: define failure mode exclusion criteria in acceptance test plan."
+    ],
+    "recommended_revision": "DP3 is selected for its deterministic, testable nature and suitability for safety-critical acceptance. However, recommend a hybrid refinement: DP3.1 (Enhanced): Implement a fixed-sequence state machine with pre-calculated operation durations, augmented by a lightweight feedback layer that monitors actual vs. expected durations for each sub-operation. If a sub-operation exceeds its budget by >10%, trigger a diagnostic flag (not a state transition) and log the anomaly for post-cycle analysis. This preserves determinism for p95 measurement while enabling continuous improvement. Additionally, mandate that CT_target validation includes a sensitivity analysis: for each site condition variable (terrain type, load mass, distance), calculate the range of achievable cycle times and confirm that p95 ≤ CT_target across the expected operational envelope. If sensitivity analysis reveals unacceptable variance, escalate to DP4 (adaptive control) or revise CT_target with customer."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "Encapsulates the fixed-sequence state machine controller, actuator completion signal handlers, pre-calculated operation duration tables indexed by site conditions, state transition logic, and cycle-time validation enforcement. The Vehicle module owns the real-time execution of the state machine and guarantees cycle-time compliance through design-time calibration."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives mission parameters (terrain type, load mass, distance) that index into pre-calculated duration tables; triggers state machine initialization"
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Reports current state, transition events, cycle time measurements, and actuator completion signals for monitoring and validation"
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Signals cycle-time violations or state machine faults detected during execution"
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent containment: state machine logic, actuator signal handlers, duration tables, and cycle-time validation are all core Vehicle responsibilities. Minimal diffusion: only mission parameters (Tasking) and monitoring/safety alerts cross boundaries. This is the natural locus of control for real-time state sequencing and actuator coordination."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor containment: Teleoperation is a command/control interface layer, not a real-time execution engine. Placing state machine logic here would require tight coupling to Vehicle actuators, sensor handlers, and timing validation. State transitions and duration calibration belong in the execution domain, not the command domain."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Weak containment: Safety Services should monitor and enforce safety constraints, not own the primary state machine. Placing the state machine here inverts responsibility: the execution engine should be in Vehicle, with Safety Services validating cycle-time compliance and alerting on violations. High diffusion of state logic and actuator coordination outside its natural boundary."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.15,
+        "diffusion_score": 0.85,
+        "notes": "Very poor containment: NGHE Solution is a top-level system container. Placing a specific state machine implementation here violates separation of concerns and creates a monolithic, hard-to-test, hard-to-maintain architecture. State machine logic must be owned by the Vehicle module; NGHE Solution orchestrates at a higher level."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module is the natural owner of the fixed-sequence state machine because it is responsible for real-time execution, actuator coordination, and cycle-time guarantees. The state machine is not a cross-cutting concern or a safety policy—it is the core control logic of the vehicle's operational behavior. Pre-calculated duration tables indexed by site conditions (terrain, load, distance) are Vehicle-specific calibration data. Actuator completion signals are Vehicle sensors. Cycle-time validation is a Vehicle performance contract. All of these elements cohere within the Vehicle boundary with minimal external diffusion.",
+    "containment_risks": [
+      "Risk: If Teleoperation or Safety Services attempt to override or modify state transitions at runtime, the state machine logic will diffuse across module boundaries, breaking encapsulation and making cycle-time guarantees unverifiable.",
+      "Risk: If pre-calculated duration tables are stored outside Vehicle (e.g., in a centralized configuration service), Vehicle loses autonomy and becomes dependent on external data consistency; this increases coupling and reduces testability of cycle-time validation.",
+      "Risk: If actuator completion signals are not directly handled by Vehicle but instead routed through Telemetry or Safety Services first, latency and signal loss may violate state transition timing assumptions, breaking the design-time validation contract.",
+      "Risk: If cycle-time validation is delegated to Safety Services rather than enforced within Vehicle's state machine, the Vehicle cannot guarantee cycle-time compliance by design; instead, it relies on external monitoring, which is reactive rather than preventive."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "HIGH. The Vehicle module owns the state machine, duration tables, and cycle-time validation logic. Cycle time can be measured directly from Vehicle telemetry (state transition events, actuator completion signals). The acceptance criterion 'p95 ≤ CT_target' is verifiable by instrumenting Vehicle state transitions and comparing measured cycle times against the design-time calibrated target. Site conditions (terrain, load, distance) are inputs to the state machine via Tasking interface, enabling reproducible validation under agreed duty cycles.",
+      "allocation_clarity": "CLEAR. The FR is allocated entirely to the Vehicle module. The DP (fixed-sequence state machine with pre-calculated durations) is owned by Vehicle. The mapping is direct: Vehicle executes the state machine, measures cycle time, and enforces compliance. No ambiguity about which module is responsible for cycle-time guarantees."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "The DP is sound and directly addresses the FR. A fixed-sequence state machine with pre-calculated operation durations indexed by site conditions is a valid design approach for deterministic cycle-time control. Design-time validation against CT_target is feasible: calibrate duration tables offline for the agreed terrain/load/distance envelope, then verify at runtime that measured cycle times remain within bounds. The DP is testable, traceable, and implementable."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "CRITICAL: If Teleoperation or Safety Services attempt to override state transitions at runtime (e.g., pause, skip, or reorder states), the state machine logic will diffuse across module boundaries. This breaks encapsulation and invalidates design-time cycle-time validation. Mitigation: State transitions must be immutable once the state machine is initialized; external modules can only trigger initialization or request emergency stop, not modify the sequence.",
+        "HIGH: If pre-calculated duration tables are stored outside Vehicle (e.g., in a centralized configuration service or database), Vehicle loses autonomy and becomes dependent on external data consistency. This increases coupling, reduces testability, and creates a single point of failure for cycle-time guarantees. Mitigation: Duration tables must be owned and cached by Vehicle; updates require Vehicle restart or explicit re-calibration.",
+        "HIGH: If actuator completion signals are not directly handled by Vehicle but instead routed through Telemetry or Safety Services first, signal latency or loss may violate state transition timing assumptions. This breaks the design-time validation contract. Mitigation: Actuator completion signals must be direct inputs to Vehicle's state machine; Telemetry can log them, but Vehicle must not depend on Telemetry for real-time signal delivery.",
+        "MEDIUM: If cycle-time validation is delegated to Safety Services rather than enforced within Vehicle's state machine, Vehicle cannot guarantee cycle-time compliance by design. Instead, it relies on external monitoring, which is reactive (detects violations after they occur) rather than preventive (prevents violations by design). Mitigation: Vehicle must validate cycle time internally during state transitions; Safety Services can monitor and alert, but Vehicle owns the guarantee."
+      ],
+      "containment_notes": "EXCELLENT CONTAINMENT (0.92 score). The Vehicle module is the natural and correct owner of DP3. All core elements cohere within Vehicle: state machine logic, actuator signal handlers, pre-calculated duration tables, and cycle-time validation. External interfaces are minimal and well-defined: Tasking provides mission parameters (inputs), Telemetry reports state and measurements (outputs), SafetyAlert signals violations (outputs). The boundary is clean, responsibilities are unambiguous, and the module is testable in isolation. No diffusion of state machine logic into Teleoperation, Safety Services, or NGHE Solution. The 0.08 diffusion score reflects only necessary cross-boundary communication (mission parameters, monitoring, alerts), which is appropriate and unavoidable."
+    },
+    "recommended_revisions": [
+      "REVISION 1: Explicitly document that Vehicle owns the state machine initialization, state transition logic, and cycle-time validation. Teleoperation can request mission start/stop, but cannot modify state sequences or durations at runtime.",
+      "REVISION 2: Specify that pre-calculated duration tables are Vehicle-resident and indexed by site conditions (terrain type, load mass, distance). Tasking provides these parameters; Vehicle uses them to select the appropriate duration table. Tables must be validated offline and frozen at deployment.",
+      "REVISION 3: Clarify that actuator completion signals are direct inputs to Vehicle's state machine (not mediated by Telemetry or Safety Services). Vehicle transitions states based on these signals; Telemetry logs them for monitoring.",
+      "REVISION 4: Define the cycle-time validation contract: Vehicle measures cycle time from state machine initialization to final state completion. If measured cycle time exceeds CT_target + tolerance, Vehicle signals SafetyAlert and logs the violation. Safety Services monitors alerts and enforces operational policies (e.g., pause mission, investigate root cause).",
+      "REVISION 5: Add a design-time validation gate: Before deployment, calibrate duration tables for the agreed site conditions (terrain, load, distance envelope) and verify that p95 cycle time ≤ CT_target under simulated or test conditions. Document the validation results and assumptions.",
+      "REVISION 6: Specify fallback behavior if cycle-time violations occur: Vehicle should log the violation, signal SafetyAlert, and either retry the cycle with adjusted durations (if calibration allows) or transition to a safe idle state pending operator intervention."
+    ]
+  },
+  "decision": {
+    "decision": "REVISE_CURRENT_LEVEL",
+    "justification": "All three gates (FR-IM, FR-DP, DP-IM) pass with high confidence and excellent containment (0.92 score). However, the gate results expose six critical design clarifications that must be documented at the current level before proceeding to sub-decomposition. The diffusion risks are well-understood and mitigatable, but they require explicit architectural constraints to be binding. Given the high safety criticality of cycle-time guarantees, these revisions are non-optional: they establish the design contract that sub-level implementations must respect. Revising now prevents downstream diffusion and ensures that lower-level FRs inherit a clear, unambiguous parent specification.",
+    "next_level_sub_frs": [],
+    "revise": {
+      "target": "FR",
+      "why": "The parent FR (FR3: 'Ensure deterministic cycle-time execution') is sound in intent but lacks the architectural precision needed to prevent diffusion at lower levels. The six recommended revisions must be incorporated as explicit constraints within the FR specification or as a companion Design Specification document that binds all sub-level decompositions. Specifically: (1) State machine ownership and immutability must be stated as a non-negotiable design principle; (2) Duration table residency and indexing must be specified as part of the FR acceptance criteria; (3) Actuator signal routing must be defined as a direct input path to Vehicle, not mediated; (4) Cycle-time validation must be stated as an internal Vehicle responsibility, not delegated; (5) Design-time calibration and validation gates must be explicit pre-deployment requirements; (6) Fallback behavior must be specified as part of the FR's completeness. These are not new FRs but rather architectural guardrails that clarify the current FR's scope and boundaries."
+    },
+    "record": {
+      "assumptions": [
+        "Site conditions (terrain type, load mass, distance) are stable inputs provided by Tasking at mission initialization and do not change during cycle execution.",
+        "Pre-calculated duration tables can be calibrated offline for the agreed site condition envelope and remain valid across the deployment lifecycle.",
+        "Actuator completion signals are reliable, low-latency inputs directly available to Vehicle's state machine (not subject to network or service delays).",
+        "Vehicle has sufficient computational resources to execute the state machine and validate cycle time without external dependencies.",
+        "The CT_target value is derived from mission requirements and is achievable under the agreed site conditions with the selected DP (fixed-sequence state machine).",
+        "Teleoperation and Safety Services respect the immutability of state transitions once the state machine is initialized; they can only trigger initialization or emergency stop.",
+        "The p95 cycle-time metric is measurable and reproducible under agreed duty cycles (terrain, load, distance, environmental conditions)."
+      ],
+      "open_risks": [
+        "CRITICAL: If Teleoperation or Safety Services are later required to pause, skip, or reorder states for operational flexibility, the state machine logic will diffuse and cycle-time guarantees will be invalidated. Mitigation requires explicit architectural governance and interface contracts.",
+        "HIGH: If duration tables are updated at runtime (e.g., via over-the-air updates or dynamic recalibration), Vehicle must ensure atomicity and consistency; partial updates could cause state transitions to use inconsistent durations. Mitigation: Define a versioning and rollback strategy for duration tables.",
+        "HIGH: If actuator completion signals are delayed or lost due to network congestion or sensor failures, the state machine will stall or timeout. Mitigation: Define timeout thresholds and fallback behavior (e.g., retry, abort, safe idle).",
+        "MEDIUM: If cycle-time validation is performed only at the end of the cycle (post-hoc), violations cannot be prevented, only detected. Mitigation: Implement predictive validation during state transitions to detect deviations early.",
+        "MEDIUM: If the site condition envelope is not clearly defined or is exceeded at runtime, the pre-calculated duration tables may be invalid. Mitigation: Define explicit bounds for terrain type, load mass, and distance; Vehicle should validate inputs against these bounds before initializing the state machine.",
+        "MEDIUM: If multiple Vehicle instances are deployed with different duration table versions, cycle-time behavior may be inconsistent across the fleet. Mitigation: Implement a fleet-wide duration table versioning and synchronization strategy."
+      ],
+      "evidence_needed": [
+        "Design-time validation report: Calibration results for duration tables across the agreed site condition envelope (terrain types, load masses, distances). Document p95 cycle times and confidence intervals.",
+        "State machine specification: Formal definition of states, transitions, guards, and actions. Proof that the state machine is deterministic and acyclic (no loops or conditional branches that depend on runtime data).",
+        "Actuator signal specification: Latency and reliability characteristics of completion signals. Measurement data from test cycles showing signal timing and consistency.",
+        "Cycle-time measurement methodology: Instrumentation plan for Vehicle state transitions. Definition of start and end points for cycle-time measurement. Validation that measurement overhead does not affect cycle-time accuracy.",
+        "Fallback behavior specification: Detailed description of Vehicle's response to cycle-time violations, timeouts, and signal loss. Test cases demonstrating fallback transitions.",
+        "Interface contracts: Explicit documentation of Tasking inputs (site conditions), Telemetry outputs (state, measurements), and SafetyAlert outputs (violations). Specification of immutability constraints on state transitions.",
+        "Deployment validation checklist: Pre-deployment steps to verify duration table calibration, state machine correctness, and signal routing. Sign-off criteria for production deployment."
+      ]
+    }
+  }
+}

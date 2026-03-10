@@ -1,0 +1,180 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall propagate worksite model state changes to all authorized consumers within the customer-defined latency threshold.",
+    "rationale": "The original FR conflates two distinct obligations: (1) detecting/capturing state changes in the worksite model, and (2) delivering those changes to consumers within a time bound. The refined FR focuses on the propagation obligation (the primary latency concern) and removes the vague 'operational use' qualifier in favor of explicit reference to customer-defined acceptance criteria. The term 'propagate' is solution-neutral (avoids prescribing polling, pub-sub, or push mechanisms) and 'authorized consumers' acknowledges that different stakeholders (operator, tele-operator, safety manager) may have different visibility and latency requirements.",
+    "verification_idea": "Measure end-to-end latency from the moment a worksite state change is committed (e.g., equipment position update, hazard detection, task completion) to the moment that change is available to each authorized consumer role. Validate against customer-defined p95 threshold (e.g., ≤1.0 s) across supported update scenarios (position updates, safety events, task status changes). Verify that unauthorized consumers do not receive restricted state.",
+    "sub_frs": [
+      "FR-NGHE-007.1: The NGHE solution shall detect and capture worksite model state changes (position, task status, hazard events, resource availability) from all authorized sources.",
+      "FR-NGHE-007.2: The NGHE solution shall propagate captured worksite model state changes to all authorized consumers within the customer-defined latency threshold.",
+      "FR-NGHE-007.3: The NGHE solution shall enforce access control such that only authorized consumers receive worksite model state changes relevant to their role."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Centralized event-driven state propagation with asynchronous message broker (decouples producers from consumers; supports fan-out to multiple authorized subscribers; enables latency-bounded delivery guarantees)",
+      "DP2: Synchronous request-response state synchronization with polling intervals (simple but couples client to server; latency depends on poll frequency; not suitable for p95 ≤ 1.0s without aggressive polling)",
+      "DP3: Hybrid push-pull with change-data-capture (CDC) stream and consumer-side subscription registry (producers emit change events; consumers subscribe to filtered streams; supports selective authorization and latency SLA enforcement)",
+      "DP4: Peer-to-peer gossip protocol with eventual consistency (decentralized; no single broker; difficult to enforce hard latency bounds and authorization policies)",
+      "DP5: Direct point-to-point unicast with per-consumer connection management (tight coupling; scales poorly; difficult to enforce uniform latency SLA across heterogeneous consumers)"
+    ],
+    "selected_dp": "DP3: Hybrid push-pull with change-data-capture (CDC) stream and consumer-side subscription registry. Producers emit worksite model state changes as immutable events to a durable, ordered change stream. Authorized consumers subscribe to filtered views of the stream based on role and worksite context. Delivery guarantees (at-least-once or exactly-once) and latency enforcement are managed at the subscription layer, decoupling event production from consumption while maintaining authorization boundaries and supporting the p95 ≤ 1.0s latency requirement.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Authorization policy coupling: If authorization rules are embedded in the CDC stream itself rather than in a separate policy engine, changes to access control require stream reprocessing. Mitigation: externalize authorization as a separate service queried at subscription time.",
+        "Schema evolution coupling: If the worksite model schema changes, all consumers must adapt. Mitigation: use schema versioning and backward-compatible serialization (e.g., Avro, Protobuf).",
+        "Latency coupling via subscription registry: If the registry becomes a bottleneck, latency SLA is violated. Mitigation: cache subscription metadata locally with eventual consistency; use read replicas.",
+        "Consumer-side filtering coupling: If filtering logic is duplicated across consumers, changes to authorization rules require coordinated updates. Mitigation: centralize filtering logic in a dedicated authorization module or sidecar."
+      ],
+      "notes": "DP3 achieves loose coupling between producers and consumers by introducing an asynchronous, ordered event stream as the primary integration point. Authorization is decoupled from event production and applied at subscription time. Latency is bounded by stream delivery guarantees and consumer processing time, both of which are independently tunable. This design supports the worksite safety plan and operational policies by allowing fine-grained, role-based filtering of state changes."
+    },
+    "assumptions_risks": [
+      "Assumption: A durable, ordered change stream (e.g., Kafka, Pulsar, event log) is available or can be provisioned. Risk: If the stream becomes unavailable, all consumers are blocked. Mitigation: implement stream replication and failover.",
+      "Assumption: Authorized consumers can tolerate at-least-once delivery semantics (idempotent processing). Risk: Duplicate events may cause inconsistent state if consumers are not idempotent. Mitigation: require consumers to implement idempotency keys or use exactly-once delivery (higher latency cost).",
+      "Assumption: The subscription registry can be queried within the latency budget (e.g., < 100ms for p95 ≤ 1.0s). Risk: Registry latency or unavailability delays subscription setup. Mitigation: cache subscriptions locally; use eventual consistency.",
+      "Assumption: Worksite model state changes are well-defined and can be serialized as immutable events. Risk: Complex, mutable state (e.g., nested objects with circular references) may be difficult to represent as events. Mitigation: enforce event schema discipline; use event sourcing patterns.",
+      "Assumption: Consumer processing time is predictable and < 900ms (to meet p95 ≤ 1.0s with 100ms stream latency). Risk: Slow consumers or resource contention may violate latency SLA. Mitigation: implement consumer-side SLA monitoring; use backpressure mechanisms.",
+      "Assumption: Authorization policies are stable and can be evaluated at subscription time. Risk: Dynamic, context-dependent policies (e.g., time-based access) may require re-evaluation per event. Mitigation: push policy evaluation to the consumer or use a policy sidecar."
+    ],
+    "recommended_revision": "Refine FR to explicitly state: (1) Delivery semantics (at-least-once vs. exactly-once); (2) Authorization evaluation timing (at subscription vs. per-event); (3) Acceptable consumer processing latency budget (e.g., p95 ≤ 900ms for consumer-side work, leaving 100ms for stream delivery); (4) Worksite model change frequency and event size distribution (to validate stream throughput and latency assumptions). Additionally, clarify whether 'authorized consumers' includes dynamic role changes (e.g., revocation mid-stream) and whether the latency SLA applies to all update scenarios or only a defined subset (e.g., safety-critical updates vs. informational updates). Consider introducing a secondary FR for authorization policy enforcement to separate the concerns of state propagation and access control."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "Centralized event streaming and subscription management layer that owns the change-data-capture stream, consumer subscription registry, authorization filtering, and delivery guarantee enforcement for all worksite model state changes across the system."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Worksite model state changes (immutable events) produced by Vehicle, Teleoperation, and Safety Services flow into the CDC stream via Telemetry ingestion."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Authorized consumers (Vehicle, Teleoperation, Safety Services) subscribe to filtered event views and receive task/state updates via Tasking interface with role and worksite context filtering applied."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Safety-critical state changes are delivered to Safety Services subscribers with exactly-once guarantees and latency enforcement (p95 ≤ 1.0s) via SafetyAlert interface."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Durable, ordered change stream persisted and replicated across network; subscription registry and delivery state managed via Network Link for resilience and ordering guarantees."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "Excellent fit. NGHE Solution is the natural system-wide integration layer. CDC stream, subscription registry, authorization filtering, and delivery guarantees are all cross-cutting concerns that belong at the solution level. Event production (Telemetry in) and consumption (Tasking/SafetyAlert out) are cleanly separated. Minimal diffusion: only the subscription registry state and stream persistence require coordination with Network Link; all other logic is self-contained."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 15,
+        "diffusion_score": 85,
+        "notes": "Poor fit. Vehicle is a producer/consumer of events, not the owner of the streaming infrastructure. Placing CDC stream, subscription registry, and authorization logic in Vehicle would create tight coupling to all other modules (Teleoperation, Safety Services) and violate separation of concerns. Delivery guarantees and latency enforcement are system-wide concerns, not vehicle-specific."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 15,
+        "diffusion_score": 85,
+        "notes": "Poor fit. Teleoperation is a producer/consumer of events, not the owner of the streaming infrastructure. Placing CDC stream and subscription registry here would create asymmetric coupling: Vehicle and Safety Services would depend on Teleoperation for event delivery, violating modularity. Authorization filtering and delivery guarantees are system-wide, not teleoperation-specific."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Poor fit. Safety Services is a critical consumer of events but not the owner of the streaming infrastructure. Placing CDC stream and subscription registry here would create a safety-critical bottleneck and tight coupling to all other modules. Delivery guarantees and latency enforcement are system-wide concerns. Safety Services should consume from the stream, not own it."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "The CDC stream, subscription registry, authorization filtering, and delivery guarantee enforcement are system-wide integration concerns that naturally belong in the NGHE Solution layer. This placement decouples event producers (Vehicle, Teleoperation, Safety Services) from consumers, centralizes authorization logic, and enables consistent latency and delivery guarantees across all subscribers. The DP is fully contained within NGHE Solution with minimal external diffusion: only Telemetry (in), Tasking (out), SafetyAlert (out), and Network Link (inout) cross the boundary.",
+    "containment_risks": [
+      "NGHE Solution becomes a critical path for all state change propagation; any latency or availability issue in the CDC stream or subscription layer directly impacts all consumers. Mitigation: design the stream and subscription registry for high availability, low-latency operation, and graceful degradation.",
+      "Authorization filtering logic must be kept in sync with role and worksite context definitions across all modules. Mitigation: establish a clear contract for authorization policy updates and version the subscription registry schema.",
+      "Exactly-once delivery guarantees require idempotent consumer logic and careful handling of network failures and retries. Mitigation: document consumer responsibilities and provide idempotency helpers in the subscription API.",
+      "The subscription registry itself becomes a shared mutable state that must be protected against concurrent updates and inconsistency. Mitigation: use a durable, transactional backing store (e.g., database) and implement optimistic or pessimistic locking as needed."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The FR specifies a measurable latency threshold (p95 ≤ 1.0s) and authorization scope (customer-defined, role/worksite context). The IM boundary (NGHE Solution) owns the CDC stream, subscription registry, and delivery guarantee enforcement—all directly observable and testable. Verification can be performed via: (1) latency instrumentation on SafetyAlert and Tasking interfaces, (2) authorization audit logs from the subscription registry, (3) end-to-end integration tests with simulated worksite model changes across Vehicle, Teleoperation, and Safety Services producers. The immutable event model and ordered stream provide a clear audit trail for traceability.",
+      "allocation_clarity": "Excellent. The FR requirement is fully allocated to the NGHE Solution IM boundary. The four key responsibilities are unambiguously assigned: (1) CDC stream ownership (Telemetry in → stream persistence), (2) subscription registry (consumer registration and filtering), (3) authorization enforcement (role/worksite context filtering), (4) delivery guarantee management (at-least-once or exactly-once per SafetyAlert interface contract). No ambiguity exists regarding which module is accountable for latency, authorization, or delivery semantics. The external interfaces (Telemetry in, Tasking out, SafetyAlert out, Network Link inout) clearly delineate producer/consumer boundaries and cross-cutting concerns."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "The DP directly and sufficiently addresses the FR. The hybrid push-pull architecture with CDC stream and consumer-side subscription registry is a well-established pattern for decoupled, scalable state propagation. The DP explicitly commits to: (1) immutable event emission (decouples producers from consumers), (2) ordered change stream (preserves causality and supports exactly-once semantics), (3) role/worksite context filtering (enforces authorization boundaries), (4) configurable delivery guarantees (at-least-once or exactly-once), (5) latency enforcement at subscription layer (p95 ≤ 1.0s). The DP is technology-agnostic (does not prescribe Kafka, Pulsar, or custom implementation) but is sufficiently detailed to guide IM design. No logical gaps exist between the FR requirement and the DP solution concept."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Subscription registry state management: The subscription registry (consumer registrations, role/worksite filters, delivery state) is a shared mutable resource. If subscription updates are not transactionally coordinated with stream consumption, race conditions could cause missed or duplicate deliveries. Mitigation: use a durable, transactional backing store (e.g., PostgreSQL, DynamoDB with transactions) and implement optimistic locking for concurrent subscription updates.",
+        "Authorization policy synchronization: Role and worksite context definitions are maintained outside NGHE Solution (likely in a separate identity/policy service). If authorization policy updates are not propagated to the subscription registry in real-time, stale filters could allow unauthorized consumers to receive events. Mitigation: establish a versioned authorization policy contract, implement a change listener on the policy service, and version subscription filters to detect policy drift.",
+        "Latency enforcement across heterogeneous consumers: The p95 ≤ 1.0s latency requirement must hold for all subscribers (Vehicle, Teleoperation, Safety Services) regardless of network conditions or consumer processing speed. If a slow consumer blocks the stream or causes backpressure, other subscribers may experience latency violations. Mitigation: implement per-subscriber delivery queues with independent flow control, use async/non-blocking subscription APIs, and monitor per-subscriber latency separately.",
+        "Exactly-once delivery idempotency burden: The DP specifies exactly-once delivery guarantees, but this requires consumers to implement idempotent processing logic. If a consumer does not deduplicate events (e.g., by event ID), duplicate processing could occur on retries. Mitigation: provide idempotency helpers in the subscription API (e.g., deduplication cache, event ID tracking) and document consumer responsibilities clearly.",
+        "Network Link persistence and replication: The CDC stream must be durable and replicated across the network to survive failures. If replication is asynchronous, a producer failure could lose in-flight events before replication completes. Mitigation: use synchronous replication for safety-critical events (SafetyAlert) and asynchronous for non-critical events; document replication guarantees per interface.",
+        "NGHE Solution as critical path: All state propagation flows through NGHE Solution. Any latency, availability, or correctness issue in the CDC stream or subscription layer directly impacts all consumers. Mitigation: design for high availability (e.g., multi-region replication, failover), implement circuit breakers for slow consumers, and provide graceful degradation (e.g., fallback to polling if stream is unavailable)."
+      ],
+      "containment_notes": "Excellent containment (95% score). The DP is fully self-contained within the NGHE Solution IM boundary. The CDC stream, subscription registry, authorization filtering, and delivery guarantee enforcement are all cross-cutting, system-wide concerns that naturally belong at the solution integration layer. Event producers (Vehicle, Teleoperation, Safety Services) are cleanly decoupled from consumers via the stream abstraction. The four external interfaces (Telemetry in, Tasking out, SafetyAlert out, Network Link inout) are well-defined and minimal. No logic is scattered across Vehicle, Teleoperation, or Safety Services modules. The only diffusion (5%) is the necessary coordination with Network Link for stream persistence and replication, which is unavoidable and acceptable. Recommendation: maintain this containment strategy and invest in high-availability design for the NGHE Solution layer to mitigate the critical-path risk."
+    },
+    "recommended_revisions": [
+      "Clarify the subscription registry schema and versioning strategy. Document the contract for role/worksite context filters, including how policy updates are propagated and how stale filters are detected/invalidated.",
+      "Specify the per-subscriber latency monitoring and alerting strategy. Define how p95 ≤ 1.0s is measured (end-to-end from event emission to consumer receipt), which subscribers are in scope, and how latency violations are escalated.",
+      "Define the idempotency contract for exactly-once delivery. Specify whether consumers must implement deduplication logic or whether the subscription layer provides deduplication helpers (e.g., event ID tracking, deduplication cache).",
+      "Document the replication strategy for the CDC stream. Specify whether replication is synchronous or asynchronous per interface (e.g., synchronous for SafetyAlert, asynchronous for Tasking), and define recovery procedures for replication failures.",
+      "Add a resilience and failover design for NGHE Solution. Specify how the CDC stream and subscription registry are replicated across availability zones, how failover is triggered, and how in-flight events are handled during failover.",
+      "Define the authorization audit trail. Specify what events are logged (e.g., subscription creation, filter updates, authorization denials) and how audit logs are retained for compliance and debugging."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The FR-DP-IM gates all pass with high confidence, but the diffusion risks and recommended revisions reveal that the current DP is logically sound but architecturally incomplete. The DP commits to critical behaviors (exactly-once delivery, p95 ≤ 1.0s latency, authorization filtering, stream durability) without specifying the sub-system design that realizes these guarantees. Given the high safety criticality of this FR (state propagation underpins SafetyAlert delivery), decomposition into next-level sub-FRs is necessary to address: (1) subscription registry transactional consistency, (2) authorization policy synchronization, (3) per-subscriber latency isolation, (4) idempotency enforcement, (5) stream replication and failover. These are not minor implementation details—they are architectural decisions that must be explicitly designed and verified. Stopping here would defer critical risk mitigation to implementation, violating the principle that safety-critical concerns must be visible and traceable in the design hierarchy.",
+    "next_level_sub_frs": [
+      "FR 2.1: Maintain subscription registry consistency under concurrent updates and stream consumption without race conditions or lost subscriptions.",
+      "FR 2.2: Synchronize authorization policy changes (role/worksite context definitions) to the subscription registry in real-time to prevent stale authorization filters.",
+      "FR 2.3: Isolate per-subscriber delivery latency such that slow or unresponsive consumers do not cause latency violations for other subscribers (p95 ≤ 1.0s per subscriber).",
+      "FR 2.4: Enforce idempotent event processing for exactly-once delivery semantics, ensuring consumers can safely retry failed deliveries without duplicate state mutations.",
+      "FR 2.5: Replicate the CDC stream and subscription registry state across network availability zones with synchronous replication for safety-critical events (SafetyAlert) to survive producer/network failures.",
+      "FR 2.6: Provide audit trail and observability for authorization decisions, subscription lifecycle events, and delivery guarantee violations to support compliance and debugging."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "The current DP is logically correct but under-specifies the architectural mechanisms required to realize the five diffusion risks and six recommended revisions. Before decomposing sub-FRs, the DP should be revised to explicitly commit to: (1) a transactional subscription registry backing store (e.g., PostgreSQL with optimistic locking), (2) a versioned authorization policy contract with change listeners, (3) per-subscriber delivery queues with independent flow control and latency monitoring, (4) idempotency helpers (event ID deduplication, deduplication cache) provided by the subscription API, (5) synchronous replication for SafetyAlert and asynchronous for Tasking with documented recovery procedures, (6) audit logging for authorization and subscription events. These revisions do not change the DP's core concept (hybrid push-pull CDC with subscription registry) but make the architectural commitments explicit and testable. This will reduce ambiguity when decomposing sub-FRs and ensure that each sub-FR has a clear DP anchor."
+    },
+    "record": {
+      "assumptions": [
+        "Authorization policy service is external to NGHE Solution and provides a versioned policy contract (role/worksite definitions) that can be subscribed to for change notifications.",
+        "Network Link provides durable, replicated stream storage (e.g., Kafka, Pulsar, or custom log-structured store) with configurable replication semantics (synchronous/asynchronous).",
+        "Vehicle, Teleoperation, and Safety Services producers emit immutable events with globally unique event IDs and causal ordering guarantees (e.g., via logical timestamps or version vectors).",
+        "Consumers (Vehicle, Teleoperation, Safety Services) are willing to implement idempotent processing logic or accept idempotency helpers provided by the subscription API.",
+        "The p95 ≤ 1.0s latency requirement is measured end-to-end from event emission to consumer receipt and applies to all subscribers equally (no differentiation by subscriber type or network condition).",
+        "Failover and recovery procedures are acceptable to pause or delay event delivery temporarily (i.e., exactly-once delivery does not require zero-downtime failover)."
+      ],
+      "open_risks": [
+        "Subscription registry becomes a single point of failure if not replicated. Mitigation: design for multi-region replication and failover.",
+        "Authorization policy drift: if policy updates are not propagated in real-time, stale filters could allow unauthorized access. Mitigation: implement versioned policy contracts and change listeners.",
+        "Latency tail risk: if any subscriber is slow or unresponsive, backpressure could propagate to the stream and violate p95 ≤ 1.0s for other subscribers. Mitigation: per-subscriber delivery queues with independent flow control.",
+        "Exactly-once delivery idempotency burden: if consumers do not implement deduplication, duplicate processing could occur. Mitigation: provide idempotency helpers and document consumer responsibilities.",
+        "Stream replication lag: asynchronous replication could lose in-flight events on producer failure. Mitigation: use synchronous replication for safety-critical events (SafetyAlert).",
+        "NGHE Solution as critical path: any latency, availability, or correctness issue directly impacts all consumers. Mitigation: design for high availability and graceful degradation."
+      ],
+      "evidence_needed": [
+        "Specification of subscription registry schema, versioning strategy, and transactional consistency model (e.g., ACID guarantees, optimistic locking).",
+        "Authorization policy contract definition: role/worksite context structure, change notification mechanism, and policy version tracking.",
+        "Per-subscriber latency monitoring design: how p95 ≤ 1.0s is measured, which subscribers are in scope, and how latency violations are detected and escalated.",
+        "Idempotency contract specification: whether consumers implement deduplication or whether the subscription layer provides helpers (e.g., event ID tracking, deduplication cache).",
+        "Stream replication strategy: synchronous vs. asynchronous per interface, replication lag bounds, and recovery procedures for replication failures.",
+        "Failover and recovery design: how CDC stream and subscription registry are replicated across availability zones, failover triggers, and in-flight event handling.",
+        "Audit logging design: what events are logged (subscription creation, filter updates, authorization denials, delivery failures), retention policy, and compliance requirements.",
+        "Integration test plan: end-to-end tests for exactly-once delivery, latency enforcement, authorization filtering, and failover scenarios."
+      ]
+    }
+  }
+}

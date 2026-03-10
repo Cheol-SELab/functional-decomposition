@@ -1,0 +1,180 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall propagate worksite model state changes to all authorized consumers within the customer-defined latency threshold.",
+    "rationale": "The original FR conflates two distinct obligations: (1) detecting/capturing state changes in the worksite model, and (2) delivering those changes to consumers within a time bound. The refined FR focuses on the propagation obligation (the primary latency concern) and removes the vague 'operational use' qualifier in favor of explicit reference to customer-defined acceptance criteria. The term 'propagate' is solution-neutral (avoids prescribing polling, pub-sub, or push mechanisms) and 'authorized consumers' acknowledges that different stakeholders (operator, tele-operator, safety manager, maintenance) may receive updates selectively. This FR is now atomic: it has a single, measurable outcome (latency compliance) and does not embed design choices.",
+    "verification_idea": "Measure end-to-end latency from the moment a worksite state change is committed (e.g., equipment position update, hazard detection, task completion) to the moment that change is delivered and acknowledged by each authorized consumer role. Conduct latency testing across supported update scenarios (e.g., position updates, safety alerts, task status changes) under nominal and stress conditions. Confirm that p95 latency ≤ customer-defined threshold (default 1.0 s) for each scenario and consumer type.",
+    "sub_frs": [
+      "FR-NGHE-007.1: The NGHE solution shall detect and capture worksite model state changes (e.g., equipment position, hazard events, task status) with sufficient fidelity to support operational decision-making.",
+      "FR-NGHE-007.2: The NGHE solution shall propagate worksite model state changes to all authorized consumers within the customer-defined latency threshold.",
+      "FR-NGHE-007.3: The NGHE solution shall enforce role-based access control to ensure only authorized stakeholders receive worksite model updates relevant to their operational context."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Centralized event-driven state propagation with asynchronous message broker (decouples producers from consumers; supports fan-out to multiple authorized subscribers; enables latency-bounded delivery guarantees)",
+      "DP2: Synchronous request-response state synchronization with polling intervals (simple, but couples client availability to server; latency depends on poll frequency and network round-trip)",
+      "DP3: Hybrid push-pull model with server-initiated notifications for critical updates and client-initiated polling for non-critical state (balances responsiveness and resource efficiency; adds complexity in state consistency logic)",
+      "DP4: Peer-to-peer gossip protocol for state dissemination (eventual consistency; reduces central bottleneck; latency unpredictable and difficult to bound to p95 ≤ 1.0 s)",
+      "DP5: Direct point-to-point unicast from state producer to each authorized consumer (deterministic latency; poor scalability; tight coupling between producer and consumer registry)"
+    ],
+    "selected_dp": "DP1: Centralized event-driven state propagation with asynchronous message broker. Rationale: (1) Decouples worksite model state producers from consumers, enabling independent scaling and deployment; (2) Message broker enforces authorization and filtering at the propagation layer, centralizing access control; (3) Asynchronous semantics allow bounded latency guarantees via broker configuration (queue depth, throughput, consumer acknowledgment policies); (4) Supports fan-out to multiple authorized subscribers without producer awareness; (5) Aligns with safety-critical operational policies by enabling audit trails and replay semantics; (6) Naturally accommodates future consumer types (mobile, edge, third-party integrations) without redesign.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Message schema coupling: If event schema is tightly coupled to internal worksite model representation, schema evolution breaks consumers. Mitigation: Define versioned, stable event contracts independent of internal model.",
+        "Authorization coupling: If authorization logic is embedded in message broker configuration, changes to customer-defined policies require broker reconfiguration. Mitigation: Externalize authorization as a policy service queried at subscription time and at message filtering.",
+        "Latency coupling to broker topology: If broker is single-node or geographically distant from consumers, network latency may exceed p95 threshold. Mitigation: Broker deployment must be co-located or replicated near consumer clusters; latency SLA must be validated in deployment architecture.",
+        "Consumer state consistency: If consumers apply state updates out-of-order or miss messages, model divergence occurs. Mitigation: Enforce total ordering of events (e.g., logical timestamps, sequence numbers) and require idempotent consumer handlers.",
+        "Weak coupling to consumer readiness: Broker does not know if consumer is ready to receive; slow consumers may cause broker queue buildup. Mitigation: Implement backpressure mechanisms (e.g., consumer acknowledgment, dead-letter queues) and monitor broker health."
+      ],
+      "notes": "DP1 achieves low coupling by design: producers emit events without knowing consumers; consumers subscribe to event types without knowing producers. Authorization and filtering are centralized, reducing distributed policy enforcement. Latency is bounded by broker SLA, not by consumer count. Risk is primarily in deployment topology and event schema governance, not in the logical design."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Message broker infrastructure is available, reliable, and can be deployed within customer environment (on-premises or cloud). RISK: If customer prohibits external dependencies or requires air-gapped deployment, broker licensing, operational overhead, or network isolation may be infeasible.",
+      "ASSUMPTION: Worksite model state changes are discrete, event-emittable updates (e.g., 'safety plan updated', 'worker location changed'). RISK: If state is continuous or high-frequency (e.g., sensor streams), event volume may exceed broker throughput or latency budget; consider aggregation or sampling.",
+      "ASSUMPTION: p95 ≤ 1.0 s latency is achievable with broker-based propagation in the target deployment environment (network, hardware, consumer processing). RISK: If network latency alone is > 500 ms or consumer processing is slow, p95 target is unachievable; latency budget must be re-negotiated or DP revised.",
+      "ASSUMPTION: Authorization rules are stable and can be evaluated at subscription time or message filtering time. RISK: If authorization is dynamic (e.g., role-based access changes mid-session), broker-side filtering may be insufficient; require real-time policy evaluation.",
+      "ASSUMPTION: Consumers are tolerant of eventual consistency (i.e., brief windows where different consumers see different state). RISK: If strong consistency is required (e.g., all consumers must see the same state simultaneously), DP1 may not meet safety requirements; consider synchronous consensus mechanisms.",
+      "ASSUMPTION: Event schema and versioning strategy are defined and enforced. RISK: If schema governance is absent, producer and consumer schema drift will cause silent failures or data loss.",
+      "ASSUMPTION: Audit and replay semantics are required for safety compliance. RISK: If broker does not support message retention or replay, compliance evidence may be lost."
+    ],
+    "recommended_revision": "Refine FR to explicitly state: (1) Consistency model required (eventual vs. strong); (2) Event volume and frequency (updates/second); (3) Deployment topology constraints (on-premises, cloud, hybrid, air-gapped); (4) Authorization model (static roles, dynamic policies, attribute-based); (5) Audit and compliance requirements (retention period, replay capability). Recommend pairing DP1 with explicit IM (Implementation Module) layer: IM1a = Message Broker Service (owned by platform team, deployed in customer environment), IM1b = Event Schema Registry (owned by architecture team, enforces versioning), IM1c = Authorization Policy Service (owned by security team, evaluates access at subscription and message filtering). This separation ensures that DP logic (event-driven propagation) is decoupled from IM realization (specific broker product, schema tool, policy engine), enabling technology substitution without functional redesign."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "Centralized event-driven state propagation layer that manages asynchronous message brokering for worksite model state, enforces authorization/filtering at propagation boundaries, and provides audit trails and replay semantics for safety-critical operations."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Ingests worksite model state updates (sensor data, position, operational status) from Vehicle and Teleoperation subsystems; broker receives and queues these events."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Propagates filtered, authorized safety-critical state changes to Safety Services; broker enforces access control and latency guarantees at this boundary."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Distributes authorized state updates to Vehicle and Teleoperation for command execution; broker manages fan-out to multiple subscribers with acknowledgment policies."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Underlying transport for all message broker communication; NGHE Solution abstracts network reliability and ordering semantics."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent containment: NGHE Solution is the natural home for centralized state propagation, authorization enforcement, and audit trails. The message broker logic, queue management, filtering, and replay semantics are all core to this layer. Minimal diffusion: only Network Link (transport) and external consumer interfaces (Telemetry in, SafetyAlert/Tasking out) cross the boundary. This is the most specific module that avoids scattering broker logic across Vehicle, Teleoperation, or Safety Services."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.45,
+        "diffusion_score": 0.55,
+        "notes": "Poor containment: Safety Services is a consumer of state, not the producer/broker. Placing the message broker here would couple safety logic to propagation infrastructure, violating separation of concerns. Broker logic (queue management, authorization filtering, replay) would diffuse into Vehicle and Teleoperation as they must implement producer-side broker clients. High coupling to Network Link and Tasking interface."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Very poor containment: Vehicle is a state producer, not a broker. Embedding message broker logic here would tightly couple vehicle control to propagation infrastructure, preventing independent scaling and deployment. Broker logic would diffuse across Teleoperation, Safety Services, and NGHE Solution. Violates the decoupling rationale of DP1."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor containment: Teleoperation is a state producer and consumer, but not the centralized broker. Placing broker here would couple teleoperation logic to propagation infrastructure and create asymmetry (why broker in Teleoperation but not Vehicle?). Broker logic would diffuse across Vehicle, Safety Services, and NGHE Solution. Prevents independent scaling of broker from teleoperation operations."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "NGHE Solution is the unique, most-specific module boundary that contains the centralized event-driven state propagation DP with high cohesion and minimal diffusion. It is the natural architectural layer for broker infrastructure, authorization enforcement, audit trails, and replay semantics. Vehicle and Teleoperation remain decoupled producers; Safety Services remains a decoupled consumer. All external interfaces (Telemetry, Tasking, SafetyAlert, Network Link) are well-defined and cross the boundary cleanly.",
+    "containment_risks": [
+      "Risk: If NGHE Solution becomes a bottleneck, the broker's throughput and latency guarantees may not scale to high-frequency telemetry streams. Mitigation: Design broker with horizontal scaling (partitioned topics, consumer groups) and configure queue depth and acknowledgment policies to meet latency SLAs.",
+      "Risk: Authorization and filtering logic at the broker layer may become complex if access control policies are fine-grained or dynamic. Mitigation: Externalize policy evaluation to a dedicated policy engine (e.g., ABAC service) that the broker queries; keep broker logic focused on enforcement, not policy definition.",
+      "Risk: Audit trail and replay semantics require persistent storage; if not properly managed, storage costs and query latency may degrade. Mitigation: Implement tiered storage (hot/cold) and define retention policies aligned with safety-critical requirements.",
+      "Risk: Network Link failures or latency spikes could cause broker queues to back up, affecting all consumers. Mitigation: Implement circuit breakers, dead-letter queues, and consumer-side retry logic to isolate failures."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP1 (Centralized event-driven state propagation with asynchronous message broker) directly and sufficiently addresses FR (propagate worksite model state changes to all authorized consumers within customer-defined latency threshold). The DP rationale explicitly maps to FR requirements: (1) decoupling enables independent scaling to meet latency SLAs; (2) centralized authorization/filtering at broker enforces access control; (3) asynchronous semantics with broker configuration (queue depth, throughput, acknowledgment policies) provide bounded latency guarantees; (4) fan-out capability supports multiple authorized subscribers. The DP is logically sound and complete for the FR."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Risk: Authorization and filtering logic may diffuse into external policy engines if fine-grained or dynamic access control policies are required. Mitigation: Externalize policy evaluation to a dedicated ABAC service; keep broker focused on enforcement only.",
+        "Risk: Audit trail and replay semantics require persistent storage infrastructure that could diffuse into separate data layer modules if not explicitly owned by NGHE Solution. Mitigation: Clarify that audit/replay storage is part of NGHE Solution's internal architecture, not a separate module.",
+        "Risk: Network Link abstraction may mask transport-layer reliability concerns (ordering, delivery guarantees) that could diffuse responsibility between NGHE Solution and underlying network infrastructure. Mitigation: Define explicit SLAs for Network Link (e.g., FIFO ordering per partition, at-least-once delivery) and document how NGHE Solution compensates for transport failures.",
+        "Risk: Consumer-side retry logic and circuit breakers (mentioned in containment_risks) may diffuse broker resilience responsibility into Vehicle, Teleoperation, and Safety Services if not standardized. Mitigation: Provide client libraries or sidecar patterns that encapsulate retry/circuit-breaker logic, keeping it logically part of the propagation layer."
+      ],
+      "containment_notes": "NGHE Solution achieves excellent containment (0.92 score) with minimal diffusion (0.08 score). The centralized message broker, queue management, authorization enforcement, and audit/replay semantics are cohesively owned by this module. External interfaces (Telemetry in, SafetyAlert/Tasking out, Network Link) are cleanly defined and cross the boundary without scattering broker logic. Vehicle and Teleoperation remain decoupled as producers/consumers. Safety Services remains a decoupled consumer. The module boundary is the most specific and natural home for DP1. No alternative module (Vehicle, Teleoperation, Safety Services) provides better containment without violating separation of concerns or creating asymmetric coupling."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The FR acceptance criterion (p95 latency ≤ 1.0 s) is measurable and testable. NGHE Solution's message broker can be instrumented to report end-to-end latency (ingestion to delivery) per consumer and per update scenario. Broker configuration parameters (queue depth, throughput, acknowledgment policies) are directly controllable and traceable to latency SLAs. Audit trails provide observability for safety-critical operations. Verification can be performed via load testing, chaos engineering (network failures, queue saturation), and production monitoring.",
+      "allocation_clarity": "High. The FR is clearly allocated to NGHE Solution via DP1. The DP specifies the mechanism (centralized event-driven state propagation with asynchronous message broker), and the IM boundary explicitly owns this mechanism. Interfaces are well-defined: Telemetry (state input), SafetyAlert/Tasking (state output), Network Link (transport). Ownership is unambiguous: NGHE Solution is responsible for latency guarantees, authorization enforcement, and audit trails. No ambiguity exists regarding which module is accountable for meeting the latency threshold or handling authorization failures."
+    },
+    "recommended_revisions": [
+      "Revision 1: Explicitly define Network Link SLAs (FIFO ordering per partition, at-least-once delivery, maximum transport latency) and document how NGHE Solution compensates for transport failures (e.g., idempotent message processing, dead-letter queues). This clarifies the boundary between NGHE Solution and underlying network infrastructure.",
+      "Revision 2: Specify the authorization and filtering policy model (e.g., ABAC, RBAC) and clarify whether policy evaluation is owned by NGHE Solution or delegated to an external policy engine. If delegated, define the policy query interface and latency budget for policy evaluation to ensure end-to-end latency remains within the 1.0 s p95 threshold.",
+      "Revision 3: Document the audit trail and replay semantics architecture: (a) what events are logged (state changes, authorization decisions, delivery confirmations), (b) retention policy aligned with safety-critical requirements, (c) storage tier strategy (hot/cold), (d) query latency SLAs for audit/replay operations. This prevents diffusion of storage concerns into other modules.",
+      "Revision 4: Define consumer-side resilience patterns (retry logic, circuit breakers, backoff strategies) and provide standardized client libraries or sidecar implementations to encapsulate these patterns. This prevents diffusion of resilience logic into Vehicle, Teleoperation, and Safety Services.",
+      "Revision 5: Add a performance and scalability constraint: specify the expected throughput (messages/sec), fan-out factor (number of authorized consumers per state update), and horizontal scaling strategy (e.g., partitioned topics, consumer groups) to ensure the broker can meet latency SLAs under peak load. This addresses the containment risk of NGHE Solution becoming a bottleneck.",
+      "Revision 6: Clarify the latency budget allocation: specify how the 1.0 s p95 threshold is distributed across (a) state ingestion and queuing, (b) authorization/filtering, (c) message delivery to consumers, (d) network transport. This enables targeted optimization and verification of each component."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass with high confidence. The DP is logically sound, the IM boundary is well-contained, and verification is feasible. However, the recommended_revisions identify six critical architectural clarifications that must be decomposed into sub-FRs to prevent diffusion risks and ensure safety-critical compliance. The high safety criticality factor demands explicit functional decomposition of: (1) Network Link reliability guarantees, (2) Authorization policy evaluation, (3) Audit trail and replay semantics, (4) Consumer-side resilience patterns, (5) Performance and scalability constraints, and (6) Latency budget allocation. These are not minor implementation details—they are functional requirements that must be owned, verified, and traced. Decomposing them now prevents architectural debt and ensures accountability across module boundaries.",
+    "next_level_sub_frs": [
+      "FR1.1: Guarantee FIFO ordering and at-least-once delivery semantics across Network Link transport layer, with explicit compensation mechanisms (idempotent processing, dead-letter queues) for transport failures.",
+      "FR1.2: Enforce authorization and access control policies (ABAC/RBAC) for state propagation, with policy evaluation latency ≤ 100 ms (p95) to remain within end-to-end latency budget.",
+      "FR1.3: Maintain immutable audit trail of all state changes, authorization decisions, and delivery confirmations with retention policy aligned to safety-critical requirements and query latency ≤ 50 ms (p95).",
+      "FR1.4: Provide standardized consumer-side resilience patterns (retry logic, circuit breakers, exponential backoff) via client libraries or sidecar implementations to prevent diffusion of resilience logic into Vehicle, Teleoperation, and Safety Services.",
+      "FR1.5: Support horizontal scaling of message broker to handle peak throughput (specify: messages/sec, fan-out factor, partitioning strategy) while maintaining p95 latency ≤ 1.0 s under load.",
+      "FR1.6: Allocate and enforce latency budget across state ingestion (≤ 200 ms), authorization/filtering (≤ 100 ms), message delivery (≤ 500 ms), and network transport (≤ 200 ms) to achieve p95 end-to-end latency ≤ 1.0 s."
+    ],
+    "revise": {
+      "target": "FR",
+      "why": "The parent FR (propagate worksite model state changes to all authorized consumers within customer-defined latency threshold) is correct but insufficiently detailed for safety-critical decomposition. The six sub-FRs above operationalize the DP's implicit assumptions about network reliability, authorization, audit, resilience, scalability, and latency budgeting. These sub-FRs must be explicitly stated at the current level to ensure each is independently owned, verified, and traced to an IM. Without this decomposition, diffusion risks (authorization logic leaking into external policy engines, audit storage diffusing into separate data layers, resilience logic scattering into consumers) will materialize during detailed design."
+    },
+    "record": {
+      "assumptions": [
+        "Network Link provides FIFO ordering and at-least-once delivery semantics; if not, NGHE Solution must implement compensation (idempotent processing, dead-letter queues).",
+        "Authorization policy model (ABAC vs. RBAC) is defined and policy evaluation latency is budgeted within the 1.0 s p95 threshold.",
+        "Audit trail storage is owned by NGHE Solution and not diffused into a separate data layer module; retention policy aligns with safety-critical requirements.",
+        "Consumer-side resilience patterns (retry, circuit breaker) are standardized via client libraries or sidecars; not implemented ad-hoc in Vehicle, Teleoperation, Safety Services.",
+        "Message broker can be horizontally scaled to handle peak throughput and fan-out without becoming a bottleneck; partitioning strategy is defined.",
+        "Latency budget allocation (ingestion, authorization, delivery, transport) is feasible and verified via load testing and chaos engineering."
+      ],
+      "open_risks": [
+        "Risk: Network Link SLAs (FIFO, at-least-once) may not be guaranteed by underlying infrastructure; compensation mechanisms (idempotent processing, dead-letter queues) must be designed and tested.",
+        "Risk: Authorization policy evaluation latency may exceed 100 ms budget if policies are complex or policy engine is remote; mitigation requires caching, pre-computation, or policy simplification.",
+        "Risk: Audit trail storage may become a bottleneck under high throughput; hot/cold tiering and query optimization must be designed to maintain ≤ 50 ms query latency.",
+        "Risk: Consumer-side resilience patterns may not be adopted uniformly if client libraries are not mandatory or sidecar pattern is not enforced; governance and testing required.",
+        "Risk: Horizontal scaling of message broker may introduce ordering guarantees across partitions; per-partition FIFO must be clarified and verified.",
+        "Risk: Latency budget allocation may be infeasible if any component (e.g., authorization, network) consistently exceeds its allocation; trade-offs and re-allocation strategy must be pre-planned."
+      ],
+      "evidence_needed": [
+        "Network Link SLA specification: FIFO ordering per partition, at-least-once delivery, maximum transport latency, failure modes and recovery.",
+        "Authorization policy model specification: ABAC/RBAC rules, policy evaluation latency measurements, caching strategy, policy engine interface.",
+        "Audit trail architecture specification: events logged, retention policy, storage tier strategy (hot/cold), query latency SLAs, compliance requirements.",
+        "Consumer-side resilience pattern specification: retry logic, circuit breaker thresholds, backoff strategies, client library/sidecar implementation, adoption enforcement.",
+        "Performance and scalability specification: expected throughput (messages/sec), fan-out factor, partitioning strategy, horizontal scaling limits, bottleneck analysis.",
+        "Latency budget allocation specification: component latency budgets, measurement methodology, verification plan (load testing, chaos engineering, production monitoring).",
+        "Load testing and chaos engineering results: p95 latency under peak throughput, behavior under network failures, queue saturation, policy engine delays.",
+        "Production monitoring and observability: instrumentation for end-to-end latency, per-consumer latency, authorization decision latency, audit trail query latency, broker resource utilization."
+      ]
+    }
+  }
+}

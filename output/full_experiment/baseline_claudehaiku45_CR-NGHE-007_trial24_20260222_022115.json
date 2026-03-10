@@ -1,0 +1,161 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current equipment state, environmental conditions, and operational events with a p95 latency not exceeding the customer-defined target (baseline 1.0 s) across all supported update scenarios.",
+    "rationale": "CR-NGHE-007 requires clarification of scope (what constitutes 'worksite model'), measurement basis (p95 latency across which scenarios), and customer-specific acceptance criteria. The refined FR explicitly bounds the latency requirement to a statistical percentile and acknowledges customer tailoring, critical for high-safety-criticality systems where deterministic guarantees matter.",
+    "verification_idea": "Instrument worksite model update pipeline with end-to-end latency telemetry; measure p95 latency across representative scenarios (equipment state change, sensor event, tele-operator command, safety alert); compare against customer acceptance criteria; validate under nominal and degraded network conditions.",
+    "sub_frs": [
+      "FR-NGHE-007.1: Capture and transmit equipment state changes (position, orientation, operational mode) with minimal local processing latency.",
+      "FR-NGHE-007.2: Receive and integrate transmitted state updates into the worksite model with bounded processing and storage latency.",
+      "FR-NGHE-007.3: Distribute updated worksite model to authorized consumers (Site Manager, Tele-operator, Safety Services) within latency budget.",
+      "FR-NGHE-007.4: Prioritize safety-critical updates (SafetyAlert events) to meet stricter latency targets than routine telemetry."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized worksite model server with synchronous request-response updates; all clients poll or subscribe via REST/gRPC.",
+      "DP-B: Distributed event-driven architecture with publish-subscribe messaging (MQTT/Kafka); worksite model replicated across edge nodes; safety events prioritized via separate high-priority queue.",
+      "DP-C: Hybrid approach: safety-critical updates via dedicated low-latency SafetyAlert channel; routine telemetry via standard Telemetry interface with adaptive batching; worksite model maintained locally on Vehicle and centrally on NGHE Solution with eventual consistency.",
+      "DP-D: Real-time middleware (e.g., DDS or time-triggered protocol) with deterministic scheduling; all updates synchronized to global clock; worksite model updated at fixed intervals."
+    ],
+    "selected_dp": "DP-C: Hybrid event-driven architecture with dual-path update strategy—safety-critical updates via dedicated low-latency SafetyAlert channel with strict p95 ≤ 200 ms; routine telemetry via Telemetry interface with adaptive batching and p95 ≤ 1.0 s; worksite model maintained locally on Vehicle (for real-time control) and centrally on NGHE Solution (for coordination and visualization); consistency reconciliation via periodic sync and conflict resolution.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between Vehicle state capture and NGHE Solution model update: mitigated by asynchronous messaging and local caching.",
+        "Coupling between SafetyAlert priority path and Telemetry routine path: mitigated by separate channels and queue prioritization.",
+        "Coupling between edge (Vehicle) and central (NGHE Solution) model replicas: mitigated by eventual consistency model and explicit sync protocol."
+      ],
+      "notes": "DP-C decouples safety-critical latency from routine telemetry latency, reducing coupling complexity. Dual-path design allows independent optimization of each path. Eventual consistency model is acceptable for non-safety worksite state; safety state is always synchronized via dedicated channel."
+    },
+    "assumptions_risks": [
+      "Assumption: Network link supports dual-channel prioritization (SafetyAlert high-priority, Telemetry standard-priority).",
+      "Assumption: Vehicle and NGHE Solution can tolerate temporary model divergence for non-safety state.",
+      "Risk: If Network Link does not support QoS/prioritization, SafetyAlert latency may not meet 200 ms target.",
+      "Risk: Conflict resolution logic for model divergence may introduce additional latency if not carefully designed.",
+      "Risk: Operator confusion if Vehicle local model and central model diverge visibly; requires clear UI/UX design."
+    ],
+    "recommended_revision": "Confirm with Network Link owner that SafetyAlert channel supports strict priority queuing and latency SLA. Define explicit conflict resolution policy (e.g., 'central model is source of truth for non-safety state; vehicle model is advisory'). Specify maximum acceptable divergence window (e.g., 5 s) before forced reconciliation."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "Central worksite model repository, update orchestration logic, model distribution to authorized consumers (Site Manager, Tele-operator, Safety Services), and consistency management. Includes worksite model database, update ingestion service, and distribution service."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Receives routine equipment state updates (position, orientation, operational mode, sensor readings) from Vehicle; supports adaptive batching and standard-priority queuing; target p95 latency ≤ 1.0 s."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "in",
+        "details": "Receives safety-critical events (e.g., collision risk, operator override, emergency stop) from Vehicle and Safety Services; high-priority queue; target p95 latency ≤ 200 ms."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Distributes updated worksite model and operational directives to Vehicle and Teleoperation module; includes model snapshots and delta updates."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Underlying transport for all interfaces; NGHE Solution depends on Network Link to enforce QoS/prioritization for SafetyAlert vs. Telemetry."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.95,
+        "diffusion_score": 0.05,
+        "notes": "NGHE Solution is the natural owner of central worksite model, update orchestration, and distribution logic. High containment: all core DP-C logic (model storage, ingestion, distribution, consistency management) resides here. Low diffusion: only external dependencies are on Telemetry, SafetyAlert, Tasking, and Network Link interfaces."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Vehicle owns local worksite model replica and state capture, but does not own central model or distribution logic. High diffusion: Vehicle would need to replicate model update logic, distribution logic, and consistency management—violating single responsibility. Not recommended as primary IM."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Teleoperation is a consumer of worksite model updates, not the owner. Assigning DP-C to Teleoperation would create circular dependency (Teleoperation depends on model updates, but would own the model). Not recommended."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Safety Services owns SafetyAlert generation and safety policy enforcement, but not the central worksite model. Assigning DP-C to Safety Services would require Safety Services to manage routine telemetry and model distribution—outside its safety-focused scope. Not recommended as primary IM."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "NGHE Solution is the single, cohesive owner of the central worksite model and update orchestration logic. Vehicle owns local model replica and state capture (sub-FR-NGHE-007.1); Safety Services owns SafetyAlert generation and prioritization (sub-FR-NGHE-007.4); Teleoperation and Site Manager are consumers. This assignment minimizes diffusion and aligns with system architecture (NGHE Solution as central coordinator).",
+    "containment_risks": [
+      "Risk: If NGHE Solution becomes overloaded with model update processing, latency SLA may be violated. Mitigation: design update ingestion service with horizontal scalability (e.g., message queue workers, load balancing).",
+      "Risk: Network Link failure or QoS degradation could violate SafetyAlert latency target. Mitigation: define fallback behavior (e.g., local safety shutdown on Vehicle if SafetyAlert not received within timeout).",
+      "Risk: Model divergence between Vehicle and NGHE Solution could cause operator confusion or safety issues. Mitigation: implement explicit conflict resolution policy and periodic reconciliation; design UI to clearly indicate model freshness."
+    ],
+    "recommended_revision": "Confirm that NGHE Solution has sufficient compute and network capacity to handle peak update rates (e.g., 100 Hz from Vehicle, 10 Hz from multiple tele-operators). Define SLA for model update ingestion service (e.g., 'process 99% of updates within 50 ms'). Specify fallback behavior if Network Link QoS is unavailable. Document conflict resolution policy in design specification."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid dual-path architecture) directly addresses FR-NGHE-007 by separating safety-critical updates (SafetyAlert, p95 ≤ 200 ms) from routine telemetry (Telemetry, p95 ≤ 1.0 s), enabling independent optimization of each path. Dual-path design is justified by high safety criticality and allows worksite model to be updated within customer-required timeliness. Assumptions and risks are documented and manageable."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Low diffusion risk: NGHE Solution is the natural owner of central model and orchestration logic. Vehicle, Teleoperation, and Safety Services have clear, non-overlapping responsibilities.",
+        "Interface clarity: Telemetry, SafetyAlert, Tasking, and Network Link are well-defined and align with DP-C architecture."
+      ],
+      "containment_notes": "NGHE Solution containment score 0.95 indicates strong alignment. All core DP-C logic (model storage, ingestion, distribution, consistency management) is contained within NGHE Solution. External dependencies are limited to four well-defined interfaces. No significant diffusion of DP-C logic across multiple modules."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible: instrument worksite model update pipeline with end-to-end latency telemetry; measure p95 latency across representative scenarios; validate under nominal and degraded network conditions. NGHE Solution provides clear measurement points (ingestion timestamp, distribution timestamp).",
+      "allocation_clarity": "Allocation is clear: NGHE Solution owns central model and update orchestration; Vehicle owns local model and state capture; Safety Services owns SafetyAlert generation; Teleoperation and Site Manager are consumers. Sub-FRs are allocated to appropriate modules."
+    },
+    "recommended_revisions": [
+      "Confirm Network Link QoS/prioritization capability before finalizing DP-C. If not available, revise DP to DP-D (time-triggered deterministic protocol) or add dedicated SafetyAlert hardware channel.",
+      "Define explicit conflict resolution policy for model divergence (e.g., 'central model is source of truth; vehicle model is advisory; reconcile every 5 s').",
+      "Specify fallback behavior if SafetyAlert latency SLA is violated (e.g., 'Vehicle initiates local safety shutdown if SafetyAlert not received within 500 ms').",
+      "Document model update ingestion service SLA (e.g., 'process 99% of updates within 50 ms') and design for horizontal scalability."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-NGHE-007 is not atomic; it decomposes into four sub-FRs (state capture, model integration, distribution, safety prioritization). DP-C is sound and well-justified, but requires further refinement at the next level to address sub-FR-specific DPs, IMs, and verification strategies. NGHE Solution is the correct IM boundary, but sub-FRs require allocation to Vehicle, Safety Services, and Teleoperation. Proceeding to next decomposition level is necessary to ensure complete coverage and traceability.",
+    "next_level_sub_frs": [
+      "FR-NGHE-007.1: Capture and transmit equipment state changes (position, orientation, operational mode) with minimal local processing latency (target p95 ≤ 100 ms from sensor to Telemetry interface).",
+      "FR-NGHE-007.2: Receive and integrate transmitted state updates into the worksite model with bounded processing and storage latency (target p95 ≤ 500 ms from Telemetry interface to model update).",
+      "FR-NGHE-007.3: Distribute updated worksite model to authorized consumers (Site Manager, Tele-operator, Safety Services) within latency budget (target p95 ≤ 300 ms from model update to Tasking interface).",
+      "FR-NGHE-007.4: Prioritize safety-critical updates (SafetyAlert events) to meet stricter latency targets than routine telemetry (target p95 ≤ 200 ms from SafetyAlert generation to Safety Services receipt)."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Network Link supports QoS/prioritization (SafetyAlert high-priority, Telemetry standard-priority).",
+        "Vehicle and NGHE Solution can tolerate temporary model divergence for non-safety state (eventual consistency model is acceptable).",
+        "Customer-defined latency target is 1.0 s for routine telemetry; safety-critical updates have stricter target (200 ms assumed based on high safety criticality).",
+        "Worksite model includes equipment state, environmental conditions, and operational events; definition is stable and understood by stakeholders.",
+        "NGHE Solution has sufficient compute and network capacity to handle peak update rates."
+      ],
+      "open_risks": [
+        "Network Link QoS/prioritization may not be available; if so, DP-C may not meet SafetyAlert latency target.",
+        "Model divergence between Vehicle and NGHE Solution could cause operator confusion or safety issues if conflict resolution policy is not clearly defined and implemented.",
+        "NGHE Solution overload could violate latency SLA if update ingestion service is not designed for horizontal scalability.",
+        "Fallback behavior if SafetyAlert latency SLA is violated is not yet defined; could impact safety."
+      ],
+      "evidence_needed": [
+        "Network Link specification confirming QoS/prioritization capability and latency SLA.",
+        "NGHE Solution capacity analysis (compute, memory, network bandwidth) for peak update rates.",
+        "Conflict resolution policy specification and implementation design.",
+        "Fallback behavior specification (e.g., local safety shutdown on Vehicle if SafetyAlert timeout).",
+        "End-to-end latency measurement plan and test scenarios.",
+        "Customer acceptance criteria confirmation (latency target, update scenarios, measurement methodology)."
+      ]
+    }
+  }
+}

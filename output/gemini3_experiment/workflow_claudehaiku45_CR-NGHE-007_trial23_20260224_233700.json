@@ -1,0 +1,170 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall propagate worksite model state changes to all authorized consumers within the customer-defined latency threshold.",
+    "rationale": "The original FR conflates two distinct obligations: (1) detecting/capturing state changes in the worksite model, and (2) delivering those changes to consumers within a time bound. The refined FR focuses on the propagation obligation (the primary functional requirement) and explicitly names the latency constraint as a non-functional acceptance criterion rather than embedding it in the FR itself. The phrase 'authorized consumers' acknowledges that different stakeholders (Site Manager, Operator, Tele-operator, Safety Manager) may have different visibility and update needs, making the requirement solution-neutral with respect to architecture (e.g., pub-sub, polling, push, or hybrid mechanisms). The term 'propagate' is domain-neutral and avoids prescribing implementation (e.g., 'transmit over network' or 'update database').",
+    "verification_idea": "Measure end-to-end latency from the moment a worksite state change is committed (e.g., equipment position update, obstacle detection, safety event) to the moment that change is available to each authorized consumer role. Verify that p95 latency across all supported update scenarios (e.g., position updates, sensor alerts, operational mode changes) meets the customer-defined threshold (baseline: ≤1.0 s). Confirm that unauthorized consumers do not receive updates.",
+    "sub_frs": [
+      "FR-NGHE-007.1: The NGHE solution shall detect and capture worksite model state changes (e.g., equipment position, sensor readings, operational events) from all active sources.",
+      "FR-NGHE-007.2: The NGHE solution shall deliver worksite model state changes to all authorized consumers according to their subscription or access role.",
+      "FR-NGHE-007.3: The NGHE solution shall enforce access control such that only authorized stakeholders receive worksite model updates relevant to their role."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Centralized event-driven state propagation with asynchronous message broker (decouples producers from consumers; supports fan-out to multiple authorized subscribers; enables latency-bounded delivery guarantees)",
+      "DP2: Polling-based state synchronization with versioned snapshots (consumers periodically fetch latest worksite model state; simple consistency model; higher latency variance)",
+      "DP3: Hybrid push-pull with change-log streaming (producers emit change events to durable log; consumers subscribe to log stream or pull on-demand; supports replay and audit)",
+      "DP4: Direct point-to-point notification with per-consumer delivery contracts (each consumer receives dedicated update channel; tight coupling; difficult to scale authorization logic)",
+      "DP5: Publish-subscribe with topic-based filtering and authorization gates (producers publish to logical topics; broker enforces authorization before delivery; consumers subscribe to authorized topics only)"
+    ],
+    "selected_dp": "DP5: Publish-subscribe with topic-based filtering and authorization gates. Producers emit worksite model state changes to logical topics (e.g., 'worksite.{id}.updates'); a broker-resident authorization layer evaluates consumer subscriptions against worksite safety plan and operational policies before message delivery; consumers receive only authorized state changes within latency-bounded guarantees (p95 ≤ 1.0 s via broker SLA and topic partitioning).",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Authorization policy coupling: If authorization rules are tightly bound to topic structure, policy changes require topic schema evolution. Mitigation: Decouple authorization evaluation from topic naming; use attribute-based access control (ABAC) evaluated at subscription time.",
+        "Consumer-producer temporal coupling: Slow consumers may block broker if backpressure is not managed. Mitigation: Implement per-consumer queue isolation and configurable retention policies.",
+        "State consistency coupling: If multiple producers emit overlapping state changes, ordering guarantees must be enforced. Mitigation: Designate single producer per worksite model entity or use versioning/causality tracking.",
+        "Latency coupling to broker capacity: Broker throughput and network latency directly impact p95 guarantee. Mitigation: Partition topics by worksite; monitor broker metrics; define SLA explicitly."
+      ],
+      "notes": "DP5 achieves functional independence: producers do not know consumer identities; consumers do not know producer implementation. Authorization is externalized to broker, avoiding duplication. Compared to DP4 (point-to-point), DP5 eliminates N×M coupling. Compared to DP2 (polling), DP5 provides deterministic latency. DP3 (change-log) is a valid alternative if audit/replay is a primary concern; DP5 is preferred here because latency and authorization are primary drivers."
+    },
+    "assumptions_risks": [
+      "Assumption: Broker infrastructure (message queue, pub-sub system) is available and operationally managed. Risk: If broker is unavailable, state propagation halts. Mitigation: Define failover strategy (e.g., secondary broker, circuit breaker).",
+      "Assumption: Authorization policies are stable and can be evaluated in-band during message delivery. Risk: Policy evaluation latency may exceed p95 budget if policies are complex or require external lookups. Mitigation: Cache authorization decisions; pre-compute topic ACLs; measure authorization latency separately.",
+      "Assumption: Worksite model state changes are discrete, identifiable events. Risk: If state is continuously evolving (e.g., real-time sensor streams), topic-based filtering may not be granular enough. Mitigation: Define state change granularity explicitly; consider hierarchical topics or content-based filtering.",
+      "Assumption: All authorized consumers are online and subscribed. Risk: Late-joining consumers may miss historical state. Mitigation: Implement message retention or snapshot distribution; define recovery semantics.",
+      "Assumption: Network latency and broker processing time are within p95 ≤ 1.0 s budget. Risk: If network is congested or broker is overloaded, latency SLA is violated. Mitigation: Conduct load testing; define broker capacity planning; monitor end-to-end latency.",
+      "Assumption: Customer-defined latency threshold is known at design time. Risk: If threshold is undefined or changes, DP5 may not be tunable. Mitigation: Make latency threshold a configurable parameter; design broker for headroom (e.g., target p95 ≤ 0.5 s to allow margin)."
+    ],
+    "recommended_revision": "FR should be refined to explicitly state: (1) Definition of 'worksite model state change' (e.g., discrete events vs. continuous updates; which entities trigger propagation). (2) Authorization model (e.g., role-based, attribute-based, policy-based; how are 'authorized consumers' determined). (3) Latency measurement point (e.g., producer emit → broker receive → consumer receive; or producer emit → consumer receive). (4) Failure modes (e.g., what happens if broker is unavailable; is eventual consistency acceptable). (5) Scalability targets (e.g., number of worksites, consumers, updates/sec). These refinements will constrain DP selection and enable rigorous IM design (e.g., broker topology, topic partitioning strategy, authorization service architecture)."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Safety Services",
+      "scope": "Centralized broker-resident authorization and publish-subscribe orchestration for worksite model state changes, including topic-based filtering, authorization gate evaluation against safety plans and operational policies, and latency-bounded message delivery to authorized consumers."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Producers (Vehicle, Teleoperation, other worksite agents) emit worksite model state changes as telemetry events to Safety Services broker; Safety Services ingests and routes to logical topics."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Safety Services publishes authorized state change notifications and safety-relevant updates to subscribed consumers (Vehicle, Teleoperation, NGHE Solution) via SafetyAlert interface; includes authorization-filtered messages only."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Safety Services uses Network Link for broker-to-consumer message transport; ensures latency-bounded delivery (p95 ≤ 1.0 s) via topic partitioning and SLA enforcement."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Safety Services",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit: Safety Services owns authorization policy evaluation, safety plan integration, and broker-resident filtering logic. Topic-based routing and latency SLA enforcement align with safety-critical message delivery. Minor diffusion: producers (Vehicle, Teleoperation) must emit events conforming to topic schema; consumers must subscribe and handle authorized messages—both are external responsibilities but well-defined via interfaces."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.45,
+        "diffusion_score": 0.55,
+        "notes": "Poor fit: NGHE Solution is a higher-level orchestration/planning layer, not a message broker or authorization service. Placing pub-sub and authorization gates here would scatter broker logic across application code, violating separation of concerns. Authorization policy evaluation and topic partitioning belong in a dedicated service layer, not in solution-level logic."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.15,
+        "diffusion_score": 0.85,
+        "notes": "Very poor fit: Vehicle is a consumer/producer agent, not a broker or authorization service. Embedding pub-sub broker and authorization gates in Vehicle would create tight coupling, duplicate logic across multiple vehicle instances, and violate single responsibility. Vehicle should emit telemetry and subscribe to authorized updates, not manage broker infrastructure."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Very poor fit: Teleoperation is a consumer/producer agent for remote control and monitoring, not a broker or authorization service. Placing pub-sub and authorization logic here would couple teleoperation logic to infrastructure concerns and create diffusion across multiple teleoperation instances. Teleoperation should consume authorized state changes, not manage broker authorization."
+      }
+    ],
+    "ownership_candidate": "Safety Services",
+    "containment_hypothesis": "Safety Services is the natural owner of DP5 because it is the designated module for safety-critical policy enforcement, authorization, and state management. The publish-subscribe broker with topic-based filtering and authorization gates is a safety-critical infrastructure component that must enforce worksite safety plans and operational policies before message delivery. Centralizing this logic in Safety Services ensures single source of truth for authorization rules, consistent policy enforcement across all producers and consumers, and latency-bounded delivery guarantees via broker SLA and topic partitioning. Producers and consumers interact with Safety Services via well-defined Telemetry (inbound) and SafetyAlert (outbound) interfaces, with Network Link providing transport. This design minimizes diffusion and maximizes cohesion around safety-critical concerns.",
+    "containment_risks": [
+      "Risk: Broker performance bottleneck. If Safety Services broker becomes a single point of contention, latency SLA (p95 ≤ 1.0 s) may be violated under high producer/consumer load. Mitigation: implement topic partitioning, consumer group scaling, and broker clustering within Safety Services; monitor broker latency metrics and scale horizontally.",
+      "Risk: Authorization policy complexity. As worksite safety plans and operational policies evolve, authorization gate logic may become complex and difficult to maintain. Mitigation: use declarative policy language (e.g., ABAC, RBAC) and version control policies; provide policy audit trails and testing frameworks.",
+      "Risk: Schema evolution. Producers may emit state changes with evolving schemas; broker must handle schema versioning and backward compatibility. Mitigation: enforce schema registry and versioning within Safety Services; validate producer messages against schema before routing.",
+      "Risk: Consumer subscription management. Consumers must correctly subscribe to topics and handle authorization denials; incorrect subscriptions or missing error handling could lead to silent failures. Mitigation: provide clear subscription API documentation, error codes, and client libraries; implement subscription validation and logging in Safety Services.",
+      "Risk: Latency SLA enforcement. Achieving p95 ≤ 1.0 s latency across all topics and consumers requires careful tuning of broker configuration, network conditions, and consumer processing. Mitigation: establish SLA monitoring, alerting, and incident response procedures; conduct load testing and latency profiling."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. Latency acceptance criterion (p95 ≤ 1.0 s) is measurable via broker SLA monitoring and topic partitioning metrics. Authorization correctness is verifiable through policy audit trails, subscription validation logs, and integration tests against safety plan rules. State change propagation to authorized consumers can be traced end-to-end via message telemetry and delivery confirmations.",
+      "allocation_clarity": "Clear. Safety Services is the designated owner of DP5 (publish-subscribe with authorization gates). Producer and consumer responsibilities are well-defined via Telemetry (inbound) and SafetyAlert (outbound) interfaces. Network Link provides transport with SLA enforcement. Ownership boundaries are explicit and non-overlapping."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Minor diffusion: Producers (Vehicle, Teleoperation) must emit events conforming to topic schema and handle schema versioning. This is a producer-side responsibility external to Safety Services, but schema compliance is critical to broker routing correctness. Mitigation: enforce schema registry within Safety Services; provide producer client libraries with schema validation; document schema evolution policy.",
+        "Minor diffusion: Consumers must correctly subscribe to topics, handle authorization denials, and process authorized messages. Incorrect subscriptions or missing error handling could lead to silent failures or missed updates. Mitigation: provide clear subscription API documentation, error codes, and client libraries; implement subscription validation and logging in Safety Services; require consumer integration testing.",
+        "Moderate diffusion risk: Authorization policy evaluation logic is centralized in Safety Services, but policy definition and maintenance may be scattered across worksite safety plan documents, operational policy repositories, and configuration management systems. Mitigation: establish single source of truth for authorization policies; version control policies; provide policy audit trails and testing frameworks; integrate policy validation into Safety Services deployment pipeline.",
+        "Moderate diffusion risk: Latency SLA enforcement (p95 ≤ 1.0 s) depends on broker configuration, network conditions, and consumer processing speed. If consumers are slow or network is congested, SLA may be violated even with optimal broker tuning. Mitigation: establish clear SLA boundaries (broker responsibility vs. network/consumer responsibility); monitor end-to-end latency; implement alerting and incident response; conduct load testing and latency profiling."
+      ],
+      "containment_notes": "Excellent containment (0.92 score). Safety Services owns all broker-resident logic: authorization policy evaluation, topic-based filtering, message routing, and latency SLA enforcement. This centralizes safety-critical concerns and ensures single source of truth for authorization rules. Producer and consumer responsibilities are external but well-defined via interfaces. No significant logic diffusion across Vehicle, Teleoperation, or NGHE Solution. Risk of diffusion is primarily in policy definition and consumer-side error handling, both of which are manageable via documentation, client libraries, and integration testing."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP5 (publish-subscribe with topic-based filtering and authorization gates) directly addresses FR requirement to propagate worksite model state changes to authorized consumers within latency threshold. Broker-resident authorization layer enforces safety plan and operational policies before delivery. Topic-based filtering ensures consumers receive only authorized updates. Latency-bounded guarantees (p95 ≤ 1.0 s) are achieved via broker SLA and topic partitioning. DP is complete, logically sound, and measurable against acceptance criteria."
+    },
+    "recommended_revisions": [
+      "Establish explicit schema registry and versioning policy within Safety Services. Require all producers to validate messages against registered schemas before emission. Document schema evolution rules and backward compatibility requirements.",
+      "Define clear authorization policy language (e.g., ABAC, RBAC) and version control mechanism. Integrate policy validation into Safety Services deployment pipeline. Provide policy audit trails and testing frameworks for policy changes.",
+      "Specify SLA boundaries: clarify which latency components (broker processing, network transport, consumer processing) are owned by Safety Services vs. external systems. Establish monitoring, alerting, and incident response procedures for SLA violations.",
+      "Provide producer and consumer client libraries with built-in schema validation, error handling, and logging. Document subscription API, error codes, and common failure modes. Require integration testing of producer/consumer implementations against Safety Services.",
+      "Conduct load testing and latency profiling to validate p95 ≤ 1.0 s SLA under expected producer/consumer load. Identify bottlenecks and implement horizontal scaling (topic partitioning, consumer group scaling, broker clustering) as needed.",
+      "Document topic naming conventions, partitioning strategy, and consumer group management. Provide clear guidance on topic design for new worksite model state changes to ensure consistent routing and filtering."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-IM, DP-IM, FR-DP) pass with high confidence. DP5 is logically sound, well-contained (0.92 score), and directly addresses the FR with measurable acceptance criteria. However, the recommended_revisions and diffusion_risks reveal that several critical sub-concerns—schema management, authorization policy definition and versioning, SLA boundary clarification, and latency validation—are currently treated as implementation details rather than explicit functional requirements. Given the high safety criticality of this system, these concerns warrant explicit decomposition into next-level sub-FRs to ensure they receive rigorous design attention, verification planning, and ownership clarity. Proceeding to sub-level decomposition will surface and formalize these concerns before detailed design and implementation.",
+    "next_level_sub_frs": [
+      "FR5.1: Ensure all state change messages conform to a versioned, centrally-managed schema that supports backward-compatible evolution and is validated before broker ingestion.",
+      "FR5.2: Enforce authorization policies derived from worksite safety plans and operational rules, with version control, audit trails, and testability, such that only authorized consumers receive state change notifications.",
+      "FR5.3: Guarantee that authorized state change messages are delivered to subscribed consumers with p95 latency ≤ 1.0 s under normal operating load, with clear ownership boundaries between broker, network, and consumer processing.",
+      "FR5.4: Provide producer and consumer client libraries with built-in schema validation, authorization error handling, subscription management, and logging to minimize integration errors and silent failures.",
+      "FR5.5: Validate through load testing and latency profiling that the publish-subscribe broker and topic partitioning strategy achieve p95 ≤ 1.0 s latency SLA under expected worksite model state change volume and consumer concurrency."
+    ],
+    "revise": {
+      "target": null,
+      "why": "No revisions to current FR, DP, or IM are required. All gates pass and the design is sound. Decomposition to sub-level FRs is the appropriate next step to formalize and rigorously address the concerns identified in recommended_revisions and diffusion_risks."
+    },
+    "record": {
+      "assumptions": [
+        "Worksite safety plans and operational policies can be formally expressed in a machine-readable authorization policy language (ABAC or RBAC).",
+        "Producer and consumer systems can be equipped with client libraries and will follow integration testing requirements.",
+        "Network transport and consumer processing latencies are measurable and can be monitored independently of broker latency.",
+        "Schema evolution will follow backward-compatibility principles, allowing producers and consumers to upgrade asynchronously.",
+        "Load testing can be conducted with representative worksite model state change volumes and consumer concurrency patterns before production deployment."
+      ],
+      "open_risks": [
+        "Policy definition and maintenance may remain scattered across multiple documents and repositories if a single source of truth is not established and enforced. Mitigation: establish governance process and tooling for policy version control and audit.",
+        "Producer and consumer implementations may not conform to schema or authorization requirements if client libraries and integration testing are not mandatory. Mitigation: enforce schema validation and integration testing in deployment pipeline.",
+        "SLA violations may occur due to network congestion or slow consumer processing, which are outside Safety Services control. Mitigation: establish clear SLA boundaries, implement end-to-end monitoring, and define incident response procedures.",
+        "Latency SLA may not be achievable under peak load if broker and topic partitioning are not properly tuned. Mitigation: conduct load testing early and implement horizontal scaling as needed.",
+        "Authorization policy changes may introduce unintended side effects or security gaps if not properly tested and audited. Mitigation: implement policy testing framework and require change review before deployment."
+      ],
+      "evidence_needed": [
+        "Formal specification of authorization policy language and version control mechanism (e.g., ABAC schema, policy repository structure, change approval workflow).",
+        "Schema registry design and versioning policy documentation, including backward-compatibility rules and schema evolution examples.",
+        "Load testing plan and latency profiling methodology, including expected worksite model state change volumes, consumer concurrency, and acceptance criteria.",
+        "Producer and consumer client library specifications, including schema validation, error handling, subscription API, and logging requirements.",
+        "SLA boundary definition document clarifying broker, network, and consumer latency responsibilities and monitoring approach.",
+        "Integration testing framework and requirements for producer and consumer implementations.",
+        "Policy audit trail and testing framework design, including policy change tracking, rollback procedures, and policy validation automation."
+      ]
+    }
+  }
+}

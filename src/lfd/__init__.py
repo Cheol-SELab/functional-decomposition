@@ -1,6 +1,9 @@
 __all__ = [
     "LLMClient",
     "OpenAIResponsesClient",
+    "AnthropicClient",
+    "GoogleGeminiClient",
+    "make_llm_client",
     "MockLLMClient",
     "load_default_env",
     "load_env_file",
@@ -21,10 +24,14 @@ __all__ = [
     "evaluate_two_outputs",
     "evaluate_two_output_files_and_save",
     "ExperimentSuiteConfig",
+    "CrossEvalExperimentSuiteConfig",
     "run_nghe_experiment_suite_to_csv",
+    "run_nghe_cross_eval_experiment_suite_to_csv",
+    "DOMAIN_CONTEXT",
+    "EVALUATION_CRITERIA",
 ]
 
-from .llm import LLMClient, MockLLMClient, OpenAIResponsesClient
+from .llm import LLMClient, MockLLMClient, OpenAIResponsesClient, AnthropicClient, GoogleGeminiClient, make_llm_client
 from .env import load_default_env, load_env_file
 from .nghe import CustomerRequirement, find_cr, load_nghe_customer_requirements, parse_nghe_customer_requirements
 from .output import save_run_json
@@ -32,5 +39,6 @@ from .runners import run_nghe_cr_and_save, run_one_level_and_save
 from .baseline import run_plain_single_agent, run_plain_single_agent_and_save
 from .experiment import compare_nghe_cr_and_save, compare_two_methods_one_level_and_save
 from .evaluator import evaluate_two_output_files_and_save, evaluate_two_outputs
-from .experiment_suite import ExperimentSuiteConfig, run_nghe_experiment_suite_to_csv
+from .experiment_suite import ExperimentSuiteConfig, CrossEvalExperimentSuiteConfig, run_nghe_experiment_suite_to_csv, run_nghe_cross_eval_experiment_suite_to_csv
+from .prompts import DOMAIN_CONTEXT, EVALUATION_CRITERIA
 from .workflow import DecompositionInputs, DecompositionRun, DecompositionWorkflow

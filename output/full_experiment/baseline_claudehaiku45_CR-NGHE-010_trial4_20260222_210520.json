@@ -1,0 +1,161 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation link availability ≥ 0.999 (99.9%) over the agreed evaluation period, measured as the ratio of time the bidirectional command-and-telemetry link is operational to total operational time.",
+    "rationale": "CR-NGHE-010 addresses a critical operational requirement for remote equipment control. Refinement clarifies the measurement basis (bidirectional link), acceptance threshold (0.999), and evaluation window. High safety criticality demands explicit availability targets to prevent loss-of-control scenarios.",
+    "verification_idea": "Continuous monitoring of link state transitions (up/down) during field trials; calculation of availability as (total_uptime / total_evaluation_period); comparison against 0.999 threshold with statistical confidence interval.",
+    "sub_frs": [
+      "FR-NGHE-010.1: The teleoperation system shall establish and maintain a bidirectional command link from tele-operator to vehicle.",
+      "FR-NGHE-010.2: The teleoperation system shall establish and maintain a bidirectional telemetry link from vehicle to tele-operator.",
+      "FR-NGHE-010.3: The teleoperation system shall detect link degradation or loss and alert the Safety Manager within 100 ms.",
+      "FR-NGHE-010.4: The teleoperation system shall implement redundancy or failover mechanisms to achieve ≥0.999 availability."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Single wireless link with no redundancy; rely on network provider SLA.",
+      "DP-B: Dual independent wireless links (primary + backup) with automatic failover; active monitoring and link-state machine.",
+      "DP-C: Hybrid wired + wireless with automatic switchover; requires site infrastructure.",
+      "DP-D: Mesh network with multi-hop relay; increases latency and complexity."
+    ],
+    "selected_dp": "DP-B: Dual independent wireless links (primary + backup) with automatic failover; active monitoring and link-state machine.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Link-state machine logic couples to vehicle command processing (must handle transient link flaps).",
+        "Failover timing couples to tele-operator UI responsiveness (must not introduce unacceptable latency jitter).",
+        "Redundancy architecture couples to power budget and thermal design of vehicle."
+      ],
+      "notes": "Couplings are manageable via clear state-machine semantics and interface contracts. No circular dependencies detected. DP-B is decoupled from specific wireless technology (allows LTE, 5G, or proprietary bands)."
+    },
+    "assumptions_risks": [
+      "Assumption: Two independent wireless carriers or frequency bands are available at the worksite.",
+      "Assumption: Vehicle can support dual radio hardware without exceeding power/thermal limits.",
+      "Risk: If both links fail simultaneously (e.g., site-wide RF jamming or outage), availability target cannot be met; mitigation requires site safety plan and operator training.",
+      "Risk: Failover latency and packet loss during switchover may cause transient control glitches; mitigation requires buffering and graceful degradation logic.",
+      "Risk: Monitoring overhead (heartbeat, link-state polling) consumes bandwidth and power; must be tuned to balance detection speed vs. resource cost."
+    ],
+    "recommended_revision": "Refine DP-B to specify: (1) link-state machine state diagram and transition rules, (2) heartbeat interval and timeout thresholds, (3) failover latency budget (e.g., <500 ms), (4) packet loss tolerance during switchover, (5) technology selection criteria (e.g., LTE + 5G, or dual LTE carriers)."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Owns the dual-link architecture, link-state machine, failover logic, and monitoring. Interfaces with Vehicle for command injection and telemetry reception; interfaces with Safety Services for link-state alerts."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Teleoperation module sends operator commands (steering, throttle, bucket control, etc.) to Vehicle via Tasking interface."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Teleoperation module receives vehicle state (position, orientation, sensor readings, diagnostics) from Vehicle via Telemetry interface."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Teleoperation module sends link-state alerts (link_up, link_down, link_degraded) to Safety Services via SafetyAlert interface."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Teleoperation module uses Network Link (dual wireless carriers) to transmit Tasking and receive Telemetry; monitors link health via heartbeat and signal-strength metrics."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.95,
+        "diffusion_score": 0.05,
+        "notes": "Teleoperation is the natural owner of link-state machine, failover logic, and dual-link coordination. All core availability logic resides here. Minor diffusion: Vehicle must implement command buffering and graceful degradation during failover (owned by Vehicle, not Teleoperation)."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.15,
+        "diffusion_score": 0.85,
+        "notes": "Vehicle is not the primary owner of link availability; it is a consumer of the Teleoperation service. However, Vehicle must implement resilience to transient link loss (e.g., command buffering, safe state logic). High diffusion risk if link-state machine logic is split between Teleoperation and Vehicle."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.05,
+        "diffusion_score": 0.95,
+        "notes": "Safety Services consumes link-state alerts but does not own the link availability mechanism. Assigning DP-B to Safety Services would scatter the core availability logic and violate cohesion."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.1,
+        "diffusion_score": 0.9,
+        "notes": "NGHE Solution is the system-level container but is too coarse-grained to own the detailed link-state machine and failover logic. Assigning DP-B here would bypass the Teleoperation module and create architectural ambiguity."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the optimal owner because it encapsulates the dual-link architecture, link-state machine, and failover logic as a cohesive unit. It provides clear interfaces (Tasking, Telemetry, SafetyAlert, Network Link) to Vehicle and Safety Services, enabling independent testing and evolution of link availability mechanisms.",
+    "containment_risks": [
+      "Risk: If Vehicle command processing is too slow to handle failover transients, Teleoperation's failover logic may be ineffective. Mitigation: Define command buffering and timeout semantics in Vehicle; validate via integration testing.",
+      "Risk: If Safety Services does not respond promptly to SafetyAlert messages, operator awareness of link loss may be delayed. Mitigation: Define SafetyAlert latency SLA (e.g., <100 ms); monitor via instrumentation.",
+      "Risk: If Network Link interface does not expose sufficient link-quality metrics (RSSI, packet loss, latency), Teleoperation cannot make informed failover decisions. Mitigation: Ensure Network Link provides detailed link-state telemetry."
+    ],
+    "recommended_revision": "Refine Teleoperation module specification to include: (1) link-state machine state diagram, (2) failover decision logic and thresholds, (3) heartbeat protocol and timeout values, (4) interface contracts for Tasking (command format, buffering semantics), Telemetry (data rate, latency), SafetyAlert (alert types, priority levels), and Network Link (link-quality metrics, carrier selection)."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-B (dual independent wireless links with automatic failover) directly addresses FR-NGHE-010 (achieve ≥0.999 link availability). The DP is technology-agnostic, scalable, and aligns with high safety criticality. No functional gaps detected."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Moderate risk: Vehicle must implement command buffering and graceful degradation during failover. This is a secondary responsibility (owned by Vehicle) but must be coordinated with Teleoperation's failover logic. Mitigation: Define clear interface contracts and integration test scenarios.",
+        "Low risk: Safety Services must respond promptly to SafetyAlert messages. This is a consumer responsibility and does not diffuse the core DP logic."
+      ],
+      "containment_notes": "Teleoperation module achieves high containment (0.95) of the dual-link architecture and failover logic. Diffusion is minimal and manageable via interface contracts. No architectural ambiguity or ownership conflicts detected."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. Link availability can be measured directly via continuous monitoring of link state transitions during field trials. Acceptance criteria (≥0.999) is quantifiable and testable. Teleoperation module can expose link-state metrics via instrumentation.",
+      "allocation_clarity": "Clear. Teleoperation owns the dual-link architecture and failover logic. Vehicle owns command buffering and graceful degradation. Safety Services owns alert handling and operator notification. Interfaces are well-defined (Tasking, Telemetry, SafetyAlert, Network Link)."
+    },
+    "recommended_revisions": [
+      "Refine DP-B to specify link-state machine state diagram, failover decision thresholds, and heartbeat protocol.",
+      "Define interface contracts for Tasking (command format, buffering semantics, timeout behavior), Telemetry (data rate, latency, loss tolerance), SafetyAlert (alert types, priority levels, latency SLA), and Network Link (link-quality metrics, carrier selection logic).",
+      "Establish integration test scenarios for failover transients, simultaneous link loss, and recovery.",
+      "Allocate sub-FRs (FR-NGHE-010.1 through 010.4) to Teleoperation and Vehicle with clear ownership boundaries."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "CR-NGHE-010 is not atomic and requires further decomposition into sub-FRs (FR-NGHE-010.1 through 010.4) to address command link, telemetry link, link-loss detection, and redundancy mechanisms separately. DP-B is sound and well-scoped, but its realization depends on successful decomposition and allocation of sub-FRs to Teleoperation and Vehicle modules. Proceeding to the next level will clarify interface contracts, failover semantics, and integration requirements.",
+    "next_level_sub_frs": [
+      "FR-NGHE-010.1: The teleoperation system shall establish and maintain a bidirectional command link from tele-operator to vehicle with latency ≤ 200 ms and packet loss ≤ 1%.",
+      "FR-NGHE-010.2: The teleoperation system shall establish and maintain a bidirectional telemetry link from vehicle to tele-operator with latency ≤ 500 ms and packet loss ≤ 5%.",
+      "FR-NGHE-010.3: The teleoperation system shall detect link degradation or loss and alert the Safety Manager within 100 ms via SafetyAlert interface.",
+      "FR-NGHE-010.4: The teleoperation system shall implement automatic failover from primary to backup wireless link within 500 ms, with graceful command buffering and state recovery."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Two independent wireless carriers or frequency bands are available at the worksite.",
+        "Vehicle can support dual radio hardware without exceeding power/thermal limits.",
+        "Network Link interface provides sufficient link-quality metrics (RSSI, packet loss, latency) for failover decision-making.",
+        "Safety Services can respond to SafetyAlert messages within 100 ms.",
+        "Operator training and worksite safety plan account for transient link loss and failover latency."
+      ],
+      "open_risks": [
+        "Simultaneous failure of both wireless links (e.g., site-wide RF jamming or outage) cannot be mitigated by DP-B alone; requires site safety plan and operator training.",
+        "Failover latency and packet loss during switchover may cause transient control glitches; requires buffering and graceful degradation logic in Vehicle.",
+        "Monitoring overhead (heartbeat, link-state polling) consumes bandwidth and power; must be tuned to balance detection speed vs. resource cost.",
+        "Integration complexity between Teleoperation and Vehicle failover logic; requires clear interface contracts and comprehensive testing."
+      ],
+      "evidence_needed": [
+        "Field trial data demonstrating ≥0.999 link availability over agreed evaluation period.",
+        "Link-state machine state diagram and transition rules.",
+        "Failover latency measurements (target: <500 ms).",
+        "Packet loss and command buffering behavior during failover transients.",
+        "Integration test results for dual-link coordination, failover scenarios, and recovery.",
+        "Worksite safety plan and operator training materials addressing link loss scenarios."
+      ]
+    }
+  }
+}

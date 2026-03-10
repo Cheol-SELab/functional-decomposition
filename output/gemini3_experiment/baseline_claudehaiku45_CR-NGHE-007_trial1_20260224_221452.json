@@ -1,0 +1,170 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current equipment state, environmental conditions, and operational events with a p95 latency not exceeding the customer-defined target (baseline 1.0 s) across all supported update scenarios.",
+    "rationale": "CR-NGHE-007 requires clarification of scope (what constitutes 'worksite model'), measurement basis (p95 latency metric), and boundary conditions (supported scenarios). High safety criticality demands explicit traceability to safety-critical update types (e.g., collision alerts, operator status changes). Refined FR establishes measurable acceptance criteria and acknowledges customer-specific tailoring.",
+    "verification_idea": "Instrumented field trials measuring end-to-end latency from sensor/event origin through model update completion across representative scenarios (teleoperated movement, autonomous task execution, safety event detection). Latency histogram analysis to confirm p95 ≤ target. Traceability matrix linking safety-critical updates to latency requirements.",
+    "sub_frs": [
+      "FR-NGHE-007.1: Acquire real-time telemetry from vehicle sensors and subsystems with sufficient fidelity and frequency to support worksite model updates.",
+      "FR-NGHE-007.2: Transmit telemetry and operational events from vehicle to worksite model service with bounded network latency.",
+      "FR-NGHE-007.3: Process incoming telemetry and events to update worksite model state (position, orientation, task status, safety state) with deterministic latency.",
+      "FR-NGHE-007.4: Distribute updated worksite model to authorized consumers (Site Manager, Tele-operator, Safety Services) with bounded delivery latency.",
+      "FR-NGHE-007.5: Ensure safety-critical updates (collision risk, operator incapacity, emergency stop) are prioritized and delivered within stricter latency bounds."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized worksite model service with synchronous telemetry ingestion, in-memory state machine, and publish-subscribe distribution to consumers.",
+      "DP-B: Distributed edge-based model replicas on vehicle and tele-operator clients with eventual consistency and conflict resolution.",
+      "DP-C: Hybrid architecture: vehicle maintains local model replica; central service aggregates and broadcasts deltas; safety-critical updates use dedicated low-latency channel.",
+      "DP-D: Real-time streaming pipeline (Kafka/RabbitMQ) with stateless processors and eventual consistency model."
+    ],
+    "selected_dp": "DP-C: Hybrid architecture with local vehicle model replica, central aggregation service, delta-based broadcast, and dedicated safety-critical channel. This design balances latency (local processing reduces round-trip delay), safety (dedicated channel ensures critical updates meet stricter bounds), and consistency (delta-based updates reduce bandwidth and processing overhead).",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between vehicle telemetry acquisition rate and central service ingestion capacity (mitigated by buffering and backpressure).",
+        "Coupling between network bandwidth and update frequency (mitigated by delta encoding and compression).",
+        "Coupling between safety-critical channel design and overall network architecture (requires explicit QoS provisioning)."
+      ],
+      "notes": "DP-C exhibits loose coupling between vehicle and central service via asynchronous messaging; tight coupling within safety-critical channel is intentional and justified by safety requirements. Decoupling achieved through message queues and eventual consistency model."
+    },
+    "assumptions_risks": [
+      "Assumption: Network infrastructure supports QoS tagging and prioritization for safety-critical traffic. Risk: If not available, safety latency targets may not be achievable.",
+      "Assumption: Vehicle can maintain local model replica with sufficient memory and compute. Risk: Embedded systems may have resource constraints; mitigation via model compression or selective replication.",
+      "Assumption: Conflict resolution strategy (last-write-wins, vector clocks, or application-specific logic) is acceptable to stakeholders. Risk: Inconsistency windows may violate safety invariants; requires formal verification.",
+      "Assumption: p95 latency target is achievable with commodity network and compute infrastructure. Risk: If target is <100 ms, specialized hardware or protocol redesign may be required."
+    ],
+    "recommended_revision": "Refine DP-C to explicitly specify: (1) telemetry sampling rate and compression strategy, (2) delta encoding format and threshold, (3) safety-critical channel protocol (e.g., dedicated UDP stream with redundancy), (4) conflict resolution algorithm with safety-critical exception handling, (5) fallback behavior if central service becomes unavailable."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Teleoperation module owns the hybrid worksite model architecture: local model replica on vehicle, delta-based state synchronization, and distribution to tele-operator clients. Includes telemetry ingestion, model update logic, and consumer distribution within the teleoperation domain. Safety-critical channel integration is owned by Safety Services; network transport is owned by Vehicle (network stack)."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Vehicle sensors and subsystems emit telemetry (position, orientation, task status, sensor readings) via Telemetry interface. Teleoperation module ingests and processes telemetry to update local and central model replicas."
+      },
+      {
+        "name": "Tasking",
+        "direction": "inout",
+        "details": "Teleoperation module receives task commands via Tasking interface and updates worksite model to reflect task state changes. Task completion or failure events are reflected in model updates."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Safety-critical updates (collision risk, operator incapacity) are emitted via SafetyAlert interface to Safety Services for prioritized handling and distribution."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Teleoperation module uses Network Link to transmit model deltas to central service and receive updates from other vehicle instances or central aggregation."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "NGHE Solution is the top-level system container. Worksite model update is a system-level concern spanning multiple subsystems (Vehicle, Teleoperation, Safety Services). Assigning to NGHE Solution would diffuse responsibility and obscure ownership. Not recommended as primary owner."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.5,
+        "diffusion_score": 0.5,
+        "notes": "Vehicle owns telemetry acquisition and local model replica. However, central aggregation, consumer distribution, and tele-operator-specific logic are outside Vehicle scope. Partial containment; would require Vehicle to own cross-system concerns."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.85,
+        "diffusion_score": 0.15,
+        "notes": "Teleoperation module is the natural owner of worksite model synchronization and distribution to tele-operator clients. Hybrid architecture (local + central) aligns with teleoperation domain. Interfaces (Telemetry, Tasking, Network Link) are well-defined. Safety-critical channel is delegated to Safety Services. High containment, low diffusion."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Safety Services owns safety-critical update prioritization and distribution. General worksite model updates (non-safety) are outside Safety Services scope. Partial containment; would create coupling between safety and operational concerns."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "Teleoperation module is the optimal owner of worksite model update latency (CR-NGHE-007). Rationale: (1) Teleoperation is responsible for maintaining situational awareness for tele-operators, which requires timely model updates. (2) Hybrid architecture (local vehicle replica + central aggregation) is a teleoperation-specific design pattern. (3) Interfaces (Telemetry, Tasking, Network Link) are primary inputs/outputs of Teleoperation. (4) Safety-critical channel can be delegated to Safety Services via SafetyAlert interface, maintaining separation of concerns.",
+    "containment_risks": [
+      "Risk: Teleoperation module may not own vehicle-side telemetry acquisition or network stack. Mitigation: Define clear interface contracts (Telemetry, Network Link) and assume Vehicle provides these capabilities.",
+      "Risk: Central worksite model service may be owned by a different system (e.g., cloud backend). Mitigation: Teleoperation module owns the synchronization logic and protocol; central service is a deployment artifact, not an IM boundary.",
+      "Risk: Safety-critical latency requirements may conflict with general model update latency. Mitigation: Explicit delegation to Safety Services via SafetyAlert interface; safety-critical updates bypass general model update path.",
+      "Risk: Network latency variability may make p95 target unachievable. Mitigation: Requires network infrastructure assumptions and fallback strategies (e.g., local-only operation if network fails)."
+    ],
+    "recommended_revision": "Clarify ownership boundaries: (1) Vehicle owns telemetry acquisition and local model replica storage. (2) Teleoperation owns model update logic, delta encoding, and distribution to tele-operator clients. (3) Safety Services owns safety-critical channel and prioritization. (4) Define explicit interface contracts for Telemetry (schema, frequency, latency), Network Link (bandwidth, QoS), and SafetyAlert (priority levels, delivery guarantees). (5) Specify fallback behavior if Teleoperation module becomes unavailable (e.g., direct Vehicle-to-Safety Services communication for critical updates)."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "Refined FR (worksite model update with p95 latency ≤ target) is directly addressed by DP-C (hybrid architecture with local replica, delta-based broadcast, and dedicated safety-critical channel). DP-C provides a clear solution path to achieve latency targets through reduced round-trip delay (local processing) and prioritization (safety-critical channel). Assumptions and risks are documented and manageable."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Diffusion Risk: DP-C requires coordination between Vehicle (local replica), Teleoperation (central aggregation), and Safety Services (critical channel). Mitigation: Clear interface contracts and ownership boundaries reduce diffusion.",
+        "Diffusion Risk: Network infrastructure (QoS, bandwidth) is a shared resource. Mitigation: Explicit assumptions about network capabilities; fallback strategies if assumptions violated.",
+        "Diffusion Risk: Conflict resolution logic may be distributed across multiple modules. Mitigation: Centralize conflict resolution in Teleoperation module; Safety Services handles safety-critical exceptions."
+      ],
+      "containment_notes": "Teleoperation module provides strong containment for DP-C. Local vehicle replica is owned by Vehicle; central aggregation and consumer distribution are owned by Teleoperation. Safety-critical channel is delegated to Safety Services. Interfaces (Telemetry, Tasking, Network Link, SafetyAlert) are well-defined and map to known interface names. Containment score 0.85 indicates good fit with acceptable external dependencies."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible via instrumented field trials measuring end-to-end latency across representative scenarios. Latency histogram analysis can confirm p95 ≤ target. Traceability matrix links safety-critical updates to latency requirements. Formal verification of conflict resolution logic may be required for safety-critical paths.",
+      "allocation_clarity": "Allocation is clear: Teleoperation module owns worksite model update latency (CR-NGHE-007). Sub-FRs are allocated to specific functional areas (telemetry acquisition, network transmission, model processing, distribution). Safety-critical updates are allocated to Safety Services. Ownership boundaries are explicit and non-overlapping."
+    },
+    "recommended_revisions": [
+      "Refine DP-C specification: Add telemetry sampling rate, compression strategy, delta encoding format, safety-critical channel protocol, and conflict resolution algorithm.",
+      "Clarify network infrastructure assumptions: QoS tagging, bandwidth, latency bounds. Define fallback behavior if assumptions violated.",
+      "Define safety-critical update types and latency bounds: Collision alerts, operator incapacity, emergency stop. Specify prioritization rules.",
+      "Establish verification plan: Instrumented field trials, latency histogram analysis, traceability matrix, formal verification of conflict resolution.",
+      "Document assumptions about Vehicle and Safety Services capabilities: Local model replica storage, safety-critical channel availability, network stack QoS support."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "CR-NGHE-007 is not atomic and requires further decomposition. Refined FR identifies five sub-FRs (telemetry acquisition, network transmission, model processing, distribution, safety-critical prioritization) that must be individually designed and verified. DP-C provides a sound solution architecture, but implementation details (sampling rate, compression, delta encoding, conflict resolution, safety-critical channel protocol) require lower-level design decisions. Teleoperation module is the appropriate owner, but sub-FRs must be allocated to specific functional areas (Vehicle, Teleoperation, Safety Services) with explicit interface contracts. Proceed to next decomposition level for each sub-FR.",
+    "next_level_sub_frs": [
+      "FR-NGHE-007.1: Acquire real-time telemetry from vehicle sensors and subsystems with sufficient fidelity and frequency to support worksite model updates.",
+      "FR-NGHE-007.2: Transmit telemetry and operational events from vehicle to worksite model service with bounded network latency.",
+      "FR-NGHE-007.3: Process incoming telemetry and events to update worksite model state (position, orientation, task status, safety state) with deterministic latency.",
+      "FR-NGHE-007.4: Distribute updated worksite model to authorized consumers (Site Manager, Tele-operator, Safety Services) with bounded delivery latency.",
+      "FR-NGHE-007.5: Ensure safety-critical updates (collision risk, operator incapacity, emergency stop) are prioritized and delivered within stricter latency bounds."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Network infrastructure supports QoS tagging and prioritization for safety-critical traffic.",
+        "Vehicle can maintain local model replica with sufficient memory and compute resources.",
+        "Conflict resolution strategy (last-write-wins or application-specific logic) is acceptable to stakeholders.",
+        "p95 latency target (1.0 s baseline) is achievable with commodity network and compute infrastructure.",
+        "Vehicle owns telemetry acquisition and local model replica storage.",
+        "Safety Services owns safety-critical channel and prioritization logic.",
+        "Teleoperation module owns central aggregation and consumer distribution logic."
+      ],
+      "open_risks": [
+        "Network latency variability may make p95 target unachievable if infrastructure does not support QoS.",
+        "Embedded vehicle systems may have insufficient memory or compute for local model replica.",
+        "Conflict resolution logic may introduce inconsistency windows that violate safety invariants.",
+        "Safety-critical channel may not be available or may have higher latency than required.",
+        "Central worksite model service may become unavailable, requiring fallback to local-only operation.",
+        "Telemetry sampling rate and compression strategy may introduce model staleness or loss of fidelity."
+      ],
+      "evidence_needed": [
+        "Network infrastructure assessment: QoS capabilities, bandwidth, latency bounds, redundancy.",
+        "Vehicle resource assessment: Memory, compute, storage for local model replica.",
+        "Telemetry schema and frequency specification: Sensor types, update rates, data sizes.",
+        "Safety-critical update types and latency bounds: Collision alerts, operator incapacity, emergency stop.",
+        "Conflict resolution algorithm specification: Last-write-wins, vector clocks, or application-specific logic.",
+        "Fallback behavior specification: Local-only operation, degraded mode, safety-critical bypass.",
+        "Field trial results: End-to-end latency measurements, p95 histogram, scenario coverage."
+      ]
+    }
+  }
+}

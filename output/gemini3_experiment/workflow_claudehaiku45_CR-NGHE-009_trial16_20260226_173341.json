@@ -1,0 +1,169 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation communication reliability within the customer-defined packet loss acceptance criterion.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting teleoperation as a capability, and (2) meeting a specific quality metric (packet loss limit). The refined FR isolates the quality/reliability obligation in the problem domain without prescribing how (e.g., protocol selection, redundancy, error correction). The phrase 'customer-defined' remains because the acceptance threshold is a stakeholder-negotiated constraint, not a design choice. This formulation is solution-neutral and atomic.",
+    "verification_idea": "Conduct teleoperation trials under agreed network conditions (e.g., 4G/5G coverage, latency profile, interference scenarios). Measure end-to-end packet loss across representative mission durations and worksite locations. Confirm measured packet loss ≤ customer-defined target (e.g., ≤1%). Document network conditions and acceptance sign-off by Safety Manager and Site Manager.",
+    "sub_frs": [
+      "FR-NGHE-009.1: The NGHE solution shall enable remote operation of equipment from a tele-operator station.",
+      "FR-NGHE-009.2: The NGHE solution shall maintain teleoperation command and feedback transmission with packet loss not exceeding the customer-defined acceptance criterion under agreed network conditions."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Implement adaptive packet redundancy and selective retransmission based on real-time loss detection and network condition feedback",
+      "DP2: Establish a dual-path communication architecture with automatic failover and load balancing across independent network routes",
+      "DP3: Deploy forward error correction (FEC) encoding with configurable redundancy levels tuned to measured packet loss rates",
+      "DP4: Implement application-level acknowledgment and timeout-driven selective repeat protocol with exponential backoff",
+      "DP5: Establish network quality monitoring and dynamic codec/payload adaptation to reduce transmission size under degraded conditions",
+      "DP6: Combine packet prioritization (QoS tagging) with jitter buffering and out-of-order packet resequencing at the receiver"
+    ],
+    "selected_dp": "DP1 + DP5 (Hybrid): Implement adaptive packet redundancy with real-time loss detection and dynamic payload adaptation. The system shall monitor network conditions continuously, measure packet loss rates, and adjust redundancy levels and transmission payload size to maintain ≤1% effective loss. Redundancy strategy (retransmission vs. FEC) shall be selectable per operational context. Payload adaptation shall preserve command fidelity while reducing transmission overhead under poor conditions.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between loss detection mechanism and redundancy adjustment logic—mitigated by defining clear feedback loop interfaces",
+        "Coupling between payload adaptation and command semantics—mitigated by enforcing command validation and safety-critical command prioritization rules",
+        "Coupling between network monitoring and teleoperation control loop timing—mitigated by decoupling monitoring (asynchronous) from control (synchronous) via buffering and state machine"
+      ],
+      "notes": "Selected DP avoids tight coupling to specific network technologies (e.g., 5G, WiFi, satellite) by defining adaptation at the logical protocol layer. Dual-path (DP2) rejected as higher complexity and cost without clear independence gain for this FR. FEC-only (DP3) rejected as less flexible than adaptive redundancy for variable network conditions. QoS tagging (DP6) is a complementary DP for IM-layer realization, not a primary solution concept."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Network conditions are measurable in real-time (latency, jitter, loss rate) without introducing significant overhead. RISK: Measurement itself may consume bandwidth; mitigation: use lightweight probing or piggyback on existing heartbeat traffic.",
+      "ASSUMPTION: Teleoperation commands tolerate variable latency (e.g., 100–500 ms round-trip) due to adaptive buffering. RISK: Safety-critical commands (e.g., emergency stop) may require hard latency bounds; mitigation: define command priority tiers and guarantee delivery SLA for critical commands independent of loss adaptation.",
+      "ASSUMPTION: Payload adaptation (codec switching, resolution reduction) does not degrade operator situational awareness below acceptable thresholds. RISK: Operator may not detect hazards if video/sensor data quality drops too far; mitigation: define minimum fidelity floor and alert operator when adaptation reaches limits.",
+      "ASSUMPTION: Customer-defined packet loss acceptance criterion (≤1%) is achievable with the selected DP under agreed network conditions. RISK: If baseline loss is >1%, redundancy alone may not suffice; mitigation: validate baseline loss in pre-deployment testing and escalate to customer if target is unachievable.",
+      "ASSUMPTION: Redundancy and adaptation logic can be implemented without introducing new failure modes (e.g., deadlock in retransmission queue, memory exhaustion from buffering). RISK: Complex state machines may harbor bugs; mitigation: formal verification of protocol state machine and stress testing under extreme loss scenarios."
+    ],
+    "recommended_revision": "FR shall be refined to explicitly state: (1) acceptable latency bounds for different command classes (critical vs. non-critical); (2) minimum acceptable fidelity for sensor/video data during adaptation; (3) baseline network loss rate and jitter profile under agreed conditions; (4) whether dual-path or single-path operation is required for safety. DP shall be decomposed into sub-DPs: DP1a (loss detection and measurement), DP1b (redundancy strategy selection), DP5a (payload quality monitoring), DP5b (codec/resolution adaptation logic). Each sub-DP shall map to a distinct IM (module) to enable independent testing and reuse."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Adaptive packet redundancy, real-time loss detection, dynamic payload adaptation, and redundancy strategy selection for teleoperated command and telemetry streams"
+    },
+    "external_interfaces": [
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Provides raw network condition metrics (latency, jitter, packet loss rate); receives adapted payload and redundancy directives"
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives operator commands; payload adaptation logic ensures command fidelity is preserved during compression/adaptation"
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Transmits vehicle state; adaptive payload sizing adjusts telemetry granularity based on network conditions"
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Critical safety commands bypass adaptive redundancy; SafetyAlert interface signals when safety-critical data requires guaranteed delivery"
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit: adaptive redundancy and payload adaptation are core to teleoperation quality-of-service. Loss detection and redundancy strategy selection directly serve command/telemetry fidelity. Minimal diffusion: SafetyAlert interface cleanly separates safety-critical paths; Network Link provides metrics; Tasking/Telemetry are natural consumers of adapted payloads."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor fit: Vehicle module owns vehicle dynamics and state, not communication adaptation. Packet redundancy and loss detection are communication concerns, not vehicle concerns. High diffusion: logic would leak into teleoperation, network stack, and safety services. Violates separation of concerns."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Weak fit: Safety Services owns safety policy and critical alerts, not general network adaptation. Adaptive redundancy is a QoS mechanism, not a safety mechanism (safety-critical data should bypass adaptation). High diffusion: general loss detection and payload adaptation would contaminate safety-specific logic. SafetyAlert interface should consume outputs, not own the adaptation logic."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.25,
+        "diffusion_score": 0.75,
+        "notes": "Very poor fit: NGHE Solution is a top-level system container, not a functional module. Placing adaptive redundancy here creates a diffuse, system-wide dependency. No clear ownership or interface contract. Violates modularity principle."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the natural owner of adaptive packet redundancy and dynamic payload adaptation because: (1) teleoperation is fundamentally a communication-intensive function where network conditions directly impact operator control fidelity; (2) loss detection and redundancy strategy selection are teleoperation QoS concerns, not vehicle or safety concerns; (3) payload adaptation preserves command and telemetry fidelity, which are teleoperation responsibilities; (4) the module has clean interfaces to Network Link (for metrics), Tasking (for command preservation), Telemetry (for state transmission), and SafetyAlert (for bypass logic). Diffusion is minimal because safety-critical paths are explicitly separated via SafetyAlert interface.",
+    "containment_risks": [
+      "Risk: Network Link interface must provide sufficient granularity of loss metrics (per-packet, per-stream, latency distribution) for adaptive algorithms to function. If Network Link only exposes aggregate statistics, Teleoperation may need to implement its own packet-level monitoring, increasing coupling.",
+      "Risk: Redundancy strategy selection (retransmission vs. FEC) may require context from Vehicle (e.g., vehicle speed, terrain type) or Safety Services (e.g., safety state). If such context is needed, Teleoperation must receive it via explicit interfaces rather than direct coupling.",
+      "Risk: Payload adaptation logic must not degrade safety-critical command fidelity. SafetyAlert interface must clearly signal which data streams require guaranteed delivery, and Teleoperation must respect those signals without exception.",
+      "Risk: Real-time loss detection and adaptation may introduce latency. If teleoperation latency budget is tight, the adaptive logic itself could become a bottleneck. Performance validation is required."
+    ],
+    "recommended_revision": "No revision to DP required. The selected DP (DP1 + DP5 hybrid) is well-suited to Teleoperation ownership. However, clarify the DP to explicitly state: (1) Network Link provides per-stream packet loss rate and latency metrics; (2) SafetyAlert interface signals safety-critical streams that bypass adaptive redundancy; (3) Redundancy strategy selection is context-aware (e.g., retransmission for low-latency links, FEC for high-loss links) but does not require Vehicle or Safety Services context; (4) Payload adaptation is reversible and does not permanently degrade command/telemetry semantics. These clarifications ensure Teleoperation can own the DP without diffusion into other modules."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP1 + DP5 (Hybrid) directly addresses the FR requirement to maintain teleoperation communication reliability within customer-defined packet loss acceptance criterion (≤1%). The DP specifies concrete mechanisms: adaptive packet redundancy, real-time loss detection, dynamic payload adaptation, and context-aware redundancy strategy selection (retransmission vs. FEC). The DP is measurable against the acceptance criterion and logically sound. No gap between FR intent and DP solution."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Network Link interface granularity risk: If Network Link only exposes aggregate packet loss statistics rather than per-stream, per-packet, or latency distribution metrics, Teleoperation module will be forced to implement its own packet-level monitoring, increasing coupling and violating the clean interface contract. Mitigation: Explicitly require Network Link to provide per-stream loss rate, latency percentiles, and jitter metrics.",
+        "Context-aware redundancy strategy selection risk: DP specifies that redundancy strategy (retransmission vs. FEC) shall be selectable per operational context. If 'operational context' requires Vehicle state (e.g., vehicle speed, terrain type affecting latency tolerance) or Safety Services state (e.g., safety mode affecting criticality), Teleoperation will need to couple to those modules or receive context via explicit interfaces. Current IM boundary does not clarify this dependency. Mitigation: Define operational context parameters that Teleoperation can derive from Network Link metrics alone, or establish explicit context-passing interfaces from Vehicle and Safety Services.",
+        "SafetyAlert bypass logic risk: DP states that safety-critical data shall bypass adaptive redundancy. If SafetyAlert interface does not provide clear, real-time signaling of which streams/commands are safety-critical, Teleoperation may implement its own safety classification logic, creating diffusion into safety domain. Mitigation: SafetyAlert must provide a stream-level or command-level criticality flag that Teleoperation consumes without interpretation.",
+        "Payload adaptation reversibility risk: DP specifies dynamic payload adaptation to reduce transmission overhead. If adapted payloads are not fully reversible (e.g., lossy compression of telemetry), command/telemetry fidelity may be permanently degraded, violating the DP's promise to 'preserve command fidelity.' Mitigation: Clarify that payload adaptation is lossless or that lossy adaptation is only applied to non-critical telemetry streams explicitly marked by SafetyAlert."
+      ],
+      "containment_notes": "Teleoperation module is the correct owner (containment_score 0.92, diffusion_score 0.08). The module has natural ownership of communication QoS mechanisms because: (1) teleoperation is fundamentally communication-intensive; (2) loss detection and redundancy are QoS concerns, not vehicle or safety concerns; (3) payload adaptation directly serves command/telemetry fidelity, which are teleoperation responsibilities; (4) interfaces to Network Link, Tasking, Telemetry, and SafetyAlert are clean and well-defined. Minimal diffusion because safety-critical paths are explicitly separated. However, four interface clarifications are required to prevent diffusion creep: (a) Network Link must provide sufficient metric granularity; (b) operational context for redundancy strategy selection must be defined and sourced; (c) SafetyAlert must provide clear criticality signaling; (d) payload adaptation must be reversible or explicitly scoped to non-critical streams."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The acceptance criterion (packet loss ≤1% under agreed network conditions) is measurable and testable. Teleoperation module can be instrumented to measure effective packet loss rate (accounting for redundancy and adaptation) and compared against the criterion. Test scenarios should cover: (1) baseline network conditions (customer-defined); (2) degraded conditions (high loss, high latency, high jitter); (3) mixed conditions (variable loss and latency); (4) safety-critical command streams (verify bypass of adaptive redundancy). Verification requires: (a) Network Link to provide ground-truth loss metrics; (b) Teleoperation to log adaptive decisions and outcomes; (c) end-to-end packet delivery validation. Feasibility is high if interfaces are clarified per DP-IM gate recommendations.",
+      "allocation_clarity": "Clear. The FR is allocated to the Teleoperation IM with explicit responsibility for maintaining ≤1% effective packet loss. The allocation is unambiguous: Teleoperation owns the adaptive redundancy, loss detection, and payload adaptation logic. However, allocation clarity depends on resolving four interface dependencies: (1) Network Link must clearly provide loss metrics (not just raw network data); (2) Tasking and Telemetry must clearly define which streams are safety-critical (via SafetyAlert); (3) Vehicle and Safety Services must clearly define operational context if needed for redundancy strategy selection; (4) SafetyAlert must clearly signal which data requires guaranteed delivery. With these clarifications, allocation is fully clear and traceable from FR to IM."
+    },
+    "recommended_revisions": [
+      "Revise DP to explicitly state: 'Network Link interface shall provide per-stream packet loss rate, latency percentiles (p50, p95, p99), and jitter metrics at a frequency sufficient for real-time adaptation (e.g., every 100ms). Teleoperation shall not implement its own packet-level monitoring; all metrics shall be consumed from Network Link.'",
+      "Revise DP to explicitly state: 'Redundancy strategy selection (retransmission vs. FEC) shall be based on Network Link metrics (latency, loss rate, jitter) and shall not require context from Vehicle or Safety Services. If operational context is needed, it shall be passed via explicit interface contracts, not via direct module coupling.'",
+      "Revise DP to explicitly state: 'SafetyAlert interface shall provide a real-time stream-level or command-level criticality flag. Teleoperation shall respect this flag without interpretation: safety-critical streams shall bypass all adaptive redundancy and payload adaptation and shall receive guaranteed delivery (e.g., via dedicated retransmission or FEC). Non-critical streams may be adapted.'",
+      "Revise DP to explicitly state: 'Payload adaptation shall be lossless for command streams and safety-critical telemetry. Lossy adaptation (e.g., reduced granularity, sampling) may be applied only to non-critical telemetry streams explicitly marked by SafetyAlert. Adapted payloads shall be fully reversible to original semantics upon reception.'",
+      "Add to IM boundary specification: 'Teleoperation module shall not implement safety classification logic. All safety-critical stream identification shall be provided by SafetyAlert interface. Teleoperation shall log all adaptive decisions (redundancy strategy, payload adaptation, loss detection events) for audit and verification against the ≤1% acceptance criterion.'",
+      "Add to containment risks: 'Real-time loss detection and adaptation may introduce latency. Teleoperation shall measure and report the latency overhead of adaptive algorithms. If latency exceeds the teleoperation latency budget (to be defined), the DP may require optimization or alternative strategies (e.g., predictive adaptation instead of reactive adaptation).'",
+      "Add to IM boundary specification: 'Teleoperation module shall define and document the latency budget for adaptive algorithms. If the latency budget is tight (e.g., <50ms for loss detection and strategy selection), the DP may require hardware acceleration or pre-computed adaptation tables rather than real-time computation.'"
+    ]
+  },
+  "decision": {
+    "decision": "REVISE_CURRENT_LEVEL",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass, indicating the decomposition is logically sound and the Teleoperation module is the correct owner. However, the DP-IM gate identifies four critical interface clarifications and one latency risk that must be resolved before proceeding to sub-level decomposition. These are not showstoppers but are prerequisites for clean architectural packaging and verification feasibility. Revising the DP and IM boundary specifications now prevents diffusion creep and interface ambiguity from cascading into lower-level decomposition. Given high safety criticality, latency overhead of adaptive algorithms must also be explicitly budgeted at this level. Revising now is more efficient than discovering these gaps during sub-FR decomposition or integration.",
+    "next_level_sub_frs": [],
+    "revise": {
+      "target": "DP",
+      "why": "The DP (Hybrid: DP1 + DP5) is logically correct but under-specifies four critical interface contracts and one latency constraint. Revisions are required to: (1) clarify that Network Link provides per-stream loss metrics, not raw network data; (2) clarify that redundancy strategy selection is driven by Network Link metrics alone, not by Vehicle or Safety Services context; (3) clarify that SafetyAlert provides stream-level criticality flags that Teleoperation consumes without interpretation; (4) clarify that payload adaptation is lossless for critical streams and fully reversible; (5) explicitly budget latency overhead for adaptive algorithms given high safety criticality. These revisions strengthen the DP without changing its core logic, making it suitable for sub-level decomposition and verification."
+    },
+    "record": {
+      "assumptions": [
+        "Network Link module is capable of providing per-stream packet loss rate, latency percentiles (p50, p95, p99), and jitter metrics at real-time frequency (≥10 Hz).",
+        "SafetyAlert module can provide stream-level or command-level criticality flags in real-time without introducing additional latency.",
+        "Teleoperation module has sufficient computational capacity to perform real-time loss detection, strategy selection, and payload adaptation within a latency budget to be defined.",
+        "Redundancy strategy selection (retransmission vs. FEC) can be determined from Network Link metrics (latency, loss rate, jitter) without requiring Vehicle state (speed, terrain) or Safety Services state (safety mode).",
+        "Payload adaptation algorithms are reversible (lossless for critical streams) and do not introduce permanent fidelity loss.",
+        "Customer-defined packet loss acceptance criterion (≤1%) is achievable with hybrid redundancy (retransmission + FEC) under agreed network conditions."
+      ],
+      "open_risks": [
+        "Network Link interface granularity: If Network Link only exposes aggregate statistics, Teleoperation will be forced to implement packet-level monitoring, increasing coupling and violating clean interface contract. Mitigation: Explicitly require per-stream metrics in revised DP.",
+        "Operational context sourcing: If redundancy strategy selection requires Vehicle state (speed, terrain) or Safety Services state (safety mode), Teleoperation will couple to those modules. Mitigation: Clarify in revised DP that context is derived from Network Link metrics alone, or establish explicit context-passing interfaces.",
+        "SafetyAlert criticality signaling: If SafetyAlert does not provide clear, real-time stream-level criticality flags, Teleoperation may implement its own safety classification logic, creating diffusion into safety domain. Mitigation: Require SafetyAlert to provide criticality flags without interpretation.",
+        "Payload adaptation reversibility: If adapted payloads are lossy for critical streams, command/telemetry fidelity may be permanently degraded. Mitigation: Clarify in revised DP that adaptation is lossless for critical streams and fully reversible.",
+        "Latency overhead of adaptive algorithms: Real-time loss detection and strategy selection may introduce latency that violates teleoperation latency budget. Mitigation: Explicitly budget latency at this level; if budget is tight (<50ms), consider hardware acceleration or pre-computed adaptation tables.",
+        "Verification complexity: Measuring effective packet loss rate (accounting for redundancy and adaptation) requires instrumentation of Teleoperation module and ground-truth metrics from Network Link. Mitigation: Define verification protocol and logging requirements in revised DP."
+      ],
+      "evidence_needed": [
+        "Revised DP with explicit interface contracts: Network Link metrics granularity, SafetyAlert criticality signaling, payload adaptation reversibility, latency budget for adaptive algorithms.",
+        "Latency budget specification: Define acceptable latency overhead for loss detection and strategy selection (e.g., <50ms, <100ms) based on teleoperation use case and safety requirements.",
+        "Network Link capability assessment: Confirm that Network Link can provide per-stream loss rate, latency percentiles, and jitter at real-time frequency without additional development.",
+        "SafetyAlert interface specification: Confirm that SafetyAlert can provide stream-level criticality flags in real-time without introducing latency.",
+        "Payload adaptation algorithm specification: Document reversibility guarantees for critical and non-critical streams; confirm lossless adaptation for critical streams.",
+        "Verification protocol: Define test scenarios, instrumentation requirements, and acceptance criteria for measuring effective packet loss rate against ≤1% acceptance criterion.",
+        "Operational context analysis: If redundancy strategy selection requires context beyond Network Link metrics, document explicit context-passing interfaces and dependencies."
+      ]
+    }
+  }
+}

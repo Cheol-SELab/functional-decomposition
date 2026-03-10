@@ -1,0 +1,173 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall propagate worksite model state changes to all authorized consumers within the customer-defined latency threshold.",
+    "rationale": "The original FR conflates two distinct obligations: (1) detecting/capturing state changes in the worksite model, and (2) delivering those changes to consumers within a time bound. The refined FR focuses on the propagation obligation (the primary latency concern) and removes the vague 'operational use' qualifier in favor of explicit reference to customer-defined acceptance criteria. The term 'propagate' is solution-neutral (avoids prescribing polling, pub-sub, or push mechanisms) and 'authorized consumers' acknowledges that different stakeholders (operator, tele-operator, safety manager, maintenance) may receive updates selectively.",
+    "verification_idea": "Measure end-to-end latency from the moment a worksite state change is committed (e.g., equipment position update, hazard detection, task completion) to the moment all subscribed authorized consumers receive the updated model state. Validate across representative update scenarios (position updates, safety events, task transitions) that p95 latency ≤ customer-defined threshold (e.g., 1.0 s). Confirm that unauthorized consumers do not receive restricted updates.",
+    "sub_frs": [
+      "FR-NGHE-007.1: The NGHE solution shall detect and capture worksite model state changes from all monitored sources (equipment, sensors, operator input, external systems).",
+      "FR-NGHE-007.2: The NGHE solution shall propagate worksite model state changes to authorized consumers within the customer-defined latency threshold.",
+      "FR-NGHE-007.3: The NGHE solution shall enforce access control such that only authorized consumers receive worksite model updates relevant to their role."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Centralized event-driven state propagation with asynchronous message broker (decouples producers from consumers, enables selective subscription by authorization context)",
+      "DP2: Synchronous request-response state synchronization with polling intervals (simple but introduces latency variance and tight coupling between state owner and consumers)",
+      "DP3: Hybrid push-pull model with event notification + on-demand state fetch (balances latency guarantees with consumer autonomy, adds complexity)",
+      "DP4: Replicated state store with eventual consistency and conflict resolution (distributes state ownership, requires reconciliation logic and bounded divergence guarantees)",
+      "DP5: Direct peer-to-peer state propagation with consumer-side filtering (eliminates intermediary, but couples authorization logic across distributed nodes)"
+    ],
+    "selected_dp": "DP1: Centralized event-driven state propagation with asynchronous message broker. Producers emit worksite model change events to a logically centralized broker; broker routes events to authorized consumer subscriptions based on consumer identity and worksite safety/operational policy rules. Broker guarantees message ordering per worksite entity and bounded delivery latency (p95 ≤ 1.0 s) through configurable QoS and retention policies.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Authorization policy coupling: If authorization rules are embedded in broker routing logic rather than externalized, policy changes require broker reconfiguration (mitigate: externalize policy as queryable service)",
+        "Consumer subscription coupling: If consumers hardcode topic/queue names, schema changes break subscriptions (mitigate: use logical subscription identifiers mapped through a registry)",
+        "Latency coupling: If broker throughput or network path becomes saturated, p95 latency degrades across all consumers (mitigate: partition worksite events by worksite ID to enable independent scaling)",
+        "State schema coupling: If worksite model schema changes, all consumers must adapt deserialization (mitigate: use versioned event schemas with backward compatibility)"
+      ],
+      "notes": "DP1 decouples producers from consumers via the broker abstraction, enabling independent scaling and authorization policy evolution. Event ordering per worksite entity prevents out-of-order state corruption. Asynchronous delivery allows consumers to process at their own rate without blocking producers. Potential coupling points are manageable through externalization of policy and schema versioning."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Worksite model change events are discrete, identifiable units (not continuous streams). RISK: If model updates are high-frequency or fine-grained, event volume may exceed broker throughput; mitigation: batch or aggregate events at source.",
+      "ASSUMPTION: p95 ≤ 1.0 s latency is achievable with a single logical broker instance or a tightly coupled cluster. RISK: If broker becomes a bottleneck, latency SLA fails; mitigation: partition by worksite ID and scale broker horizontally.",
+      "ASSUMPTION: Authorization context is stable and queryable at event routing time. RISK: If authorization rules change mid-propagation, some consumers may receive stale authorization decisions; mitigation: include authorization timestamp in event metadata and allow consumers to re-validate.",
+      "ASSUMPTION: All authorized consumers are known at design time or can be discovered dynamically. RISK: If new consumer types emerge, broker routing rules must be updated; mitigation: use a consumer registry and dynamic subscription model.",
+      "ASSUMPTION: Network reliability between broker and consumers is sufficient for message delivery. RISK: If network partitions occur, consumers may miss updates; mitigation: implement consumer-side replay/reconciliation logic and broker-side retention policies.",
+      "ASSUMPTION: Worksite safety and operational policies do not require real-time consensus or distributed locking. RISK: If policies require atomic multi-consumer coordination, event-driven model may not guarantee consistency; mitigation: clarify policy requirements and consider adding a coordination layer if needed."
+    ],
+    "recommended_revision": "Refine FR to explicitly state: (1) whether worksite model updates are discrete events or continuous state, (2) the authorization model (role-based, attribute-based, policy-based), (3) whether consumers require exactly-once or at-least-once delivery semantics, (4) whether the p95 ≤ 1.0 s latency applies to all update scenarios or only specific high-priority changes, and (5) whether worksite safety policies impose ordering or atomicity constraints across multiple consumers. These clarifications will inform DP selection between DP1 (event-driven) and DP3 (hybrid) and guide IM packaging decisions (e.g., message broker technology, consumer framework, authorization service)."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Safety Services",
+      "scope": "Centralized event broker and message routing infrastructure that manages worksite model change events, enforces authorization and safety/operational policy rules, guarantees per-entity message ordering and bounded delivery latency (p95 ≤ 1.0 s), and exposes subscription/publication interfaces to all authorized producers and consumers across the system."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Producers (Vehicle, Teleoperation, other worksite entities) emit worksite model change events (position, state, operational status) to the broker via Telemetry interface."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Broker routes filtered/authorized events to consumer subscriptions (e.g., safety-critical alerts, operational state updates) via SafetyAlert interface based on consumer identity and policy rules."
+      },
+      {
+        "name": "Tasking",
+        "direction": "inout",
+        "details": "Broker may receive task-related state changes and emit task-coordination events to coordinate multi-agent worksite operations."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Broker uses Network Link for reliable, ordered message delivery across distributed producers and consumers; manages QoS and retention policies at this layer."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Safety Services",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit. Safety Services is the natural home for centralized policy enforcement, authorization, and event routing. The broker's core responsibility—enforcing safety and operational rules on event propagation—is intrinsic to Safety Services' domain. Message ordering and latency guarantees are infrastructure concerns that Safety Services can own. Minimal diffusion: only Telemetry (inbound events), SafetyAlert (outbound alerts), and Network Link (transport) leak outside; these are well-defined, necessary interfaces."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.65,
+        "diffusion_score": 0.35,
+        "notes": "Moderate fit but overly broad. NGHE Solution is a top-level system container; placing the broker here would make it a system-wide utility rather than a focused service. Diffusion risk: the broker would need to be aware of all producer/consumer types (Vehicle, Teleoperation, Safety Services themselves), creating tight coupling across the entire solution. Better as a delegated service within Safety Services."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.15,
+        "diffusion_score": 0.85,
+        "notes": "Poor fit. Vehicle is a producer of telemetry events, not a broker. Placing the broker here would make Vehicle responsible for routing events to all other consumers (Teleoperation, Safety Services, other Vehicles), violating separation of concerns. High diffusion: Vehicle would need to know about all downstream subscribers and policy rules, creating unacceptable coupling."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Poor fit. Teleoperation is a consumer/producer of task and control events, not a broker. Placing the broker here would make Teleoperation responsible for routing safety-critical events and enforcing authorization policies, which is outside its domain. High diffusion: Teleoperation would need to understand all worksite entities and safety rules."
+      }
+    ],
+    "ownership_candidate": "Safety Services",
+    "containment_hypothesis": "The event-driven state propagation broker is fundamentally a safety and policy enforcement mechanism. Its core responsibility—routing events based on consumer identity and safety/operational rules—is intrinsic to Safety Services' domain. By placing the broker within Safety Services, we achieve high cohesion (the broker's logic is tightly aligned with safety policy enforcement) and low diffusion (producers and consumers interact with the broker through well-defined, necessary interfaces: Telemetry for inbound events, SafetyAlert for outbound alerts, and Network Link for transport). This design also enables Safety Services to evolve its policy rules and authorization logic without requiring changes to producer or consumer modules.",
+    "containment_risks": [
+      "Risk: If Safety Services becomes a bottleneck for all event routing, latency SLA (p95 ≤ 1.0 s) may be violated under high-throughput scenarios. Mitigation: Design the broker with horizontal scalability (e.g., partitioned by worksite entity) and monitor latency metrics continuously.",
+      "Risk: Authorization and policy rule evaluation logic may become complex and difficult to maintain if rules are not well-structured. Mitigation: Adopt a declarative policy language (e.g., ABAC or PBAC) and version policies independently of broker code.",
+      "Risk: Tight coupling between broker and Network Link transport layer may limit flexibility in switching transport mechanisms. Mitigation: Abstract the transport layer behind a well-defined interface (e.g., MessageTransport) to decouple broker logic from network implementation.",
+      "Risk: If producers or consumers are added frequently, the broker's subscription/publication interface may need to evolve. Mitigation: Design the interface to be extensible (e.g., support dynamic topic registration) and document the contract clearly."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The FR specifies a measurable latency threshold (p95 ≤ 1.0 s) and authorization scope ('all authorized consumers'). The IM boundary (Safety Services) is concrete and testable: latency can be measured end-to-end via instrumentation on Telemetry (inbound) and SafetyAlert (outbound) interfaces; authorization can be verified through policy rule evaluation logs and access control audits. The 'customer-defined latency threshold' acceptance criterion is achievable if Safety Services exposes configurable QoS and retention policies as part of its interface contract.",
+      "allocation_clarity": "Clear. The FR maps unambiguously to DP1 (centralized event-driven broker with policy enforcement), and DP1 is allocated to a single, well-scoped IM (Safety Services). The external interfaces (Telemetry, SafetyAlert, Tasking, Network Link) are explicit and necessary. No ambiguity about which module owns the broker logic or which interfaces carry state change events."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP1 directly and sufficiently addresses the FR. The DP specifies: (1) centralized event-driven propagation (addresses 'propagate'); (2) asynchronous message broker with authorization and policy routing (addresses 'authorized consumers'); (3) bounded delivery latency p95 ≤ 1.0 s (addresses 'customer-defined latency threshold'). The DP is logically sound and implementable. No logical gaps or contradictions detected."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Moderate risk: Authorization and policy rule evaluation logic is centralized in Safety Services, but rule definitions may be scattered across multiple policy documents or configuration files. Mitigation: Adopt a single, versioned policy repository (e.g., declarative ABAC/PBAC store) owned by Safety Services to prevent rule diffusion.",
+        "Moderate risk: Message ordering guarantee ('per-entity') requires stateful tracking of entity-specific message sequences. If this logic is not cleanly encapsulated within the broker module, ordering state could leak into producer/consumer code. Mitigation: Encapsulate ordering state and logic entirely within the broker; expose only a simple publish/subscribe interface to producers and consumers.",
+        "Low risk: Network Link interface is external to Safety Services. If transport-layer concerns (QoS, retention, partitioning) are not cleanly abstracted, broker logic may become tightly coupled to specific network implementations. Mitigation: Define a MessageTransport abstraction layer within Safety Services that decouples broker routing logic from network mechanics.",
+        "Low risk: Tasking interface is bidirectional (inout), suggesting task-coordination events flow both into and out of the broker. If task-state change semantics are not clearly defined, the broker may inadvertently become responsible for task orchestration logic (outside its domain). Mitigation: Document the Tasking interface contract explicitly; ensure the broker only routes task-related events, not orchestrates task execution."
+      ],
+      "containment_notes": "Excellent containment (0.92 score). Safety Services is the natural home for the broker because: (1) policy enforcement and authorization are intrinsic to safety services; (2) the broker's core logic (routing based on consumer identity and safety rules) is cohesive with Safety Services' domain; (3) external interfaces are minimal and necessary (Telemetry for inbound events, SafetyAlert for outbound alerts, Network Link for transport, Tasking for coordination). No evidence of DP logic scattered across multiple modules. The broker is a focused, single-responsibility component within Safety Services. Risk of diffusion is low if the four mitigation strategies above are applied."
+    },
+    "recommended_revisions": [
+      "Revision 1: Explicitly define the policy rule repository and versioning strategy. Specify whether rules are stored in a configuration file, database, or policy engine (e.g., OPA, Sentinel). Ensure rules are owned and versioned by Safety Services, not scattered across producer/consumer modules.",
+      "Revision 2: Add a MessageTransport abstraction layer to the DP. Specify that the broker delegates message delivery (QoS, retention, ordering) to a pluggable transport interface, decoupling broker routing logic from Network Link implementation details.",
+      "Revision 3: Clarify the Tasking interface contract. Document whether task-state changes are routed by the broker (event propagation only) or orchestrated by the broker (task sequencing, coordination). If orchestration is required, consider whether it belongs in Safety Services or a separate Task Coordination module.",
+      "Revision 4: Add a latency monitoring and alerting strategy to the DP. Specify that Safety Services exposes metrics (e.g., p50, p95, p99 latency per worksite entity) and triggers alerts if p95 latency exceeds the customer-defined threshold. This enables continuous verification of the acceptance criterion.",
+      "Revision 5: Document the scalability strategy for the broker. Specify whether the broker is a single instance (risk of bottleneck) or horizontally partitioned (e.g., by worksite entity or geographic region). If partitioned, clarify how cross-partition ordering guarantees are maintained.",
+      "Revision 6: Add a fallback/degradation strategy if the broker becomes unavailable. Specify whether producers buffer events locally, whether consumers receive stale state, or whether the system enters a safe mode. This ensures the FR is met even under failure scenarios."
+    ]
+  },
+  "decision": {
+    "decision": "REVISE_CURRENT_LEVEL",
+    "justification": "All three gates (FR-IM, FR-DP, DP-IM) pass with high confidence, indicating the current decomposition is logically sound and architecturally feasible. However, the gate analysis identifies six concrete, high-impact revisions that must be incorporated before proceeding to sub-level decomposition. Given the high safety criticality of this system, deferring these revisions to a lower decomposition level would introduce unacceptable risk: (1) policy rule diffusion could scatter authorization logic across multiple modules, violating safety integrity; (2) message ordering state leakage could compromise per-entity event sequencing guarantees; (3) unclear Tasking interface semantics could lead to unintended task orchestration responsibilities; (4) missing latency monitoring strategy undermines continuous verification of the p95 ≤ 1.0 s acceptance criterion; (5) unspecified scalability and partitioning strategy creates a hidden bottleneck risk; (6) absent fallback/degradation strategy leaves the system vulnerable to broker unavailability. Revising the DP and IM specifications now—before sub-level decomposition—ensures that all downstream design decisions (sub-FRs, sub-DPs, sub-IMs) are built on a robust, safety-compliant foundation. This is a critical juncture: the current FR is correct, but the DP and IM require hardening to meet safety and operational requirements.",
+    "revise": {
+      "target": "DP|IM",
+      "why": "The DP (centralized event-driven broker with policy enforcement) is logically sound but under-specified in five critical areas: (1) policy rule repository and versioning (currently implicit, must be explicit); (2) message transport abstraction (currently conflated with broker logic, must be decoupled); (3) Tasking interface semantics (currently ambiguous, must be clarified); (4) latency monitoring and alerting (currently absent, must be added); (5) scalability and partitioning strategy (currently unspecified, must be defined). The IM (Safety Services) is correctly scoped, but its internal structure must be refined to reflect these DP enhancements. Specifically: add a Policy Repository sub-module (owned by Safety Services, versioned, single source of truth for authorization rules); add a MessageTransport abstraction layer (owned by Safety Services, decouples broker from Network Link implementation); clarify Tasking interface contract (document whether broker routes or orchestrates); add Latency Monitoring sub-module (exposes metrics, triggers alerts); add Scalability/Partitioning strategy (specify single-instance vs. partitioned broker, cross-partition ordering guarantees); add Fallback/Degradation strategy (specify producer buffering, consumer stale-state handling, safe-mode entry criteria). These revisions must be completed at the current level before sub-level decomposition begins."
+    },
+    "next_level_sub_frs": [],
+    "record": {
+      "assumptions": [
+        "Policy rules are static or change infrequently (assumption: rules are not updated in real-time during operation; if they are, versioning and rollback strategy must be specified).",
+        "Message ordering is required only per-entity, not globally across all entities (assumption: global ordering would require a different broker architecture and is not a requirement).",
+        "Tasking interface carries event-level state changes, not task-level orchestration commands (assumption: if task orchestration is required, it belongs in a separate Task Coordination module, not in Safety Services).",
+        "Network Link is reliable for message delivery (assumption: if Network Link is unreliable, fallback/degradation strategy must account for message loss and retry logic).",
+        "Broker latency is dominated by policy rule evaluation and message routing, not by network transport (assumption: if network transport dominates, MessageTransport abstraction must include QoS and batching strategies).",
+        "Safety Services is a single-instance deployment (assumption: if multi-instance deployment is required, cross-instance ordering and consistency guarantees must be specified)."
+      ],
+      "open_risks": [
+        "Policy Rule Diffusion (Moderate): Authorization rules may be scattered across multiple policy documents, configuration files, or code modules. Mitigation: Adopt a single, versioned policy repository (e.g., OPA, Sentinel, or custom ABAC/PBAC store) owned by Safety Services. Verify that all rule definitions are centralized and version-controlled.",
+        "Message Ordering State Leakage (Moderate): Per-entity message ordering state may leak into producer/consumer code if not cleanly encapsulated. Mitigation: Encapsulate ordering state entirely within the broker module; expose only a simple publish/subscribe interface. Add unit tests to verify ordering guarantees.",
+        "Tasking Interface Ambiguity (Moderate): Unclear whether Tasking interface carries event propagation or task orchestration. If orchestration is required, broker may become responsible for task sequencing (outside its domain). Mitigation: Document Tasking interface contract explicitly; define whether broker routes or orchestrates. If orchestration is required, consider a separate Task Coordination module.",
+        "Latency Monitoring Gap (Moderate): No explicit strategy for continuous verification of p95 ≤ 1.0 s acceptance criterion. Mitigation: Add latency monitoring and alerting to DP; specify metrics (p50, p95, p99 per entity), alert thresholds, and escalation procedures.",
+        "Scalability Bottleneck (Moderate): Single-instance broker may become a bottleneck under high event volume. Mitigation: Specify scalability strategy (single-instance vs. partitioned); if partitioned, clarify cross-partition ordering guarantees and failover behavior.",
+        "Broker Unavailability (Moderate): No fallback/degradation strategy if broker becomes unavailable. Mitigation: Specify producer buffering strategy, consumer stale-state handling, and safe-mode entry criteria. Ensure system can degrade gracefully without losing safety guarantees.",
+        "Network Link Coupling (Low): Broker logic may become tightly coupled to Network Link implementation details (QoS, retention, partitioning). Mitigation: Define MessageTransport abstraction layer; decouple broker routing logic from network mechanics.",
+        "Safety Integrity Verification (High): Current acceptance criterion (p95 ≤ 1.0 s, 'all authorized consumers') is measurable but does not explicitly address safety integrity (e.g., no false negatives in authorization, no event loss under failure). Mitigation: Add safety-specific acceptance criteria (e.g., 'zero unauthorized access to safety alerts', 'no event loss under single-point failures'). Specify verification methods (e.g., formal policy analysis, fault injection testing)."
+      ],
+      "evidence_needed": [
+        "Policy Rule Repository Specification: Document the chosen policy storage mechanism (file, database, policy engine), versioning strategy, and ownership model. Provide examples of 3–5 representative authorization rules.",
+        "MessageTransport Abstraction Design: Specify the interface contract (publish, subscribe, acknowledge, retry, timeout). Document how the broker delegates QoS, retention, and ordering to the transport layer. Provide pseudo-code or UML diagram.",
+        "Tasking Interface Contract: Document the schema of task-state change events (e.g., task_id, status, timestamp, producer, consumer). Clarify whether the broker routes events or orchestrates task execution. Provide examples of 2–3 task workflows.",
+        "Latency Monitoring Strategy: Specify metrics (p50, p95, p99 latency per entity), collection method (instrumentation points, sampling rate), alerting thresholds, and escalation procedures. Provide a sample monitoring dashboard or alert rule.",
+        "Scalability and Partitioning Strategy: Specify whether the broker is single-instance or partitioned (by entity, region, or other dimension). If partitioned, document cross-partition ordering guarantees, failover behavior, and rebalancing strategy. Provide capacity planning estimates (events/sec, latency vs. throughput trade-offs).",
+        "Fallback/Degradation Strategy: Specify producer buffering (local queue size, overflow behavior), consumer stale-state handling (cache TTL, refresh strategy), and safe-mode entry criteria (broker unavailability duration, alert thresholds). Provide a state machine or decision tree.",
+        "Safety Integrity Verification Plan: Specify verification methods for authorization (policy analysis, access control audits), event ordering (sequence testing, fault injection), and latency (load testing, SLA monitoring). Provide test cases and acceptance criteria.",
+        "Failure Mode Analysis: Conduct FMEA or FTA on the broker to identify single-point failures (e.g., policy repository unavailability, message transport failure, ordering state corruption). Document mitigation strategies and residual risks."
+      ]
+    }
+  }
+}

@@ -1,0 +1,169 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall enable end-to-end teleoperation communication with latency that permits safe remote operation.",
+    "rationale": "The original FR conflates two concerns: (1) the functional requirement to enable teleoperation communication, and (2) a performance constraint on latency. The refined FR isolates the core functional obligation (enable teleoperation) while deferring the quantitative performance criterion to acceptance criteria or design constraints. This keeps the FR solution-neutral and problem-focused. The phrase 'compatible with safe remote operation' is vague and belongs in constraints; the FR now states the functional need without prescribing how safety is achieved.",
+    "verification_idea": "Demonstrate that the teleoperation communication path is established end-to-end (tele-operator input → remote equipment → feedback to tele-operator) and measure latency under agreed network conditions. Verify that measured p95 latency ≤ 150 ms satisfies the acceptance criterion.",
+    "sub_frs": [
+      "FR-NGHE-008.1: The NGHE solution shall transmit tele-operator control commands to the remote equipment.",
+      "FR-NGHE-008.2: The NGHE solution shall transmit equipment state and sensor feedback to the tele-operator.",
+      "FR-NGHE-008.3: The NGHE solution shall maintain end-to-end communication latency within acceptable bounds for safe operation."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Implement a deterministic, low-latency communication pipeline with end-to-end latency budgeting across acquisition, transmission, processing, and actuation stages, using priority-queued message handling and bounded processing windows.",
+      "DP2: Deploy a dual-channel redundant communication architecture (primary + failover) with independent path selection logic to ensure safety-critical command delivery within latency bounds even under single-path degradation.",
+      "DP3: Establish a real-time telemetry feedback loop with predictive state estimation (dead-reckoning) to mask network jitter and provide operator situational awareness within the latency budget, decoupled from raw sensor acquisition.",
+      "DP4: Implement adaptive bitrate encoding and selective data transmission (prioritize safety-critical signals over non-critical telemetry) to maintain latency compliance under variable network conditions without requiring protocol changes.",
+      "DP5: Use a time-synchronized, event-driven architecture with explicit latency contracts at each processing stage (acquisition → encode → transmit → decode → actuate) to enable measurable, testable latency compliance."
+    ],
+    "selected_dp": "DP5: Use a time-synchronized, event-driven architecture with explicit latency contracts at each processing stage (acquisition → encode → transmit → decode → actuate) to enable measurable, testable latency compliance.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between time synchronization mechanism and network stack (mitigated by abstracting sync as a service boundary)",
+        "Coupling between latency contracts and specific network conditions (mitigated by parameterizing network assumptions in contract definitions)",
+        "Coupling between event-driven processing and operator control loop frequency (mitigated by decoupling operator input sampling from actuation dispatch)"
+      ],
+      "notes": "DP5 is selected because it provides a logical, measurable framework for latency management independent of specific technologies (e.g., ROS, DDS, custom UDP). It decomposes the problem into independently testable stages with clear ownership boundaries (IM layer). Alternatives (DP1–DP4) are either subsumed by DP5 (DP1, DP3, DP4 are implementation strategies within DP5) or address orthogonal concerns (DP2 addresses redundancy, not latency control). DP5 avoids premature technology binding while enabling rigorous latency verification."
+    },
+    "assumptions_risks": [
+      "Assumption: Network conditions remain within agreed bounds (p95 latency ≤ 150 ms achievable on declared infrastructure). Risk: If actual network latency exceeds budget, DP5 alone cannot compensate; mitigation requires DP2 (redundancy) or DP4 (adaptive encoding) as complementary DPs.",
+      "Assumption: Time synchronization across remote and local systems is achievable with sub-millisecond accuracy. Risk: Clock drift or sync failure could invalidate latency contracts. Mitigation: Explicit sync health monitoring and fallback to local clock-relative timing.",
+      "Assumption: Operator cognitive load and safety policies permit p95 latency of 150 ms for safe remote operation. Risk: If worksite safety plan requires lower latency (e.g., <100 ms for certain maneuvers), DP5 must be paired with DP4 (adaptive encoding) to reduce payload size. Mitigation: Validate latency budget against safety plan early.",
+      "Assumption: Processing stages (encode, decode, actuate) can be bounded to deterministic windows. Risk: Variable processing times (e.g., video codec variability) could exceed budgets. Mitigation: Use fixed-time algorithms or hardware acceleration for critical stages.",
+      "Assumption: Operator feedback loop (visual + haptic) is decoupled from safety-critical command execution. Risk: If operator relies on real-time visual feedback to issue safe commands, latency in telemetry feedback could indirectly cause unsafe operation. Mitigation: Explicit safety interlocks independent of operator latency perception."
+    ],
+    "recommended_revision": "FR should be refined to explicitly state: (1) whether the 150 ms latency applies to command-to-actuation, telemetry-to-display, or both; (2) the network conditions under which p95 ≤ 150 ms must hold (bandwidth, jitter, packet loss); (3) whether safety-critical commands require acknowledgment or are fire-and-forget; (4) the role of operator feedback (visual, haptic, or neither) in safe operation. Additionally, pair DP5 with DP2 (redundancy) and DP4 (adaptive encoding) as complementary DPs to address network variability and single-point-of-failure risks. Introduce an explicit FR for 'Ensure safety-critical command delivery is not dependent on latency-sensitive feedback loops' to decouple safety from telemetry latency."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "End-to-end latency orchestration, event scheduling, and timing contract enforcement across the acquisition-to-actuation pipeline; includes latency measurement, monitoring, and compliance validation at each stage boundary."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Ingests sensor acquisition timestamps and stage-entry events; carries latency metadata (acquisition time, encode start/end, transmit start/end, decode start/end, actuation trigger time)."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Emits actuation commands with embedded latency contracts and deadline constraints; signals stage transitions and timing synchronization points to Vehicle and Safety Services."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "Receives safety-critical latency violations and timeout alerts; broadcasts latency-compliance status and stage-transition events to Safety Services for real-time intervention."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Provides network transmission timestamps, jitter metrics, and round-trip latency feedback; receives network-layer timing constraints and QoS parameters."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit: Teleoperation is the natural owner of end-to-end latency orchestration, event synchronization, and timing contracts. The DP's core logic (time-synchronized event-driven architecture with explicit latency contracts) maps directly to teleoperation's responsibility for coordinating the human-in-the-loop control loop. Minimal diffusion: only latency measurement hooks and compliance callbacks diffuse to Vehicle (actuation timing) and Safety Services (violation handling)."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.65,
+        "diffusion_score": 0.35,
+        "notes": "Moderate fit: Safety Services could own latency compliance monitoring and violation response, but would not naturally own the event-driven scheduling logic, stage synchronization, or the acquisition-to-actuation pipeline orchestration. High diffusion: core DP logic would leak into Teleoperation (event scheduling), Vehicle (timing contracts), and Network Link (transmission timing). Violates separation of concerns."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.45,
+        "diffusion_score": 0.55,
+        "notes": "Poor fit: Vehicle is responsible for physical actuation and local control, not for end-to-end latency orchestration or event synchronization across the teleoperation pipeline. The DP's latency contracts and stage-transition logic would heavily diffuse into Teleoperation (scheduling), Safety Services (compliance), and Network Link (transmission timing). Violates cohesion."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.5,
+        "diffusion_score": 0.5,
+        "notes": "Weak fit: NGHE Solution is a top-level system container, not a specific functional module. Placing the DP here would blur ownership and make the architecture non-hierarchical. The DP requires a concrete, bounded module with clear responsibility for latency orchestration; NGHE Solution is too broad and would not improve containment or reduce diffusion."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the natural owner of the time-synchronized, event-driven architecture with explicit latency contracts because it is responsible for coordinating the entire human-in-the-loop control loop. The DP's core logic—event scheduling, stage synchronization, latency measurement, and contract enforcement—aligns with Teleoperation's functional scope. External interfaces (Telemetry, Tasking, SafetyAlert, Network Link) provide the necessary input/output channels for latency metadata, compliance signals, and timing constraints without requiring the DP to diffuse into other modules.",
+    "containment_risks": [
+      "Latency measurement and compliance validation may require tight coupling to Vehicle's actuation timing; mitigation: define a clear Tasking interface contract that specifies deadline and latency expectations, allowing Vehicle to remain decoupled from the scheduling logic.",
+      "Network Link latency feedback (jitter, round-trip time) may create bidirectional dependency; mitigation: establish a unidirectional SafetyAlert or Telemetry channel for network timing metrics, preventing Teleoperation from directly querying Network Link state.",
+      "Safety Services may need real-time access to latency violation events; mitigation: use SafetyAlert as the primary notification channel, with Teleoperation publishing compliance status and violations asynchronously.",
+      "Stage-transition synchronization (encode → transmit → decode → actuate) may require coordination with Vehicle's local control loop; mitigation: embed timing contracts in Tasking commands, allowing Vehicle to enforce deadlines independently without back-channel communication."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The FR specifies a measurable acceptance criterion (p95 ≤ 150 ms latency under agreed network conditions). The IM boundary (Teleoperation) is explicitly responsible for latency measurement, monitoring, and compliance validation at each stage boundary. The external interfaces (Telemetry, Tasking, SafetyAlert, Network Link) provide concrete instrumentation points for end-to-end latency capture. Verification is feasible via: (1) instrumentation of acquisition, encode, transmit, decode, and actuation timestamps; (2) aggregation and percentile analysis in Teleoperation; (3) automated compliance checks against the 150 ms threshold; (4) SafetyAlert notifications on violation. Traceability from FR to IM is clear and testable.",
+      "allocation_clarity": "Excellent. The Teleoperation module is the unambiguous owner of end-to-end latency orchestration (containment_score 0.92, diffusion_score 0.08). The functional scope—time-synchronized event-driven architecture with explicit latency contracts—maps directly to Teleoperation's responsibility for coordinating the human-in-the-loop control loop. The four external interfaces (Telemetry in, Tasking out, SafetyAlert inout, Network Link inout) define clear input/output channels for latency metadata, compliance signals, and timing constraints. No ambiguity regarding which module owns the DP logic or which modules provide supporting data."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Latency measurement and compliance validation may require tight coupling to Vehicle's actuation timing. Mitigation: Tasking interface must embed explicit deadline and latency expectations as part of the command contract, allowing Vehicle to enforce deadlines independently without back-channel queries to Teleoperation.",
+        "Network Link latency feedback (jitter, round-trip time) creates bidirectional dependency risk. Mitigation: Establish unidirectional SafetyAlert or Telemetry channel for network timing metrics; Teleoperation must not directly query Network Link state or pull timing data on-demand.",
+        "Safety Services may require real-time access to latency violation events, risking tight coupling. Mitigation: Use SafetyAlert as the primary asynchronous notification channel; Teleoperation publishes compliance status and violations without expecting synchronous acknowledgment from Safety Services.",
+        "Stage-transition synchronization (encode → transmit → decode → actuate) may leak into Vehicle's local control loop if Vehicle is expected to coordinate with Teleoperation. Mitigation: Embed timing contracts and stage deadlines in Tasking commands; Vehicle enforces deadlines independently, decoupled from Teleoperation's scheduling logic."
+      ],
+      "containment_notes": "Strong containment within Teleoperation (0.92 score). The DP's core logic—event scheduling, stage synchronization, latency measurement, and contract enforcement—is cohesive and naturally owned by Teleoperation. Minimal diffusion (0.08 score) is limited to latency measurement hooks and compliance callbacks to Vehicle and Safety Services, which are acceptable as external interface contracts rather than logic leakage. The four external interfaces are well-defined and provide necessary input/output channels without requiring the DP to scatter across multiple modules. Risk of diffusion is manageable through strict interface contracts (Tasking deadline embedding, SafetyAlert asynchronous notification, Network Link unidirectional feedback) and clear separation of concerns: Teleoperation owns orchestration; Vehicle owns actuation timing enforcement; Safety Services owns violation response; Network Link owns transmission timing."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP5 directly addresses the FR's requirement for 'latency that permits safe remote operation.' The DP specifies a time-synchronized, event-driven architecture with explicit latency contracts at each processing stage (acquisition → encode → transmit → decode → actuate), which is the logical design solution for achieving measurable, testable latency compliance. The DP enables the FR's acceptance criterion (p95 ≤ 150 ms) by: (1) instrumenting each stage with timing contracts and deadlines; (2) measuring end-to-end latency across the pipeline; (3) enforcing compliance at stage boundaries; (4) providing real-time monitoring and violation alerts. The DP is neither over-constrained (it does not prescribe specific technologies or implementations) nor under-constrained (it specifies the architectural pattern and measurement strategy). The mapping is sound and verifiable."
+    },
+    "recommended_revisions": [
+      "Formalize the Tasking interface contract to explicitly embed latency deadlines and stage-transition timing expectations. Example: Tasking command shall include fields {command_id, deadline_ms, stage_deadlines: {encode_deadline_ms, transmit_deadline_ms, decode_deadline_ms, actuation_deadline_ms}, latency_sla_p95_ms: 150}. This ensures Vehicle can enforce deadlines independently without querying Teleoperation.",
+      "Define SafetyAlert as a unidirectional, asynchronous notification channel from Teleoperation to Safety Services. Specify message schema: {violation_type, stage, measured_latency_ms, threshold_ms, timestamp, severity}. Prohibit Safety Services from sending back-channel queries to Teleoperation; use SafetyAlert only for event publication.",
+      "Establish a unidirectional Telemetry channel for network timing metrics (jitter, round-trip latency, packet loss). Specify that Network Link publishes metrics to Teleoperation via Telemetry; Teleoperation does not pull or query Network Link state directly. This prevents bidirectional coupling.",
+      "Document the stage-transition synchronization protocol in Teleoperation's design specification. Clarify that Vehicle receives Tasking commands with embedded deadlines and executes them independently; Teleoperation does not coordinate with Vehicle's local control loop in real-time. Stage transitions are implicit in command execution, not explicit synchronization points.",
+      "Add a latency measurement and compliance validation specification to the Teleoperation module design. Define: (1) timestamp capture points (acquisition, encode start/end, transmit start/end, decode start/end, actuation trigger); (2) aggregation logic (end-to-end latency = actuation_trigger_time - acquisition_time); (3) percentile calculation (p95 over rolling window); (4) compliance check (p95 ≤ 150 ms); (5) violation escalation (SafetyAlert publication). This ensures verification feasibility.",
+      "Specify the time synchronization mechanism across acquisition, encode, transmit, decode, and actuation stages. Clarify whether Teleoperation uses a centralized clock, NTP, or distributed timestamp correlation. Document clock skew tolerance and synchronization error bounds to ensure latency measurements are accurate within acceptable margins."
+    ]
+  },
+  "decision": {
+    "decision": "REVISE_CURRENT_LEVEL",
+    "justification": "All three gates (FR-IM, DP-IM, FR-DP) pass with high confidence, and the FR is sufficiently specific to be verifiable. However, the recommended_revisions expose critical gaps in the DP specification that must be resolved before proceeding to sub-level decomposition. Specifically: (1) the Tasking interface contract lacks formalized latency deadline embedding, creating risk that Vehicle cannot enforce deadlines independently; (2) SafetyAlert lacks explicit unidirectional semantics and message schema, risking bidirectional coupling; (3) Network Link feedback lacks unidirectional specification, creating pull-based query risk; (4) stage-transition synchronization protocol is underspecified, risking implicit coupling between Teleoperation and Vehicle's local control loop; (5) latency measurement and compliance validation logic lacks detailed specification (timestamp capture points, aggregation, percentile calculation, violation escalation); (6) time synchronization mechanism across stages is not specified, risking measurement accuracy. These gaps are architectural in nature and must be resolved at the current level before decomposing into sub-FRs. Revising the DP now prevents downstream rework and ensures that sub-level FRs inherit a well-defined, decoupled design contract. Given high safety criticality, formalization of latency contracts and measurement protocols is non-negotiable.",
+    "next_level_sub_frs": [],
+    "revise": {
+      "target": "DP",
+      "why": "DP5 (time-synchronized, event-driven architecture with explicit latency contracts) is logically sound but architecturally underspecified. The six recommended_revisions must be incorporated into the DP specification to: (1) formalize Tasking interface contract with embedded latency deadlines and stage-transition timing expectations; (2) define SafetyAlert as unidirectional, asynchronous notification channel with explicit message schema; (3) establish unidirectional Telemetry channel for network timing metrics, prohibiting pull-based queries; (4) document stage-transition synchronization protocol clarifying Vehicle's independent deadline enforcement; (5) add latency measurement and compliance validation specification (timestamp capture, aggregation, percentile calculation, violation escalation); (6) specify time synchronization mechanism (centralized clock, NTP, or distributed timestamp correlation) with clock skew tolerance and synchronization error bounds. These revisions strengthen the DP's architectural clarity, reduce diffusion risk, and ensure that the DP can be decomposed into well-defined sub-DPs without ambiguity regarding interface contracts, measurement protocols, or module responsibilities."
+    },
+    "record": {
+      "assumptions": [
+        "Teleoperation module has access to synchronized clocks or NTP infrastructure across acquisition, encode, transmit, decode, and actuation stages.",
+        "Vehicle module can receive and enforce latency deadlines embedded in Tasking commands without requiring real-time synchronization with Teleoperation.",
+        "Network Link module can publish timing metrics (jitter, round-trip latency, packet loss) asynchronously via Telemetry without expecting queries from Teleoperation.",
+        "Safety Services can consume SafetyAlert notifications asynchronously without requiring back-channel communication to Teleoperation.",
+        "Latency measurement accuracy of ±10 ms (or better) is achievable within the time synchronization mechanism chosen.",
+        "The p95 latency threshold of 150 ms is achievable under agreed network conditions (e.g., LTE, 5G, or wired link with specified jitter and packet loss bounds)."
+      ],
+      "open_risks": [
+        "Clock skew across distributed stages (acquisition, encode, transmit, decode, actuation) may exceed acceptable bounds, invalidating latency measurements. Mitigation: Specify clock synchronization mechanism and error tolerance in revised DP.",
+        "Vehicle may not enforce Tasking deadlines independently if deadline embedding is not formalized in the interface contract. Mitigation: Formalize Tasking interface contract with explicit deadline fields and enforcement semantics.",
+        "SafetyAlert bidirectional coupling risk if Safety Services sends back-channel queries to Teleoperation. Mitigation: Define SafetyAlert as unidirectional, asynchronous channel with explicit prohibition on synchronous acknowledgment.",
+        "Network Link latency feedback may create pull-based query risk if Teleoperation directly queries Network Link state. Mitigation: Establish unidirectional Telemetry channel for network timing metrics; Teleoperation consumes published metrics only.",
+        "Stage-transition synchronization may leak into Vehicle's local control loop if implicit coupling is not eliminated. Mitigation: Document that Vehicle enforces deadlines independently; stage transitions are implicit in command execution, not explicit synchronization points.",
+        "Latency measurement and compliance validation logic may be scattered across multiple modules if not centralized in Teleoperation. Mitigation: Add detailed specification of timestamp capture, aggregation, percentile calculation, and violation escalation to Teleoperation design."
+      ],
+      "evidence_needed": [
+        "Formalized Tasking interface contract with latency deadline fields and stage-transition timing expectations (e.g., {command_id, deadline_ms, stage_deadlines, latency_sla_p95_ms}).",
+        "SafetyAlert message schema and unidirectional notification protocol specification (e.g., {violation_type, stage, measured_latency_ms, threshold_ms, timestamp, severity}).",
+        "Telemetry channel specification for network timing metrics (jitter, round-trip latency, packet loss) with unidirectional publish semantics.",
+        "Stage-transition synchronization protocol documentation clarifying Vehicle's independent deadline enforcement and decoupling from Teleoperation's scheduling logic.",
+        "Latency measurement and compliance validation specification including: (1) timestamp capture points; (2) aggregation logic; (3) percentile calculation; (4) compliance check; (5) violation escalation.",
+        "Time synchronization mechanism specification (centralized clock, NTP, or distributed timestamp correlation) with clock skew tolerance and synchronization error bounds.",
+        "Network conditions specification (e.g., LTE, 5G, wired link) with jitter and packet loss bounds to validate p95 ≤ 150 ms achievability.",
+        "Verification plan for latency measurement accuracy (±10 ms or better) under specified network conditions."
+      ]
+    }
+  }
+}

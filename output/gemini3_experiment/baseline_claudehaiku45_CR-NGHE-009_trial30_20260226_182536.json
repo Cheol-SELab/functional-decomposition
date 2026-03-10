@@ -1,0 +1,167 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation communication packet loss at or below the customer-defined threshold (acceptance criterion: ≤1% under agreed network conditions) to ensure safe and effective remote equipment operation.",
+    "rationale": "CR-NGHE-009 addresses a critical quality-of-service requirement for teleoperation. Packet loss directly impacts command latency, feedback fidelity, and operator situational awareness—all safety-critical factors in remote heavy equipment control. Refinement clarifies that the requirement is conditional on 'agreed network conditions' (a boundary condition) and that the acceptance criterion is customer-negotiated, making it a measurable, verifiable constraint rather than an open-ended performance goal.",
+    "verification_idea": "Conduct end-to-end packet loss measurement under representative network conditions (latency, jitter, bandwidth constraints) agreed with the customer. Measure packet loss across the Telemetry and Tasking interfaces during simulated and live teleoperation scenarios. Document network conditions and acceptance evidence in a test report signed by Site Manager and Safety Manager.",
+    "sub_frs": [
+      "FR-NGHE-009.1: The teleoperation system shall implement error detection and recovery mechanisms to minimize packet loss impact on command execution.",
+      "FR-NGHE-009.2: The teleoperation system shall monitor and report real-time communication quality metrics (packet loss, latency, jitter) to the operator and tele-operator.",
+      "FR-NGHE-009.3: The teleoperation system shall gracefully degrade or halt remote operation if packet loss exceeds the customer-defined threshold for a sustained period."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Implement redundant communication channels (dual network paths) with automatic failover to maintain packet loss below threshold.",
+      "DP-B: Deploy adaptive quality-of-service (QoS) prioritization and packet scheduling on the primary network link to minimize loss of critical telemetry and tasking packets.",
+      "DP-C: Implement forward error correction (FEC) and retransmission protocols at the application layer to recover lost packets without requiring network-level changes.",
+      "DP-D: Combine DP-B (QoS prioritization) with DP-C (FEC/retransmission) and add real-time monitoring to detect and alert on packet loss exceedances."
+    ],
+    "selected_dp": "DP-D: Implement a multi-layered approach combining adaptive QoS prioritization (Network Link level), application-layer forward error correction and selective retransmission, and real-time packet loss monitoring with operator alerting. This approach balances robustness, cost, and operational transparency without requiring dual network infrastructure.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "DP-D couples the Telemetry interface (inbound sensor data) with Tasking interface (outbound commands) through shared QoS prioritization logic—both must be scheduled coherently to avoid asymmetric packet loss.",
+        "DP-D couples Network Link quality monitoring with SafetyAlert generation; packet loss detection must trigger safety alerts without introducing false positives.",
+        "DP-D introduces dependency on real-time monitoring capability, which must be decoupled from the core teleoperation control loop to avoid latency injection."
+      ],
+      "notes": "Couplings are manageable through clear interface contracts and separation of concerns (monitoring as a parallel, non-blocking service). No fundamental design contradiction identified."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Customer-agreed network conditions are stable and well-characterized (e.g., 4G LTE, satellite, private WAN). If conditions vary widely, packet loss targets may be unachievable.",
+      "ASSUMPTION: Application-layer FEC and retransmission do not introduce unacceptable latency (e.g., >500ms round-trip). If latency budget is tight, FEC overhead may violate control loop timing.",
+      "RISK: QoS prioritization requires network infrastructure support (e.g., DiffServ, MPLS). If the customer's network does not support QoS, DP-D effectiveness is reduced.",
+      "RISK: Real-time monitoring adds computational overhead and potential single points of failure. Monitoring system must be highly available and non-blocking.",
+      "RISK: Operator alerting on packet loss may create alert fatigue if thresholds are not carefully tuned; false positives could undermine trust in the system."
+    ],
+    "recommended_revision": "Refine DP-D to explicitly separate concerns: (1) QoS scheduling logic (owned by Network Link), (2) FEC/retransmission codec (owned by Teleoperation), (3) monitoring and alerting (owned by Safety Services). This decomposition reduces coupling and clarifies ownership boundaries for the IM assignment."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "The Teleoperation module owns the end-to-end teleoperation control logic, including command encoding/decoding, sensor data fusion, operator interface rendering, and application-layer packet loss mitigation (FEC, selective retransmission). The module interfaces with Network Link for transmission and with Safety Services for packet loss alerting."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Outbound operator commands (e.g., movement, bucket control) encoded with FEC redundancy and sequence numbers for retransmission tracking. Transmitted via Network Link."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Inbound sensor data (e.g., position, load, video feed) from Vehicle. Teleoperation module decodes, validates sequence numbers, and detects missing packets. Feeds into operator display and packet loss monitoring."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Bidirectional communication channel. Teleoperation sends encoded Tasking packets and receives Telemetry packets. Network Link applies QoS prioritization and reports link quality metrics (latency, jitter) to Teleoperation for adaptive codec adjustment."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Teleoperation reports sustained packet loss exceedances (e.g., >1% over 10-second window) to Safety Services, which triggers operator alerts and potential operation halt."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.95,
+        "diffusion_score": 0.05,
+        "notes": "Teleoperation is the natural owner of application-layer packet loss mitigation (FEC, retransmission, sequence tracking). Core teleoperation logic (command encoding, sensor fusion) is already contained here. Minimal diffusion: only monitoring/alerting logic leaks to Safety Services (acceptable)."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.6,
+        "diffusion_score": 0.4,
+        "notes": "Safety Services could own packet loss monitoring and alerting, but would require deep coupling to Teleoperation's packet tracking state. Packet loss detection is a safety concern, but the mitigation logic (FEC, retransmission) is fundamentally a teleoperation concern. Recommend Safety Services own only the alert generation and operator notification, not the codec logic."
+      },
+      {
+        "module": "Network Link",
+        "containment_score": 0.5,
+        "diffusion_score": 0.5,
+        "notes": "Network Link could own QoS prioritization and link quality reporting, but application-layer FEC and retransmission are outside its scope (Network Link is transport-agnostic). Splitting packet loss mitigation between Network Link and Teleoperation creates diffusion and coupling risk."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.1,
+        "diffusion_score": 0.9,
+        "notes": "Vehicle is the source of Telemetry but does not own teleoperation control logic. Assigning packet loss mitigation to Vehicle would be a severe diffusion error."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "NGHE Solution is the system-level container but is not a concrete implementation module. Packet loss mitigation must be owned by a specific subsystem (Teleoperation) to ensure clear accountability and testability."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the optimal owner of DP-D because it already encapsulates the teleoperation control logic, command/sensor encoding, and operator interface. Adding application-layer FEC, retransmission, and sequence tracking to Teleoperation is a natural extension that maintains high cohesion and low coupling. Packet loss monitoring and alerting are delegated to Safety Services via the SafetyAlert interface, preserving separation of concerns.",
+    "containment_risks": [
+      "RISK: If Teleoperation module becomes too large or complex, FEC/retransmission logic may be difficult to test and maintain. Mitigation: Implement FEC/retransmission as a pluggable codec component within Teleoperation with clear internal interfaces.",
+      "RISK: Network Link module may not provide sufficient visibility into packet loss (e.g., only reports link-layer metrics, not application-layer loss). Mitigation: Teleoperation must implement its own sequence-number-based packet loss detection independent of Network Link.",
+      "RISK: Safety Services may lack real-time responsiveness if packet loss alerting is delayed. Mitigation: Teleoperation must report packet loss events to Safety Services with minimal latency (e.g., <100ms) to ensure timely operator notification."
+    ],
+    "recommended_revision": "Clarify the internal architecture of Teleoperation: (1) Separate the FEC/retransmission codec into a reusable component (e.g., PacketLossRecoveryCodec) with a well-defined interface. (2) Define the SafetyAlert interface contract precisely: what packet loss metrics trigger an alert, what is the alert latency SLA, and how does Safety Services respond? (3) Establish a test harness for packet loss scenarios (e.g., synthetic packet drops) to validate DP-D effectiveness independent of network conditions."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-D (multi-layered QoS + FEC + monitoring) directly addresses FR-NGHE-009 by providing multiple mechanisms to keep packet loss ≤1%. The DP is traceable to the FR, and the logic is sound: QoS prioritization reduces loss on the network, FEC/retransmission recovers lost packets at the application layer, and monitoring ensures visibility. No fundamental mismatch between requirement and solution."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "DIFFUSION RISK: QoS prioritization logic is assigned to Network Link (implicit), but Teleoperation must configure QoS parameters (e.g., priority levels for Tasking vs. Telemetry). This creates a configuration coupling between Teleoperation and Network Link. Mitigation: Define a clear QoS configuration interface (e.g., SetQoSPolicy) that Teleoperation uses to instruct Network Link.",
+        "DIFFUSION RISK: Packet loss monitoring spans Teleoperation (sequence tracking) and Safety Services (alerting). If monitoring logic is duplicated or inconsistently implemented, packet loss detection may be unreliable. Mitigation: Implement a single PacketLossMonitor component in Teleoperation that Safety Services queries via a well-defined interface (e.g., GetPacketLossMetrics)."
+      ],
+      "containment_notes": "Teleoperation is the primary owner of DP-D. Safety Services is a secondary owner of the alerting/notification aspect. The boundary is clear: Teleoperation owns the technical mitigation (FEC, retransmission, monitoring), and Safety Services owns the safety response (alerting, operation halt). This separation is appropriate and maintainable."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification of FR-NGHE-009 is feasible via end-to-end packet loss measurement under agreed network conditions. The Teleoperation module can be tested in isolation (with a simulated Network Link) and in integration with real network infrastructure. Acceptance criteria (≤1% packet loss) are measurable and objective. Evidence: packet loss logs, network condition reports, operator feedback.",
+      "allocation_clarity": "The allocation of DP-D to Teleoperation is clear and unambiguous. The module boundary, external interfaces, and ownership are well-defined. Verification responsibility is assigned to the Teleoperation team (with support from Safety Services for alerting validation)."
+    },
+    "recommended_revisions": [
+      "Refine the SafetyAlert interface contract: define the packet loss threshold (e.g., >1% over 10 seconds), alert latency SLA (e.g., <100ms), and expected Safety Services response (e.g., operator notification, operation halt).",
+      "Establish a test plan for DP-D that includes: (1) unit tests for FEC/retransmission codec, (2) integration tests with simulated packet loss, (3) end-to-end tests under real network conditions, (4) stress tests to validate monitoring overhead.",
+      "Document assumptions about network conditions (e.g., 4G LTE, satellite, private WAN) and define fallback strategies if actual conditions differ from assumptions.",
+      "Define the operator interface for packet loss metrics: what information is displayed, how frequently is it updated, and what actions can the operator take in response to packet loss alerts?"
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-NGHE-009 is not atomic and requires further decomposition into sub-FRs (FR-NGHE-009.1, 009.2, 009.3) to address error detection/recovery, monitoring, and graceful degradation separately. DP-D is sound and well-justified, but its implementation depends on clarifying the internal architecture of Teleoperation (e.g., FEC codec, monitoring component, Safety Services integration). The IM assignment to Teleoperation is correct, but the module boundary must be refined to explicitly include the packet loss recovery and monitoring subsystems. Proceeding to the next decomposition level will resolve these details and enable detailed design and implementation.",
+    "next_level_sub_frs": [
+      "FR-NGHE-009.1: The teleoperation system shall implement error detection and recovery mechanisms to minimize packet loss impact on command execution.",
+      "FR-NGHE-009.2: The teleoperation system shall monitor and report real-time communication quality metrics (packet loss, latency, jitter) to the operator and tele-operator.",
+      "FR-NGHE-009.3: The teleoperation system shall gracefully degrade or halt remote operation if packet loss exceeds the customer-defined threshold for a sustained period."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Customer-agreed network conditions are stable and well-characterized (e.g., 4G LTE, satellite, private WAN).",
+        "Application-layer FEC and retransmission do not introduce unacceptable latency (e.g., >500ms round-trip).",
+        "Network infrastructure supports QoS prioritization (e.g., DiffServ, MPLS) or Teleoperation can work around lack of QoS via application-layer scheduling.",
+        "Operator alerting on packet loss can be tuned to avoid alert fatigue while maintaining safety awareness.",
+        "Safety Services has real-time responsiveness capability to process SafetyAlert events and notify operators within <100ms."
+      ],
+      "open_risks": [
+        "RISK: QoS prioritization effectiveness depends on network infrastructure support. If customer's network does not support QoS, DP-D effectiveness is reduced and alternative mitigation (e.g., redundant channels) may be required.",
+        "RISK: Real-time monitoring adds computational overhead. If Teleoperation module is resource-constrained, monitoring may impact control loop latency.",
+        "RISK: Operator alerting on packet loss may create alert fatigue if thresholds are not carefully tuned. False positives could undermine trust in the system.",
+        "RISK: Packet loss recovery (FEC, retransmission) introduces latency. If control loop latency budget is tight, recovery mechanisms may violate timing constraints.",
+        "RISK: Safety Services integration (SafetyAlert interface) introduces a dependency on Safety Services availability. If Safety Services is unavailable, packet loss alerting may fail."
+      ],
+      "evidence_needed": [
+        "Network condition characterization: latency, jitter, bandwidth, packet loss baseline under agreed conditions.",
+        "FEC/retransmission codec performance: latency overhead, computational cost, recovery effectiveness under various packet loss rates.",
+        "QoS prioritization effectiveness: packet loss reduction achieved by prioritizing Tasking and Telemetry packets.",
+        "Monitoring overhead: CPU/memory cost of real-time packet loss detection and reporting.",
+        "Operator feedback: usability of packet loss metrics display, alert fatigue assessment, operator confidence in system reliability.",
+        "Safety Services integration: latency of SafetyAlert processing, operator notification timing, operation halt response time.",
+        "End-to-end packet loss measurement: validation that DP-D achieves ≤1% packet loss under agreed network conditions."
+      ]
+    }
+  }
+}

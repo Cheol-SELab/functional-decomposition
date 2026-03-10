@@ -1,0 +1,170 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and designated work zones with sufficient fidelity to support autonomous path planning, collision avoidance, and operator situational awareness.",
+    "rationale": "The original FR was vague on fidelity requirements, update frequency, and intended consumers. Refinement clarifies that the worksite model must be dynamic (not static), support both autonomous and tele-operated modes, and be accessible to planning and execution subsystems. High safety criticality demands explicit hazard representation and real-time capability.",
+    "verification_idea": "Acceptance test: (1) Model accuracy within ±0.5 m for terrain and obstacles in a 500 m² test site; (2) Update latency ≤ 2 s for dynamic hazards; (3) Model accessible via standardized interface to planning and safety subsystems; (4) Hazard detection and representation verified against ground truth survey.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire worksite sensor data (LiDAR, camera, GNSS, IMU) and fuse into unified coordinate frame.",
+      "CR-NGHE-006.2: Detect, classify, and track static terrain and obstacles (elevation, geometry, material properties).",
+      "CR-NGHE-006.3: Detect, classify, and track dynamic hazards (personnel, equipment, moving objects) with safety-critical latency.",
+      "CR-NGHE-006.4: Represent work zones, exclusion zones, and operational boundaries in the model.",
+      "CR-NGHE-006.5: Publish worksite model state to planning, execution, and safety subsystems via standardized interface.",
+      "CR-NGHE-006.6: Validate model consistency and detect sensor failures or anomalies; alert Safety Services on critical gaps."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Onboard multi-sensor fusion (LiDAR + stereo camera + GNSS/IMU) with local SLAM and occupancy grid; periodic upload to cloud for long-term mapping.",
+      "DP-B: Centralized cloud-based mapping service receiving raw sensor streams from vehicle; real-time fusion and model distribution via network.",
+      "DP-C: Hybrid edge-cloud: vehicle performs local sensor fusion and obstacle detection; cloud performs large-scale terrain modeling and work-zone management; bidirectional sync via Telemetry interface.",
+      "DP-D: Tele-operator-driven manual annotation of pre-surveyed site map with real-time sensor overlay; minimal autonomous processing."
+    ],
+    "selected_dp": "DP-C: Hybrid edge-cloud architecture with onboard sensor fusion (LiDAR, stereo, GNSS/IMU) generating local occupancy and obstacle layers, synchronized with cloud-hosted terrain model and work-zone database. Vehicle publishes fused local state via Telemetry; receives updated work-zone and exclusion-zone policies via Tasking. Safety Services subscribes to model state for hazard validation.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between Vehicle sensor fusion and Safety Services hazard validation (mitigated by explicit SafetyAlert interface for critical anomalies).",
+        "Coupling between cloud terrain model and Teleoperation situational awareness (mitigated by Telemetry as single source of truth for vehicle-local state).",
+        "Coupling between work-zone updates (Tasking) and real-time obstacle avoidance (mitigated by latency budget and fallback to conservative exclusion zones)."
+      ],
+      "notes": "DP-C decouples vehicle autonomy from cloud infrastructure (vehicle can operate in degraded network conditions) while maintaining safety via explicit SafetyAlert channel. Telemetry and Tasking interfaces provide clean separation of concerns."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Network bandwidth sufficient for periodic Telemetry updates (assume 10 Hz, ~1 MB/s for compressed point clouds).",
+      "ASSUMPTION: Cloud terrain model is pre-surveyed or rapidly initialized from vehicle sensor data.",
+      "RISK: Network latency or loss during dynamic hazard detection could delay SafetyAlert; mitigation: onboard conservative buffer zones and local anomaly detection.",
+      "RISK: Sensor fusion accuracy degrades in GPS-denied or visually-degraded environments (tunnels, dense vegetation); mitigation: fallback to LiDAR-only SLAM with reduced range.",
+      "RISK: Work-zone policy updates (Tasking) may conflict with real-time obstacle avoidance; mitigation: Safety Services arbitrates via SafetyAlert override."
+    ],
+    "recommended_revision": "Clarify latency budget for dynamic hazard detection (propose ≤ 500 ms from sensor to SafetyAlert) and define fallback behavior if cloud terrain model is unavailable (propose: vehicle operates in local-only mode with conservative exclusion zones)."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "Onboard sensor suite (LiDAR, stereo camera, GNSS, IMU), local sensor fusion engine, occupancy grid generation, obstacle detection and classification, dynamic hazard tracking, and local state publishing. Vehicle module owns the real-time perception pipeline and is responsible for timely SafetyAlert generation for critical anomalies."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle publishes fused worksite model state (occupancy grid, detected obstacles, dynamic hazards, vehicle pose) at 10 Hz to planning and safety subsystems."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives work-zone boundaries, exclusion zones, and operational policies from planning subsystem; updates local model constraints."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Vehicle publishes critical safety events (sensor failure, anomalous obstacle, personnel detection in exclusion zone) to Safety Services with latency ≤ 500 ms."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Vehicle communicates with cloud terrain model service and receives updated work-zone policies; also supports tele-operator situational awareness feed."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Vehicle is the natural owner of onboard sensor fusion, local obstacle detection, and real-time hazard tracking. Diffusion risk: cloud terrain model and work-zone management are external; mitigated by clean Telemetry/Tasking interfaces. High containment justified by safety criticality and real-time latency requirements."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.65,
+        "diffusion_score": 0.35,
+        "notes": "NGHE Solution could host the entire mapping pipeline, but would diffuse sensor fusion logic across Vehicle and Solution layers, violating single responsibility. Containment score reflects that Solution is the logical system-level owner but should delegate to Vehicle for real-time execution."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Teleoperation is a consumer of the worksite model (for situational awareness), not a producer. Assigning mapping to Teleoperation would diffuse sensor fusion across Vehicle and Teleoperation, violating cohesion. Low containment score."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.55,
+        "diffusion_score": 0.45,
+        "notes": "Safety Services is a critical consumer and validator of the worksite model (hazard detection, policy enforcement), but should not own the sensor fusion pipeline. Containment score reflects that Safety Services validates and alerts on model anomalies, but Vehicle owns the generation logic."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module is the optimal owner of worksite mapping because: (1) it owns the sensor hardware and real-time perception pipeline; (2) it must generate SafetyAlert with latency ≤ 500 ms, requiring local processing; (3) it decouples from cloud infrastructure for safety-critical hazard detection; (4) Telemetry and Tasking interfaces provide clean separation from planning and safety validation layers.",
+    "containment_risks": [
+      "RISK: Vehicle module becomes overloaded with sensor fusion, obstacle detection, and dynamic tracking logic; mitigation: decompose into sub-modules (SensorFusion, ObstacleDetector, HazardTracker) within Vehicle boundary.",
+      "RISK: Cloud terrain model and work-zone database are external dependencies; if unavailable, Vehicle must operate in degraded mode; mitigation: define fallback behavior and conservative exclusion zones.",
+      "RISK: Tele-operator situational awareness requires low-latency model updates; if Vehicle is sole source, network congestion could degrade operator experience; mitigation: compress Telemetry payload and prioritize SafetyAlert over non-critical updates.",
+      "RISK: Safety Services must validate model consistency and detect sensor failures; if Vehicle does not expose internal state, Safety Services cannot perform deep diagnostics; mitigation: Vehicle publishes diagnostic telemetry (sensor health, fusion confidence) via Telemetry interface."
+    ],
+    "recommended_revision": "Define explicit sub-module boundaries within Vehicle for sensor fusion, obstacle detection, and hazard tracking. Specify Telemetry payload schema (occupancy grid resolution, obstacle attributes, confidence scores) and SafetyAlert event types. Clarify fallback behavior if cloud terrain model is unavailable (propose: Vehicle operates in local-only mode with 50 m exclusion buffer around detected obstacles)."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid edge-cloud) directly addresses the refined FR: onboard sensor fusion generates real-time worksite model (terrain, obstacles, hazards, work zones) with safety-critical latency; cloud integration enables long-term mapping and policy management. DP-C is neither over-constrained nor under-specified; it balances autonomy, safety, and scalability. No coupling violations detected."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Vehicle module owns sensor fusion and local obstacle detection, but cloud terrain model is external; mitigated by Telemetry/Tasking interfaces and fallback to local-only mode.",
+        "SafetyAlert generation is distributed: Vehicle detects local anomalies, Safety Services validates global consistency; mitigated by explicit SafetyAlert interface and latency budget.",
+        "Work-zone updates (Tasking) may conflict with real-time avoidance; mitigated by Safety Services arbitration and conservative exclusion zones."
+      ],
+      "containment_notes": "Vehicle containment score 0.92 is justified: sensor fusion, obstacle detection, and hazard tracking are cohesive and safety-critical. Diffusion score 0.08 reflects external cloud dependencies, which are acceptable given clean interface boundaries. No diffusion of core logic across modules."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible: (1) Sensor accuracy can be tested in controlled environments (±0.5 m terrain, obstacle detection); (2) Latency can be measured end-to-end (sensor to SafetyAlert ≤ 500 ms); (3) Model accessibility can be verified via Telemetry interface inspection; (4) Hazard detection can be validated against ground truth survey. Acceptance criteria are measurable and testable.",
+      "allocation_clarity": "Allocation is clear: Vehicle owns sensor fusion and local model generation; Safety Services owns hazard validation and policy enforcement; Planning subsystem owns work-zone definition and tasking. Interfaces (Telemetry, Tasking, SafetyAlert, Network Link) are explicit and non-ambiguous."
+    },
+    "recommended_revisions": [
+      "Refine latency budget: specify ≤ 500 ms for SafetyAlert generation (sensor to alert), ≤ 2 s for Telemetry updates (model state), ≤ 5 s for Tasking updates (work-zone policy).",
+      "Define Telemetry payload schema: occupancy grid resolution (propose 0.1 m cells), obstacle attributes (geometry, confidence, classification), dynamic hazard state (position, velocity, classification).",
+      "Specify SafetyAlert event types: sensor failure, anomalous obstacle, personnel in exclusion zone, model inconsistency, network loss.",
+      "Define fallback behavior: if cloud terrain model unavailable, Vehicle operates in local-only mode with 50 m conservative exclusion buffer; if Tasking unavailable, Vehicle uses last-known work-zone policy.",
+      "Clarify ownership of work-zone database: propose Planning subsystem owns definition; Safety Services owns validation; Vehicle owns local enforcement."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "CR-NGHE-006 is not atomic; it encompasses multiple concerns (sensor fusion, obstacle detection, dynamic tracking, work-zone representation, model publishing). Decomposition into sub-FRs is necessary to allocate design responsibility and enable detailed DP selection at the next level. Vehicle module is the clear owner, but internal architecture (sensor fusion engine, obstacle detector, hazard tracker) requires further refinement.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire and fuse worksite sensor data (LiDAR, stereo camera, GNSS, IMU) into unified coordinate frame with latency ≤ 100 ms.",
+      "CR-NGHE-006.2: Generate occupancy grid and detect static obstacles (terrain, rocks, structures, vegetation) with accuracy ≤ ±0.5 m.",
+      "CR-NGHE-006.3: Detect, classify, and track dynamic hazards (personnel, equipment, moving objects) with latency ≤ 500 ms and confidence ≥ 95%.",
+      "CR-NGHE-006.4: Represent work zones, exclusion zones, and operational boundaries; enforce constraints via local planning.",
+      "CR-NGHE-006.5: Publish fused worksite model state via Telemetry interface at 10 Hz; subscribe to work-zone updates via Tasking interface.",
+      "CR-NGHE-006.6: Detect sensor failures, model anomalies, and inconsistencies; publish SafetyAlert to Safety Services with latency ≤ 500 ms."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Network bandwidth sufficient for 10 Hz Telemetry updates (~1 MB/s compressed point clouds).",
+        "Cloud terrain model is pre-surveyed or rapidly initialized from vehicle sensor data.",
+        "Safety Services is available to validate model consistency and enforce hazard policies.",
+        "Tele-operator situational awareness is a secondary consumer; real-time hazard detection is primary.",
+        "Work-zone policies are updated asynchronously via Tasking; real-time avoidance uses local conservative buffers.",
+        "Vehicle operates in GPS-denied environments with LiDAR-only SLAM fallback."
+      ],
+      "open_risks": [
+        "Network latency or loss during dynamic hazard detection could delay SafetyAlert; mitigation: onboard conservative buffer zones and local anomaly detection.",
+        "Sensor fusion accuracy degrades in visually-degraded environments (tunnels, dense vegetation); mitigation: fallback to LiDAR-only SLAM with reduced range.",
+        "Work-zone policy updates (Tasking) may conflict with real-time obstacle avoidance; mitigation: Safety Services arbitrates via SafetyAlert override.",
+        "Vehicle module may become overloaded with sensor fusion, obstacle detection, and dynamic tracking logic; mitigation: decompose into sub-modules within Vehicle boundary.",
+        "Cloud terrain model unavailability could degrade long-term mapping; mitigation: Vehicle operates in local-only mode with conservative exclusion zones."
+      ],
+      "evidence_needed": [
+        "Sensor accuracy validation: LiDAR range, stereo depth, GNSS/IMU drift in target environments.",
+        "Latency measurements: end-to-end sensor-to-SafetyAlert, Telemetry publish rate, Tasking update latency.",
+        "Network bandwidth analysis: Telemetry payload size, compression ratio, required bandwidth for 10 Hz updates.",
+        "Hazard detection validation: ground truth survey, detection accuracy (precision, recall), false positive rate.",
+        "Fallback behavior testing: Vehicle operation in GPS-denied, network-loss, and cloud-unavailable scenarios.",
+        "Safety Services integration: model validation logic, hazard policy enforcement, SafetyAlert handling."
+      ]
+    }
+  }
+}

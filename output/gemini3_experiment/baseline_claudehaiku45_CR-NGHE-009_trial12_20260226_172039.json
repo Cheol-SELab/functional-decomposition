@@ -1,0 +1,165 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation communication packet loss at or below the customer-defined threshold (acceptance criterion: ≤1% under agreed network conditions) to ensure safe and effective remote equipment operation.",
+    "rationale": "CR-NGHE-009 addresses a critical quality-of-service requirement for teleoperation. Packet loss directly impacts command latency, feedback fidelity, and operator situational awareness—all safety-critical factors in remote heavy equipment control. Refinement clarifies that the requirement is conditional on 'agreed network conditions' and ties acceptance to a measurable, customer-negotiated target rather than a fixed value.",
+    "verification_idea": "Conduct packet loss measurement under simulated and live network conditions (WiFi, cellular, hybrid) matching customer deployment scenarios. Measure end-to-end loss across the teleoperation link (operator console → vehicle → operator console). Acceptance: measured packet loss ≤ customer-defined limit for ≥95% of test runs.",
+    "sub_frs": [
+      "FR-NGHE-009.1: The teleoperation system shall implement error detection and recovery mechanisms to minimize packet loss impact on command execution.",
+      "FR-NGHE-009.2: The teleoperation system shall select and configure network protocols and codecs to achieve the target packet loss limit under agreed conditions.",
+      "FR-NGHE-009.3: The teleoperation system shall monitor and report real-time packet loss metrics to the operator and safety manager."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Implement adaptive bitrate encoding and forward error correction (FEC) in the teleoperation link to tolerate packet loss and maintain command/feedback fidelity.",
+      "DP-B: Deploy redundant communication paths (dual network interfaces, carrier aggregation) with automatic failover to reduce single-point-of-failure packet loss.",
+      "DP-C: Use protocol-level retransmission with timeout-based recovery and prioritized queuing (command > telemetry > diagnostics) to ensure critical packets reach the vehicle.",
+      "DP-D: Combine adaptive encoding (DP-A), redundant paths (DP-B), and prioritized retransmission (DP-C) into a layered resilience architecture."
+    ],
+    "selected_dp": "DP-D: Implement a layered teleoperation resilience architecture combining (1) adaptive bitrate encoding with forward error correction to tolerate transient packet loss, (2) redundant communication paths with automatic failover to mitigate network outages, and (3) protocol-level prioritized retransmission with timeout-based recovery to ensure critical commands reach the vehicle within acceptable latency bounds.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between adaptive encoding (DP-A) and network bandwidth availability: if bandwidth is constrained, FEC overhead may reduce effective throughput.",
+        "Coupling between redundant paths (DP-B) and operator latency tolerance: failover switching introduces transient latency spikes that must be acceptable for safety-critical operations.",
+        "Coupling between prioritized retransmission (DP-C) and command queue depth: if the queue overflows, lower-priority telemetry may be dropped, reducing operator situational awareness."
+      ],
+      "notes": "DP-D is a composite design that addresses packet loss at multiple layers (physical redundancy, encoding, protocol). Couplings are manageable through careful tuning of FEC parameters, failover thresholds, and queue management policies. No fundamental contradiction detected; layered approach is standard in telecom and remote control systems."
+    },
+    "assumptions_risks": [
+      "Assumption: Customer-agreed network conditions are well-defined and stable (e.g., 4G LTE with 20 dB SNR, WiFi 5GHz in open field). Risk: If conditions vary widely or are poorly specified, target packet loss may be unachievable.",
+      "Assumption: Operator and vehicle can tolerate latency introduced by FEC encoding/decoding and retransmission. Risk: If latency budget is tight (<100 ms round-trip), FEC overhead may violate safety requirements.",
+      "Assumption: Dual network interfaces (e.g., cellular + WiFi) are available on the vehicle and operator console. Risk: Cost and power consumption may exceed project constraints.",
+      "Assumption: Prioritized retransmission does not starve non-critical telemetry indefinitely. Risk: Loss of diagnostic data may mask equipment faults, reducing maintenance effectiveness."
+    ],
+    "recommended_revision": "Refine DP-D to explicitly specify (1) FEC code rate and latency budget, (2) failover detection time and acceptable latency spike, (3) queue management policy (e.g., drop oldest vs. drop lowest-priority), and (4) fallback behavior if both network paths fail. Validate against customer network conditions and operator latency tolerance before detailed design."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "The Teleoperation module owns the end-to-end teleoperation communication stack, including adaptive encoding, FEC, redundant path management, protocol-level retransmission, and packet loss monitoring. It interfaces with the Vehicle module (via Tasking and Telemetry) and Safety Services module (via SafetyAlert) to coordinate resilience actions and report communication health."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Commands from operator console to vehicle (steering, throttle, bucket control, etc.). Teleoperation module prioritizes and retransmits critical tasking packets to meet packet loss target."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Sensor data and vehicle state feedback from vehicle to operator console (position, orientation, load, engine status, etc.). Teleoperation module applies adaptive encoding and FEC to telemetry stream to tolerate packet loss."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "Safety-critical alerts and commands between Teleoperation and Safety Services (e.g., 'communication loss detected', 'initiate safe stop'). Teleoperation reports packet loss metrics; Safety Services may trigger failover or emergency stop."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Physical/logical network connectivity (cellular, WiFi, hybrid). Teleoperation module manages redundant paths, monitors link quality, and triggers failover based on packet loss thresholds."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "NGHE Solution is the top-level system container. Assigning DP-D to NGHE Solution would diffuse teleoperation resilience logic across multiple sub-modules (Vehicle, Teleoperation, Safety Services), violating cohesion. Not recommended as primary owner."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Vehicle module owns the physical equipment and on-board communication hardware. However, teleoperation resilience (FEC, adaptive encoding, failover logic) is primarily a communication-layer concern, not a vehicle control concern. Assigning DP-D to Vehicle would couple communication resilience tightly to vehicle firmware, reducing reusability and testability. Partial containment only."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.95,
+        "diffusion_score": 0.05,
+        "notes": "Teleoperation module is the natural owner of end-to-end communication resilience. It encapsulates adaptive encoding, FEC, redundant path management, and protocol-level retransmission. Interfaces cleanly with Vehicle (Tasking/Telemetry), Safety Services (SafetyAlert), and Network Link. High cohesion, minimal diffusion. Recommended primary owner."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.5,
+        "diffusion_score": 0.5,
+        "notes": "Safety Services owns safety-critical decision logic (e.g., when to trigger emergency stop due to communication loss). However, the technical implementation of packet loss mitigation (FEC, redundancy, retransmission) is not a safety service concern. Partial containment; Teleoperation should own DP-D, with Safety Services consuming SafetyAlert interface."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the optimal owner of DP-D (layered resilience architecture). It has high functional cohesion (all teleoperation communication concerns), clear external interfaces (Tasking, Telemetry, SafetyAlert, Network Link), and minimal diffusion risk. The module can be developed, tested, and deployed independently, with well-defined contracts to Vehicle and Safety Services.",
+    "containment_risks": [
+      "Risk: Teleoperation module may become a 'god module' if it also owns operator console UI, vehicle command parsing, and telemetry visualization. Mitigation: Clearly separate concerns—Teleoperation owns communication resilience only; Vehicle owns command execution; UI/visualization owned by operator console (not in current module list).",
+      "Risk: Failover logic in Teleoperation may conflict with Safety Services emergency stop logic if communication loss is detected simultaneously. Mitigation: Define clear handoff protocol—Teleoperation detects and reports loss via SafetyAlert; Safety Services decides whether to trigger emergency stop.",
+      "Risk: Network Link interface may be owned by a different team (network/infrastructure), creating coordination overhead. Mitigation: Define Network Link contract (available bandwidth, latency, packet loss baseline) upfront; Teleoperation adapts to available link quality."
+    ],
+    "recommended_revision": "Confirm that Teleoperation module scope includes only communication resilience (encoding, FEC, failover, retransmission) and does not extend to operator console UI, vehicle control logic, or safety decision-making. Define clear ownership boundaries and interface contracts with Vehicle, Safety Services, and Network Link. Consider whether redundant path management (DP-B) requires coordination with a separate Network Management module (if it exists)."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-D (layered resilience architecture) directly addresses FR-NGHE-009 (packet loss ≤ customer-defined limit). The combination of adaptive encoding (tolerates transient loss), redundant paths (mitigates outages), and prioritized retransmission (ensures critical commands) provides multiple mechanisms to achieve the target. No fundamental mismatch between requirement and solution concept."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Diffusion Risk 1: If Teleoperation module does not own Network Link management, failover logic may be split between Teleoperation and a separate Network Management module, creating coordination overhead and potential race conditions.",
+        "Diffusion Risk 2: If Vehicle module owns on-board FEC decoding, there is a split between Teleoperation (operator-side encoding) and Vehicle (vehicle-side decoding), requiring careful synchronization of codec parameters.",
+        "Diffusion Risk 3: If Safety Services owns the decision to trigger emergency stop on communication loss, Teleoperation must reliably report packet loss metrics to Safety Services, creating a critical dependency."
+      ],
+      "containment_notes": "Teleoperation module provides strong containment for DP-D. The module owns the communication stack end-to-end, with clear interfaces to Vehicle (Tasking/Telemetry), Safety Services (SafetyAlert), and Network Link. Diffusion risks are manageable through well-defined interface contracts and clear ownership boundaries."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification of FR-NGHE-009 is feasible via packet loss measurement under simulated and live network conditions. Teleoperation module can expose packet loss metrics (e.g., via telemetry or diagnostic interface) for measurement. Test scenarios should cover nominal conditions, network degradation, and failover events.",
+      "allocation_clarity": "Allocation of FR-NGHE-009 to Teleoperation module is clear. The module owns the mechanisms (adaptive encoding, FEC, redundancy, retransmission) that directly impact packet loss. Sub-FRs (FR-NGHE-009.1, 009.2, 009.3) can be allocated to specific sub-components within Teleoperation (e.g., error recovery subsystem, protocol selection subsystem, monitoring subsystem)."
+    },
+    "recommended_revisions": [
+      "Revision 1: Clarify the ownership and interface contract for Network Link. If Network Link is managed by a separate module, define the API for Teleoperation to query link quality and trigger failover.",
+      "Revision 2: Define the SafetyAlert interface contract between Teleoperation and Safety Services. Specify what packet loss metrics Teleoperation reports, what thresholds trigger alerts, and what actions Safety Services can request (e.g., reduce command rate, initiate safe stop).",
+      "Revision 3: Specify the latency budget for FEC encoding/decoding and retransmission. If latency exceeds operator tolerance, DP-D may need to be revised (e.g., reduce FEC code rate, use lower-latency codecs).",
+      "Revision 4: Define fallback behavior if both redundant network paths fail. Should Teleoperation attempt to maintain communication with degraded quality, or should it signal Safety Services to initiate emergency stop?"
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-NGHE-009 is not atomic and has been decomposed into three sub-FRs (FR-NGHE-009.1, 009.2, 009.3) addressing error recovery, protocol selection, and monitoring respectively. DP-D (layered resilience architecture) is a composite design that spans multiple technical domains (encoding, redundancy, protocol). The Teleoperation module is the appropriate owner, with clear interfaces and manageable diffusion risks. However, the sub-FRs require further decomposition to drive detailed design and implementation. Proceed to the next level of functional decomposition for each sub-FR.",
+    "next_level_sub_frs": [
+      "FR-NGHE-009.1: The teleoperation system shall implement error detection and recovery mechanisms to minimize packet loss impact on command execution.",
+      "FR-NGHE-009.2: The teleoperation system shall select and configure network protocols and codecs to achieve the target packet loss limit under agreed conditions.",
+      "FR-NGHE-009.3: The teleoperation system shall monitor and report real-time packet loss metrics to the operator and safety manager."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Customer-agreed network conditions are well-defined and stable (e.g., 4G LTE, WiFi 5GHz).",
+        "Operator and vehicle can tolerate latency introduced by FEC and retransmission (<100 ms round-trip).",
+        "Dual network interfaces (cellular + WiFi) are available on vehicle and operator console.",
+        "Teleoperation module owns communication resilience; Vehicle owns command execution; Safety Services owns safety decisions.",
+        "Network Link interface is available and managed by a separate module or infrastructure team.",
+        "SafetyAlert interface enables bidirectional communication between Teleoperation and Safety Services."
+      ],
+      "open_risks": [
+        "Risk: Customer network conditions may vary widely or be poorly specified, making target packet loss unachievable.",
+        "Risk: Latency introduced by FEC/retransmission may exceed operator tolerance, violating safety requirements.",
+        "Risk: Cost and power consumption of dual network interfaces may exceed project constraints.",
+        "Risk: Failover logic in Teleoperation may conflict with Safety Services emergency stop logic.",
+        "Risk: Loss of non-critical telemetry due to prioritized retransmission may mask equipment faults.",
+        "Risk: Coordination overhead between Teleoperation and Network Management modules may introduce race conditions."
+      ],
+      "evidence_needed": [
+        "Customer-agreed network conditions specification (bandwidth, latency, packet loss baseline, coverage area).",
+        "Operator latency tolerance specification (e.g., max round-trip latency for safe remote operation).",
+        "Hardware availability and cost analysis for dual network interfaces.",
+        "FEC codec selection and latency impact analysis (e.g., Reed-Solomon vs. Turbo codes).",
+        "Failover detection time and acceptable latency spike specification.",
+        "Queue management policy and telemetry drop impact analysis.",
+        "SafetyAlert interface contract and emergency stop trigger criteria.",
+        "Network Link interface contract and failover API specification.",
+        "Packet loss measurement methodology and test scenarios (nominal, degraded, failover)."
+      ]
+    }
+  }
+}

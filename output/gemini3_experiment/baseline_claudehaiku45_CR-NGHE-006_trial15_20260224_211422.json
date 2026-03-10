@@ -1,0 +1,164 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and designated work zones with sufficient fidelity to support autonomous path planning and operator situational awareness.",
+    "rationale": "The original FR was vague on scope (what constitutes 'area analysis') and lacked specificity on fidelity requirements, update frequency, and consumer functions. Refinement clarifies that the worksite model must be dynamic, multi-layered (terrain + obstacles + hazards + zones), and directly consumable by downstream planning and execution functions. High safety criticality demands explicit hazard representation.",
+    "verification_idea": "Acceptance: (1) Model generated within 5 minutes of site entry; (2) Terrain elevation accuracy ±0.5 m over 95% of mapped area; (3) Static obstacles detected with >90% recall; (4) Dynamic hazards updated at ≥2 Hz; (5) Work zones editable by Site Manager and persisted; (6) Model accessible to planning/execution via standardized interface.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire and fuse multi-sensor data (LiDAR, camera, GNSS, IMU) to construct terrain and obstacle point clouds.",
+      "CR-NGHE-006.2: Classify and segment terrain, static obstacles, dynamic hazards, and work zones from sensor data.",
+      "CR-NGHE-006.3: Maintain and update worksite model state in real-time with sensor refresh and operator input.",
+      "CR-NGHE-006.4: Expose worksite model to planning and execution functions via standardized query/subscription interface.",
+      "CR-NGHE-006.5: Enforce safety constraints on model (e.g., no-go zones, personnel exclusion buffers) and alert on violations."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized mapping service (runs on vehicle compute, fuses all sensors, maintains single authoritative model, exposes via REST/gRPC API).",
+      "DP-B: Distributed sensor processing (each sensor stream processed independently on edge, models merged at planning layer).",
+      "DP-C: Cloud-based mapping (sensor data streamed to cloud, model computed remotely, pushed back to vehicle and operators).",
+      "DP-D: Hybrid edge-cloud (vehicle maintains local model for real-time planning; cloud refines and archives for post-mission analysis)."
+    ],
+    "selected_dp": "DP-D: Hybrid edge-cloud architecture. Vehicle-resident mapping service fuses LiDAR, camera, GNSS, and IMU to maintain a local real-time worksite model (latency <500 ms for planning). Model is simultaneously streamed to cloud for refinement, long-term storage, and tele-operator situational awareness. Local model is authoritative for safety-critical decisions; cloud model supports operator oversight and post-mission review.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between sensor acquisition (CR-NGHE-006.1) and model update (CR-NGHE-006.3) is managed via asynchronous event-driven architecture; decoupling via message queue reduces tight temporal coupling.",
+        "Coupling between local and cloud models is one-way (push); cloud does not block local decisions, reducing critical path dependency.",
+        "Coupling to planning/execution (CR-NGHE-006.4) is via well-defined query interface; planning layer does not dictate model internals."
+      ],
+      "notes": "DP-D avoids single points of failure (DP-C cloud dependency) and avoids model fragmentation (DP-B distributed merging). Hybrid approach balances real-time safety (local) with operator oversight (cloud)."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Vehicle has sufficient compute (GPU/CPU) to run real-time sensor fusion and maintain <500 ms latency.",
+      "ASSUMPTION: Network link to cloud is available but not guaranteed; local model must be fully functional offline.",
+      "RISK: Clock synchronization between vehicle and cloud could cause model inconsistencies if not managed.",
+      "RISK: Sensor calibration drift over time could degrade model accuracy; periodic recalibration required.",
+      "RISK: High-fidelity terrain models (e.g., dense point clouds) consume significant storage and bandwidth; compression/LOD strategy needed."
+    ],
+    "recommended_revision": "Specify compute budget (CPU/GPU allocation), network bandwidth requirements, and model update frequency (e.g., 10 Hz for local, 1 Hz for cloud push). Define fallback behavior if cloud link is lost. Clarify model retention policy (how long to keep historical models)."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "The Vehicle module owns the real-time worksite mapping service, including sensor fusion, local model maintenance, and exposure of the model via standardized interfaces to planning and execution functions. The Vehicle module is responsible for low-latency, safety-critical model updates and local decision support."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle streams sensor data (LiDAR, camera, GNSS, IMU) and derived worksite model state to Teleoperation and Safety Services for operator situational awareness and safety monitoring."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives work-zone definitions, no-go zones, and operational constraints from planning/execution layer; these are incorporated into the worksite model as dynamic overlays."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Vehicle publishes safety alerts (e.g., personnel detected in work zone, terrain hazard identified) derived from worksite model analysis to Safety Services."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Vehicle uses Network Link to stream model data to cloud (Teleoperation module) for tele-operator access and to receive operator-defined work zones and constraints."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "NGHE Solution is the top-level system; worksite mapping is a subsystem function. Assigning to NGHE Solution would diffuse ownership across multiple physical/software components without clear boundary. Not recommended as primary owner."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.95,
+        "diffusion_score": 0.05,
+        "notes": "Vehicle is the natural owner: it carries sensors (LiDAR, camera, GNSS, IMU), has onboard compute for real-time fusion, and must make safety-critical decisions based on the model. Mapping service is tightly coupled to vehicle state and sensor suite. Minimal diffusion; all core logic resides in vehicle compute stack."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Teleoperation is a consumer of the worksite model (for operator situational awareness) and a provider of work-zone constraints, but not the owner of real-time model generation. Assigning here would require duplicating sensor fusion logic or creating a remote dependency for safety-critical decisions. Not recommended."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.25,
+        "diffusion_score": 0.75,
+        "notes": "Safety Services consumes the worksite model to enforce safety policies (e.g., personnel exclusion zones) but does not own the model generation. Assigning here would create a critical dependency on Safety Services for real-time mapping, violating separation of concerns. Not recommended."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module is the optimal owner of the worksite mapping service. It has direct access to all sensors, onboard compute for real-time fusion, and must make safety-critical decisions based on the model. The mapping service is a core capability of the vehicle's autonomy stack, not a cross-cutting concern. Interfaces to Teleoperation (Telemetry, Network Link) and Safety Services (SafetyAlert) are well-defined and unidirectional (model pushed out, constraints pulled in), minimizing coupling.",
+    "containment_risks": [
+      "RISK: If vehicle compute is overloaded, real-time mapping latency could degrade, impacting safety. Mitigation: Allocate dedicated compute resources (GPU) for mapping; implement priority scheduling.",
+      "RISK: Sensor failures (e.g., LiDAR outage) could render the model stale. Mitigation: Implement sensor health monitoring and graceful degradation (e.g., fall back to camera-only model with reduced fidelity).",
+      "RISK: Model state synchronization between vehicle and cloud could diverge if network is intermittent. Mitigation: Vehicle maintains authoritative local model; cloud is eventually consistent."
+    ],
+    "recommended_revision": "Explicitly define the compute and storage budget for the mapping service within the Vehicle module. Specify sensor health monitoring and fallback strategies. Define the interface contract for model queries (e.g., query latency SLA, model fidelity levels). Clarify ownership of sensor calibration and maintenance."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-D (hybrid edge-cloud) directly addresses all aspects of the refined FR: real-time model generation (edge), multi-sensor fusion, dynamic updates, and exposure to planning/execution. The DP is technology-neutral and does not over-constrain implementation. Coupling analysis shows acceptable decoupling between sensor acquisition, model maintenance, and consumption."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Mapping service logic is concentrated in Vehicle module (low diffusion). However, cloud-side model refinement and storage will require coordination with Teleoperation module. Mitigation: Define clear API contract for model push/pull; Teleoperation acts as a consumer, not a co-owner."
+      ],
+      "containment_notes": "Vehicle module has 0.95 containment score. All real-time, safety-critical mapping logic resides in vehicle compute. Cloud integration is via Network Link interface (asynchronous, non-blocking). Ownership is clear and unambiguous."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Refined FR is verifiable: model generation latency, terrain accuracy, obstacle detection recall, and dynamic hazard update frequency are all measurable. Acceptance criteria can be validated via simulation and field testing.",
+      "allocation_clarity": "Allocation of CR-NGHE-006 to Vehicle module is clear. Sub-FRs (CR-NGHE-006.1 through CR-NGHE-006.5) can be further decomposed and allocated to specific software components within the Vehicle module (e.g., sensor fusion service, segmentation service, model store, query API)."
+    },
+    "recommended_revisions": [
+      "Specify compute and storage budgets for the mapping service within Vehicle module.",
+      "Define sensor health monitoring and fallback strategies (e.g., LiDAR failure → camera-only mode).",
+      "Clarify model update frequency and latency SLAs for planning/execution consumers.",
+      "Define cloud model refinement strategy (e.g., post-processing, long-term storage, operator review).",
+      "Specify network bandwidth and reliability requirements for cloud streaming."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The refined FR is well-formed and the DP-IM assignment is sound. However, the FR is not atomic; it comprises five distinct sub-FRs (sensor acquisition, classification, model maintenance, exposure, safety enforcement). Each sub-FR requires further decomposition to identify specific design parameters and implementation modules (e.g., sensor fusion algorithm, segmentation model, model store, query API, safety policy engine). Proceeding to the next decomposition level will clarify architectural boundaries and enable detailed design.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire and fuse multi-sensor data (LiDAR, camera, GNSS, IMU) to construct terrain and obstacle point clouds.",
+      "CR-NGHE-006.2: Classify and segment terrain, static obstacles, dynamic hazards, and work zones from sensor data.",
+      "CR-NGHE-006.3: Maintain and update worksite model state in real-time with sensor refresh and operator input.",
+      "CR-NGHE-006.4: Expose worksite model to planning and execution functions via standardized query/subscription interface.",
+      "CR-NGHE-006.5: Enforce safety constraints on model (e.g., no-go zones, personnel exclusion buffers) and alert on violations."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Vehicle has sufficient onboard compute (GPU/CPU) to run real-time sensor fusion with <500 ms latency.",
+        "Network link to cloud is available but not guaranteed; local model must be fully functional offline.",
+        "Sensors (LiDAR, camera, GNSS, IMU) are calibrated and maintained per vehicle specifications.",
+        "Planning and execution functions can consume worksite model via standardized API (REST/gRPC).",
+        "Safety Services can subscribe to SafetyAlert events and enforce policies based on model state."
+      ],
+      "open_risks": [
+        "Sensor calibration drift over time could degrade model accuracy; periodic recalibration required.",
+        "High-fidelity terrain models consume significant storage and bandwidth; compression/LOD strategy needed.",
+        "Clock synchronization between vehicle and cloud could cause model inconsistencies.",
+        "Vehicle compute overload could degrade real-time mapping latency, impacting safety.",
+        "Sensor failures (e.g., LiDAR outage) could render the model stale; fallback strategies required."
+      ],
+      "evidence_needed": [
+        "Compute budget analysis: CPU/GPU allocation for mapping service, latency profiling.",
+        "Sensor fusion algorithm selection and performance validation (accuracy, latency, robustness).",
+        "Network bandwidth and reliability analysis for cloud streaming.",
+        "Sensor health monitoring and fallback strategy design.",
+        "Model query API specification and performance SLA validation.",
+        "Safety policy enforcement logic and integration with Safety Services."
+      ]
+    }
+  }
+}

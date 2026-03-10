@@ -1,0 +1,164 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current equipment state, environmental conditions, and operational events with a p95 latency not exceeding the customer-defined target (baseline 1.0 s) across all supported update scenarios.",
+    "rationale": "CR-NGHE-007 requires clarification of scope (what constitutes 'worksite model'), measurement basis (p95 latency across which scenarios), and customer-specific acceptance criteria. The refined FR explicitly bounds the latency requirement to a statistical percentile and acknowledges customer tailoring, critical for high-safety-criticality systems where deterministic guarantees matter.",
+    "verification_idea": "Instrument telemetry ingestion, model update, and dissemination pipelines with end-to-end latency measurement. Collect p95 latency across representative scenarios (equipment state change, safety event, environmental update, tele-operator command feedback). Compare against customer acceptance criteria document.",
+    "sub_frs": [
+      "FR-NGHE-007.1: Acquire worksite state telemetry from vehicle and environmental sensors with minimal acquisition latency.",
+      "FR-NGHE-007.2: Process and fuse telemetry into a coherent worksite model representation.",
+      "FR-NGHE-007.3: Disseminate updated worksite model to authorized consumers (operator, tele-operator, safety services) within latency budget.",
+      "FR-NGHE-007.4: Ensure worksite model update latency meets or exceeds customer-defined acceptance criteria under nominal and degraded network conditions."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized worksite model server with real-time telemetry ingestion, synchronous model update, and push-based dissemination to all consumers.",
+      "DP-B: Distributed edge-based model replicas with asynchronous telemetry aggregation and eventual consistency across replicas.",
+      "DP-C: Hybrid architecture with a primary model authority (server) and local caches at vehicle and tele-operator endpoints, using delta-based updates and priority-queued dissemination.",
+      "DP-D: Event-driven streaming pipeline (Kafka/RabbitMQ) decoupling telemetry ingestion from model update, with consumer-side model reconstruction."
+    ],
+    "selected_dp": "DP-C: Hybrid architecture with a primary model authority (server) and local caches at vehicle and tele-operator endpoints, using delta-based updates and priority-queued dissemination.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Cache coherency logic couples model authority to cache invalidation strategy; requires explicit consistency protocol.",
+        "Delta encoding couples telemetry schema evolution to update dissemination; schema changes must be backward-compatible.",
+        "Priority queuing couples safety-critical updates to network congestion handling; requires QoS guarantees."
+      ],
+      "notes": "DP-C exhibits moderate coupling but is manageable through explicit cache coherency protocol (e.g., versioned snapshots + delta log) and QoS-aware network scheduling. Coupling is acceptable given high-safety criticality and latency constraint; DP-A (centralized) risks single-point-of-failure; DP-B (eventual consistency) violates safety-critical latency bounds; DP-D (event-driven) introduces consumer-side reconstruction latency."
+    },
+    "assumptions_risks": [
+      "Assumption: Network link supports QoS tagging and priority scheduling for safety-critical updates.",
+      "Assumption: Vehicle and tele-operator endpoints have sufficient compute and storage for local model caches.",
+      "Risk: Cache invalidation under high-frequency telemetry (e.g., continuous sensor streams) may exceed dissemination bandwidth; mitigation: implement telemetry sampling/aggregation at source.",
+      "Risk: Clock skew across distributed endpoints may cause ordering ambiguity in delta application; mitigation: use logical timestamps (vector clocks) or server-side sequencing.",
+      "Risk: Network partition may cause cache divergence; mitigation: implement conflict resolution policy (e.g., server-authoritative reconciliation on reconnect)."
+    ],
+    "recommended_revision": "Refine DP-C to explicitly specify: (1) cache coherency protocol (e.g., write-through with versioned snapshots), (2) delta encoding format and schema versioning strategy, (3) QoS priority levels for telemetry categories (safety-critical vs. informational), (4) network partition recovery procedure. Document assumptions on network QoS and endpoint compute capacity."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "End-to-end worksite model authority, telemetry ingestion pipeline, model update logic, and dissemination orchestration. Includes server-side model store, cache coherency controller, and integration with Vehicle, Teleoperation, and Safety Services modules via standard interfaces."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Ingests vehicle state, sensor readings, and environmental data from Vehicle module. Carries raw or pre-processed telemetry with timestamps and source identifiers."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Disseminates updated worksite model state to Teleoperation and Vehicle modules for operator awareness and autonomous decision-making. Includes model snapshots, deltas, and derived situational awareness."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "Receives safety-critical events from Safety Services (e.g., collision risk, geofence breach) and incorporates them into model updates with highest priority. May also emit model-derived safety alerts (e.g., equipment state anomalies) to Safety Services."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Underlying transport for all telemetry ingestion and model dissemination. NGHE Solution depends on Network Link QoS guarantees (priority scheduling, latency bounds) to meet p95 latency target."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "NGHE Solution is the natural authority for worksite model state, telemetry aggregation, and dissemination orchestration. Minimal diffusion: only external interfaces are Telemetry (in), Tasking (out), SafetyAlert (inout), and Network Link (inout). All model logic, caching, and coherency control are contained within this module."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 15,
+        "diffusion_score": 85,
+        "notes": "Vehicle module is a telemetry source and consumer, not the model authority. Assigning model update logic to Vehicle would scatter model state across distributed endpoints, violating single-authority principle and complicating cache coherency. High diffusion risk."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Teleoperation is a model consumer (for operator situational awareness) and may maintain a local cache, but should not own model authority or update logic. Assigning model update to Teleoperation would create coupling between tele-operator availability and model freshness. High diffusion risk."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 25,
+        "diffusion_score": 75,
+        "notes": "Safety Services consumes and contributes to the worksite model (safety events, geofence status) but is not the primary model authority. Assigning model update logic to Safety Services would conflate safety event processing with general model management. High diffusion risk."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "NGHE Solution is the single authoritative owner of worksite model state, telemetry ingestion, model update logic, and dissemination orchestration. Vehicle, Teleoperation, and Safety Services are consumers and contributors via well-defined interfaces (Telemetry, Tasking, SafetyAlert). This containment minimizes diffusion and enforces a clear separation of concerns: NGHE Solution manages model authority and coherency; Vehicle/Teleoperation/Safety Services focus on their respective domains (equipment operation, remote control, safety enforcement).",
+    "containment_risks": [
+      "Risk: NGHE Solution becomes a performance bottleneck if model update logic is not optimized for high-frequency telemetry. Mitigation: implement efficient delta encoding, batch processing, and asynchronous dissemination.",
+      "Risk: Tight coupling between NGHE Solution and Network Link QoS may cause latency violations if network is congested. Mitigation: implement adaptive telemetry sampling and priority-based queuing.",
+      "Risk: Cache coherency protocol complexity may introduce bugs or latency overhead. Mitigation: use proven cache coherency patterns (e.g., write-through with versioned snapshots) and extensive testing.",
+      "Risk: Safety Services and Vehicle may need to make autonomous decisions based on stale model state if dissemination is delayed. Mitigation: define acceptable staleness bounds per decision type and implement fallback logic."
+    ],
+    "recommended_revision": "Explicitly define NGHE Solution's internal architecture: (1) Telemetry Ingestion Service (receives Telemetry, buffers, timestamps), (2) Model Update Engine (applies deltas, maintains version history), (3) Cache Coherency Controller (manages versioned snapshots, invalidation), (4) Dissemination Scheduler (prioritizes SafetyAlert updates, batches Tasking). Document interfaces between these internal components and their latency budgets. Specify fallback behavior if Network Link QoS is degraded."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid architecture with primary model authority and distributed caches) directly addresses the refined FR requirement for p95 latency ≤ 1.0 s. The DP provides a clear solution path: centralized model authority ensures consistency, local caches reduce dissemination latency, delta-based updates minimize bandwidth, and priority queuing ensures safety-critical updates meet latency bounds. Assumptions (network QoS, endpoint compute) are documented and manageable."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Diffusion Risk 1: If cache coherency protocol is not clearly specified, implementation may scatter coherency logic across Vehicle, Teleoperation, and Safety Services modules. Mitigation: NGHE Solution must own and encapsulate all coherency logic; Vehicle/Teleoperation/Safety Services are cache consumers only.",
+        "Diffusion Risk 2: If delta encoding schema is not versioned, schema evolution may require coordinated updates across all modules. Mitigation: NGHE Solution must manage schema versioning and ensure backward compatibility.",
+        "Diffusion Risk 3: If QoS priority levels are not enforced at Network Link, safety-critical updates may be delayed by informational telemetry. Mitigation: Network Link must support QoS tagging; NGHE Solution must tag all updates appropriately."
+      ],
+      "containment_notes": "NGHE Solution is the clear owner of worksite model authority and update logic. Vehicle, Teleoperation, and Safety Services are well-defined consumers/contributors via Telemetry, Tasking, and SafetyAlert interfaces. No significant diffusion expected if interfaces are strictly enforced. Containment score of 95 for NGHE Solution is justified."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible via instrumentation of telemetry ingestion, model update, and dissemination pipelines. End-to-end latency can be measured across representative scenarios (equipment state change, safety event, environmental update). p95 latency can be compared against customer acceptance criteria. Requires test environment with realistic network conditions (latency, jitter, packet loss) and telemetry load.",
+      "allocation_clarity": "Allocation is clear: NGHE Solution owns worksite model update latency end-to-end. Vehicle provides Telemetry input; Teleoperation and Safety Services consume Tasking and SafetyAlert outputs. Network Link provides transport. Each module's responsibility is well-defined. Latency budget allocation across sub-FRs (telemetry acquisition, model processing, dissemination) should be documented in next decomposition level."
+    },
+    "recommended_revisions": [
+      "Revision 1: Refine DP-C to specify cache coherency protocol, delta encoding format, QoS priority levels, and network partition recovery procedure. Document assumptions on network QoS and endpoint compute capacity.",
+      "Revision 2: Define NGHE Solution's internal architecture (Telemetry Ingestion Service, Model Update Engine, Cache Coherency Controller, Dissemination Scheduler) and latency budgets for each component.",
+      "Revision 3: Specify fallback behavior if Network Link QoS is degraded (e.g., reduce telemetry sampling rate, increase acceptable staleness bounds, alert operator).",
+      "Revision 4: Document customer acceptance criteria for p95 latency target and supported update scenarios. Ensure criteria are measurable and testable."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The refined FR is well-scoped, the selected DP is sound and addresses the latency requirement, and the assigned IM (NGHE Solution) is the correct architectural owner with minimal diffusion risk. All three gates (FR-DP, DP-IM, FR-IM) pass. However, the DP and IM require further refinement before implementation: cache coherency protocol, delta encoding, QoS priority levels, and internal architecture must be specified. Additionally, sub-FRs (telemetry acquisition, model processing, dissemination) require decomposition to allocate latency budgets and guide detailed design. Proceeding to next decomposition level is justified and necessary.",
+    "next_level_sub_frs": [
+      "FR-NGHE-007.1: Acquire worksite state telemetry from vehicle and environmental sensors with minimal acquisition latency (target: p95 ≤ 200 ms).",
+      "FR-NGHE-007.2: Process and fuse telemetry into a coherent worksite model representation with minimal processing latency (target: p95 ≤ 300 ms).",
+      "FR-NGHE-007.3: Disseminate updated worksite model to authorized consumers (operator, tele-operator, safety services) within latency budget (target: p95 ≤ 500 ms).",
+      "FR-NGHE-007.4: Ensure worksite model update latency meets or exceeds customer-defined acceptance criteria under nominal and degraded network conditions (target: p95 ≤ 1.0 s end-to-end)."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Network Link supports QoS tagging and priority scheduling for safety-critical updates.",
+        "Vehicle and tele-operator endpoints have sufficient compute and storage for local model caches.",
+        "Customer will provide specific acceptance criteria for p95 latency target and supported update scenarios.",
+        "Telemetry sources (vehicle sensors, environmental sensors) can provide timestamps with acceptable clock skew (< 100 ms).",
+        "Safety Services can tolerate model staleness up to 500 ms for non-critical decisions; safety-critical decisions require < 200 ms staleness."
+      ],
+      "open_risks": [
+        "Risk: Cache invalidation under high-frequency telemetry may exceed dissemination bandwidth. Mitigation: implement telemetry sampling/aggregation at source; validate in next level.",
+        "Risk: Clock skew across distributed endpoints may cause ordering ambiguity in delta application. Mitigation: use logical timestamps or server-side sequencing; validate in next level.",
+        "Risk: Network partition may cause cache divergence. Mitigation: implement conflict resolution policy; validate in next level.",
+        "Risk: NGHE Solution may become a performance bottleneck. Mitigation: optimize model update logic and implement asynchronous dissemination; validate in next level.",
+        "Risk: QoS guarantees may not be available on all network paths (e.g., satellite uplink). Mitigation: define fallback behavior and acceptable degradation; validate with customer."
+      ],
+      "evidence_needed": [
+        "Customer acceptance criteria document specifying p95 latency target and supported update scenarios.",
+        "Network QoS capability assessment (priority scheduling, latency bounds, jitter).",
+        "Telemetry load profile (frequency, volume, sources) for representative worksite scenarios.",
+        "Endpoint compute and storage capacity assessment (Vehicle, Teleoperation, Safety Services).",
+        "Clock synchronization capability assessment across distributed endpoints.",
+        "Prototype or simulation results validating DP-C latency performance under nominal and degraded network conditions."
+      ]
+    }
+  }
+}

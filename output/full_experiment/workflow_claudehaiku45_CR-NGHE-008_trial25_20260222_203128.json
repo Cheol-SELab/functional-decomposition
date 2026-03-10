@@ -1,0 +1,168 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall enable safe remote operation by maintaining end-to-end teleoperation latency within acceptable bounds for operator control.",
+    "rationale": "The original FR conflates two distinct obligations: (1) the capability to support teleoperation as a mode of operation, and (2) the performance requirement that latency must be compatible with safety. The refined FR focuses on the functional requirement in the problem domain—enabling safe remote operation through latency control—without prescribing a specific numerical threshold (which belongs in acceptance criteria, not the FR itself). This separates the 'what' (safe remote operation capability) from the 'how much' (p95 ≤ 150 ms), making the FR solution-neutral and atomic.",
+    "verification_idea": "Measure end-to-end latency (sensor-to-actuator round-trip time) under representative network conditions agreed with stakeholders. Confirm that measured latency supports operator ability to safely command and monitor equipment state without unsafe delays. Cross-reference against the acceptance criterion (p95 ≤ 150 ms) and worksite safety plan operational policies.",
+    "sub_frs": [
+      "FR-NGHE-008.1: The NGHE solution shall acquire and transmit equipment state (sensor data) to the remote operator.",
+      "FR-NGHE-008.2: The NGHE solution shall receive and execute remote operator commands at the equipment.",
+      "FR-NGHE-008.3: The NGHE solution shall minimize cumulative latency in the teleoperation command-and-feedback loop."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Implement a hierarchical control architecture with local autonomous safety enforcement at the remote unit, supplemented by operator commands transmitted over a latency-tolerant communication channel with asynchronous acknowledgment.",
+      "DP2: Establish a dual-path communication system: a low-latency primary control path (dedicated, prioritized) for time-critical commands, and a secondary monitoring/telemetry path (best-effort) for non-critical state feedback, with independent buffering and retry logic.",
+      "DP3: Deploy predictive state estimation and command interpolation at the remote unit to mask communication latency by extrapolating operator intent and system state, reducing effective perceived latency without requiring sub-150ms network round-trip.",
+      "DP4: Implement a time-synchronized command queue with deterministic execution scheduling at the remote unit, allowing the operator to issue batched or time-stamped commands that execute predictably despite variable network delays, with local safety interlocks preventing unsafe state transitions.",
+      "DP5: Use a hybrid control model combining teleoperation for high-precision tasks (with latency compensation via local feedback loops) and supervised autonomy for routine/safety-critical operations (operator monitors and intervenes asynchronously), reducing dependency on sub-150ms latency for all functions."
+    ],
+    "selected_dp": "DP2: Establish a dual-path communication system: a low-latency primary control path (dedicated, prioritized) for time-critical commands, and a secondary monitoring/telemetry path (best-effort) for non-critical state feedback, with independent buffering and retry logic.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between primary and secondary paths if they share underlying transport infrastructure (e.g., same network interface); mitigation: enforce logical separation and QoS prioritization at the network layer.",
+        "Coupling between command execution and telemetry feedback if acknowledgment logic is tightly bound; mitigation: decouple via asynchronous message queues and explicit timeout/retry policies.",
+        "Coupling to worksite safety plan if latency bounds are not validated against actual operational scenarios; mitigation: require empirical validation under agreed network conditions before deployment."
+      ],
+      "notes": "DP2 achieves functional independence by separating time-critical control from monitoring, allowing each path to be optimized independently. The dual-path design is solution-neutral (does not prescribe specific protocols or vendors) and supports graceful degradation: loss of secondary telemetry does not compromise safety if primary control path remains operational. Decoupling is strong if buffering and retry logic are isolated per path."
+    },
+    "assumptions_risks": [
+      "Assumption: 'Agreed network conditions' are well-defined, reproducible, and representative of actual worksite deployment; Risk: If real-world latency exceeds p95 ≤ 150 ms under stated conditions, the design fails. Mitigation: Conduct network characterization and stress testing before acceptance.",
+      "Assumption: Local safety enforcement at the remote unit is sufficient to prevent hazardous states even if the primary control path is lost; Risk: If safety depends on continuous operator oversight, loss of telemetry on the secondary path may leave the operator blind. Mitigation: Ensure primary path includes bidirectional heartbeat/watchdog; define safe fallback behavior (e.g., controlled shutdown).",
+      "Assumption: Operator can tolerate asynchronous acknowledgment and does not require real-time visual feedback for every command; Risk: If tasks require tight sensorimotor coupling (e.g., fine manipulation), 150 ms latency may still be unacceptable. Mitigation: Validate with operator in representative scenarios; consider DP3 or DP5 if latency is insufficient.",
+      "Assumption: Buffering and retry logic do not introduce additional latency that violates the p95 bound; Risk: Aggressive retry policies or deep queues may cause command starvation or out-of-order execution. Mitigation: Define explicit queue depth limits and timeout policies; model latency distribution under load.",
+      "Assumption: The worksite safety plan and operational policies are compatible with the dual-path model (e.g., operator is trained to handle loss of secondary telemetry); Risk: If policies mandate continuous real-time monitoring, the design may not be operationally acceptable. Mitigation: Align design with safety plan early; involve safety stakeholders in validation."
+    ],
+    "recommended_revision": "FR (refined): The NGHE solution shall enable safe remote operation by maintaining end-to-end teleoperation latency within acceptable bounds (p95 ≤ 150 ms) for operator control of time-critical functions, while supporting asynchronous monitoring and intervention for non-critical operations, under the agreed network conditions and in compliance with the worksite safety plan. DP2 should be further decomposed to specify: (1) the logical boundary between time-critical and non-critical functions (FR->DP mapping at the next level), (2) the timeout and retry policies for each path, and (3) the safe fallback behavior if either path is lost. Recommend pairing DP2 with elements of DP3 (predictive state estimation) to further reduce perceived latency for operator feedback, and with DP5 (supervised autonomy) to reduce operator workload during routine operations."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Encapsulates dual-path communication logic: primary control path (low-latency, prioritized command routing) and secondary monitoring path (best-effort telemetry feedback), including independent buffering, retry mechanisms, and path selection/failover orchestration."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives time-critical control commands from operator/tasking layer; routed through primary low-latency path with priority queuing."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Transmits non-critical state feedback and monitoring data via secondary best-effort path; independent buffering and retry logic managed internally."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Abstracts underlying network transport; Teleoperation manages dual-path multiplexing, buffering strategies, and retry policies above this interface."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Critical safety state transitions bypass secondary path and escalate to Safety Services via dedicated alert channel when thresholds are breached."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit: dual-path communication is the core responsibility of teleoperation. Primary control path (Tasking → Vehicle) and secondary monitoring path (Vehicle → Telemetry) are both native to this module's domain. Independent buffering and retry logic are internal implementation details. Minor diffusion: SafetyAlert escalation requires coordination with Safety Services, but this is a clean outbound interface, not diffusion."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor fit: Safety Services owns safety-critical logic and alerts, not general communication path management. Dual-path buffering and retry logic are orthogonal to safety validation. Primary control path prioritization would diffuse across Teleoperation and Vehicle. Secondary monitoring path is outside safety domain. Only SafetyAlert escalation is relevant."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Weak fit: Vehicle owns actuation and state, not communication infrastructure. Placing dual-path logic here couples communication concerns to vehicle control, violating separation of concerns. Primary path would need to diffuse into Teleoperation for command reception. Secondary path would require Vehicle to manage telemetry buffering, which is not its responsibility. Retry logic and path selection belong in communication layer, not vehicle."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.25,
+        "diffusion_score": 0.75,
+        "notes": "Very poor fit: NGHE Solution is a top-level system container, not a functional module. Placing dual-path communication here would diffuse the logic across all subsystems and prevent cohesive ownership. No clear interface boundaries. This is an overly broad boundary that obscures architectural responsibility."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the natural owner of dual-path communication because it mediates all operator-to-vehicle interactions. The primary control path (low-latency, prioritized) carries operator commands (Tasking interface) to the Vehicle. The secondary monitoring path (best-effort) carries vehicle state feedback (Telemetry interface) back to the operator. Independent buffering and retry logic are internal to Teleoperation's communication management responsibility. SafetyAlert escalation is a clean outbound interface that does not diffuse the DP.",
+    "containment_risks": [
+      "Risk: If Vehicle requires direct access to primary path prioritization logic for internal command scheduling, ownership may need to shift or be shared. Mitigation: Teleoperation should expose a clean interface (e.g., 'CommandPriority' or 'ExecutionOrder') rather than exposing internal buffering.",
+      "Risk: If Safety Services must inject high-priority safety commands that bypass normal Tasking flow, the primary path logic may need to accommodate safety-specific routing. Mitigation: Define a SafetyCommand variant within Tasking interface or create a separate high-priority inbound interface for safety overrides.",
+      "Risk: Network Link abstraction may not fully hide path-specific transport details (e.g., different protocols, latencies, or reliability guarantees for primary vs. secondary). Mitigation: Teleoperation should own path selection and adaptation logic; Network Link should expose dual-channel capability without prescribing buffering strategy.",
+      "Risk: Retry logic for secondary path may require Vehicle feedback (e.g., 'telemetry received' acknowledgments) that creates coupling. Mitigation: Use timeout-based retry rather than explicit acknowledgment, or define a lightweight feedback interface."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. Acceptance criterion 'p95 ≤ 150 ms' is measurable and testable within Teleoperation module boundary. Dual-path architecture enables independent instrumentation: primary path latency can be monitored via command-to-execution timestamps; secondary path can be monitored via telemetry transmission timestamps. Network Link abstraction provides clear measurement points. Worksite safety plan integration is external to this module but SafetyAlert interface provides traceability.",
+      "allocation_clarity": "Clear. FR requirement maps unambiguously to Teleoperation IM ownership. Tasking interface receives operator commands; Teleoperation owns routing logic (primary vs. secondary path selection); Vehicle interface executes commands; Telemetry interface returns state. SafetyAlert escalation is a clean outbound interface with no ambiguity about responsibility boundaries."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP2 directly addresses FR requirement. Dual-path communication (low-latency primary + best-effort secondary) is a sound design approach for maintaining teleoperation latency within bounds. Independent buffering and retry logic are appropriate mechanisms for the stated problem. DP is technology-agnostic and does not over-specify implementation details (e.g., protocol choice, network topology). Traceability is direct: FR → DP2 → latency bounds achievement."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Risk: Vehicle module may require visibility into primary path prioritization logic for internal command scheduling. Mitigation: Teleoperation must expose a clean, abstract interface (e.g., 'CommandPriority' enum or 'ExecutionOrder' signal) rather than exposing internal buffering state. This prevents diffusion of buffering logic into Vehicle.",
+        "Risk: Safety Services may need to inject high-priority safety commands that bypass normal Tasking flow, potentially requiring modifications to primary path routing logic. Mitigation: Define a SafetyCommand variant within Tasking interface or create a separate high-priority inbound interface (e.g., 'SafetyOverride') that Teleoperation handles as a distinct input stream. This keeps DP logic cohesive within Teleoperation.",
+        "Risk: Network Link abstraction may not fully hide path-specific transport details (different protocols, latencies, reliability guarantees for primary vs. secondary paths). Mitigation: Teleoperation should own path selection and adaptation logic; Network Link should expose dual-channel capability (e.g., 'Channel.Primary' and 'Channel.Secondary') without prescribing buffering or retry strategy. This maintains clean separation.",
+        "Risk: Retry logic for secondary path may require Vehicle feedback (e.g., 'telemetry received' acknowledgments), creating coupling and potential latency impact on primary path. Mitigation: Use timeout-based retry with exponential backoff rather than explicit acknowledgment. If feedback is necessary, define a lightweight, asynchronous feedback interface that does not block primary path execution.",
+        "Risk: Telemetry buffering strategy (queue depth, overflow behavior) may need coordination with Vehicle state production rate. Mitigation: Teleoperation should define buffer sizing based on worst-case network latency and Vehicle state update frequency; Vehicle should not be aware of buffering internals. Use backpressure signaling (e.g., 'buffer full' flag) only if necessary, and keep it unidirectional."
+      ],
+      "containment_notes": "Excellent containment (0.92 score). Teleoperation is the natural owner of dual-path communication logic. Primary control path (Tasking → Vehicle) and secondary monitoring path (Vehicle → Telemetry) are both native to this module's domain. Independent buffering and retry logic are internal implementation details that should not diffuse. SafetyAlert escalation is a clean outbound interface that does not represent diffusion—it is a legitimate cross-module dependency. All four identified risks are manageable through interface design discipline and do not require ownership reassignment. Recommend proceeding with Teleoperation as the designated IM boundary."
+    },
+    "recommended_revisions": [
+      "Formalize Teleoperation interface contract: Define explicit input/output signatures for Tasking (command structure with priority field), Telemetry (state feedback structure), SafetyAlert (alert type and threshold), and Network Link (dual-channel abstraction). This prevents diffusion through ambiguous interface semantics.",
+      "Specify primary path latency budget allocation: Break down the p95 ≤ 150 ms acceptance criterion into sub-budgets (e.g., Tasking reception → Teleoperation routing: ≤ 30 ms; Teleoperation → Network Link: ≤ 50 ms; Network transport: ≤ 50 ms; Vehicle execution: ≤ 20 ms). This enables verification at each interface boundary.",
+      "Define SafetyAlert escalation protocol: Specify whether SafetyAlert is triggered by Teleoperation detecting threshold breaches (e.g., latency exceeding 200 ms) or by Safety Services injecting alerts. If the former, document the detection logic and thresholds within Teleoperation. If the latter, define a SafetyOverride inbound interface to prevent diffusion of safety logic into Teleoperation.",
+      "Document Network Link abstraction contract: Specify what dual-channel capability Network Link must expose (e.g., 'send_primary(msg)', 'send_secondary(msg)', 'get_channel_status()') and what Teleoperation owns (path selection, buffering, retry). This prevents diffusion of transport-specific logic into Teleoperation.",
+      "Establish retry policy for secondary path: Document timeout values, backoff strategy, and maximum retry count. Specify whether retries are transparent to Vehicle or signaled via a 'delivery_status' feedback interface. Recommend timeout-based retry to avoid coupling with Vehicle acknowledgments.",
+      "Add latency monitoring instrumentation: Specify telemetry points within Teleoperation (e.g., command arrival timestamp, path selection decision, transmission timestamp) to enable real-time verification of p95 ≤ 150 ms criterion. This supports continuous validation during operation."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "Gate results show all three gates (FR-IM, FR-DP, DP-IM) passing with high confidence (verification feasibility: High, allocation clarity: Clear, containment: 0.92). However, the recommended_revisions list identifies six critical interface and protocol specifications that are prerequisites for safe decomposition into lower levels. Given the high safety criticality of teleoperation latency, proceeding directly to sub-FR derivation without formalizing these interface contracts and latency budgets would risk diffusion of safety-critical logic into child modules. The ZIGZAG_DOWN decision executes the recommended revisions at the current level (FR/DP/IM refinement) before deriving next-level sub-FRs. This ensures that child-level decomposition operates within well-defined, safety-validated boundaries.",
+    "next_level_sub_frs": [],
+    "revise": {
+      "target": "DP",
+      "why": "DP2 (dual-path communication with independent buffering and retry logic) is logically sound but under-specified for safety-critical implementation. Revision must formalize: (1) Tasking interface contract with priority field semantics; (2) explicit latency budget allocation across Teleoperation sub-components (routing ≤30ms, Network Link handoff ≤50ms, transport ≤50ms, Vehicle execution ≤20ms); (3) SafetyAlert escalation protocol (detection thresholds vs. external injection); (4) Network Link abstraction contract (dual-channel API, path selection ownership); (5) secondary path retry policy (timeout-based, no blocking acknowledgments); (6) telemetry buffering strategy with backpressure semantics. These revisions do not change the core DP logic but make it sufficiently precise to prevent diffusion during child-level decomposition and to enable verification at module boundaries."
+    },
+    "record": {
+      "assumptions": [
+        "Teleoperation module owns both command routing (primary/secondary path selection) and telemetry buffering; Vehicle module does not participate in path selection logic.",
+        "SafetyAlert escalation is triggered by Teleoperation detecting latency threshold breaches (e.g., p95 > 200 ms) rather than by external Safety Services injection; if external injection is required, a separate SafetyOverride inbound interface will be defined.",
+        "Network Link abstraction exposes dual-channel capability (Primary, Secondary) without prescribing buffering or retry strategy; Teleoperation owns all retry and adaptation logic.",
+        "Retry logic for secondary path uses timeout-based exponential backoff without requiring explicit acknowledgments from Vehicle; this prevents coupling and latency impact on primary path.",
+        "Telemetry buffering is sized based on worst-case network latency (e.g., 150 ms) and Vehicle state update frequency; backpressure signaling (if needed) is unidirectional and does not block primary command path.",
+        "Latency budget allocation (30+50+50+20 = 150 ms) is achievable within current network and Vehicle execution constraints; if not, DP2 may require revision (e.g., path pre-selection, predictive buffering)."
+      ],
+      "open_risks": [
+        "Risk: SafetyAlert escalation protocol ambiguity. If Teleoperation detects latency breaches and escalates, it must define thresholds (e.g., p95 > 200 ms triggers alert). If Safety Services injects alerts externally, Teleoperation must handle SafetyOverride as a distinct input stream. Unresolved: which party owns threshold definition and escalation logic?",
+        "Risk: Network Link abstraction may not fully hide path-specific transport details (e.g., primary path uses low-latency proprietary protocol; secondary path uses best-effort IP). If Teleoperation must adapt buffering or retry strategy based on path characteristics, diffusion of transport logic into Teleoperation is possible.",
+        "Risk: Telemetry buffering overflow behavior is unspecified. If Vehicle state production rate exceeds Network Link transmission capacity, buffer overflow may cause state loss or latency spike. Mitigation strategy (drop oldest, drop newest, backpressure) must be defined before child-level decomposition.",
+        "Risk: Latency budget allocation (30+50+50+20 ms) assumes no contention or queueing within Teleoperation or Vehicle modules. If Teleoperation shares compute resources with other modules, or if Vehicle has competing command streams, actual latency may exceed p95 ≤ 150 ms. Verification strategy must account for contention scenarios.",
+        "Risk: Retry policy for secondary path may create duplicate command execution if primary path succeeds but secondary path retries after timeout. Mitigation (idempotency, command deduplication) must be specified before Vehicle module receives commands."
+      ],
+      "evidence_needed": [
+        "Formalized Teleoperation interface contract: Input/output signatures for Tasking (command structure with priority, timestamp), Telemetry (state feedback structure with sequence number), SafetyAlert (alert type, threshold, escalation condition), Network Link (dual-channel API: send_primary(msg, timeout), send_secondary(msg, max_retries), get_channel_status()).",
+        "Latency budget allocation document: Breakdown of p95 ≤ 150 ms into sub-budgets for each Teleoperation sub-component and interface boundary. Include measurement points (e.g., command arrival timestamp, path selection decision timestamp, transmission timestamp) for verification.",
+        "SafetyAlert escalation protocol specification: Decision on whether Teleoperation detects latency breaches internally or Safety Services injects alerts externally. If internal detection, specify thresholds (e.g., p95 > 200 ms, p99 > 250 ms) and escalation logic. If external injection, define SafetyOverride inbound interface and priority handling.",
+        "Network Link abstraction contract: Specification of dual-channel capability (Primary, Secondary) and what Teleoperation owns (path selection, buffering, retry). Include API signatures and error handling (e.g., 'channel unavailable', 'transmission timeout').",
+        "Retry policy specification: Timeout values, backoff strategy (e.g., exponential with jitter), maximum retry count, and transparency to Vehicle (e.g., 'delivery_status' feedback or silent retry). Include idempotency requirements to prevent duplicate execution.",
+        "Telemetry buffering strategy: Buffer sizing formula (e.g., buffer_size = max_latency * state_update_frequency + safety_margin), overflow behavior (drop oldest/newest/backpressure), and backpressure interface (if needed).",
+        "Verification plan for latency bounds: Real-time instrumentation points within Teleoperation (command arrival, path selection, transmission) and acceptance test protocol (e.g., 1000-command sample, p95 calculation, threshold validation). Include contention scenarios (e.g., competing command streams, shared compute resources)."
+      ]
+    }
+  }
+}

@@ -1,0 +1,175 @@
+{
+  "refined_fr": {
+    "refined_fr": "Capture and represent worksite spatial features in a machine-readable model.",
+    "rationale": "The candidate FR bundles three distinct obligations: (1) terrain analysis, (2) obstacle identification, and (3) work-zone representation. Each is a separate functional concern with different data sources, processing logic, and stakeholder consumption patterns. The refined FR is solution-neutral (avoids 'mapping/modeling' terminology which implies implementation choice) and focuses on the core problem: making worksite geometry and features available in a structured, queryable form. Splitting into atomic sub-FRs allows independent DP selection and IM packaging.",
+    "verification_idea": "Confirm that a worksite model exists in a defined schema (e.g., point cloud, mesh, or feature database) and can be queried by downstream planning and execution functions to retrieve spatial attributes (position, geometry, classification) for an agreed set of site features.",
+    "sub_frs": [
+      "FR-NGHE-006.1: Acquire terrain elevation and surface geometry data from the worksite.",
+      "FR-NGHE-006.2: Identify and classify static obstacles (structures, vegetation, utilities) within the worksite boundary.",
+      "FR-NGHE-006.3: Define and represent work-zone boundaries and restricted areas in the spatial model.",
+      "FR-NGHE-006.4: Persist and provide access to the worksite spatial model for planning and execution functions."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Acquire spatial feature data through multi-modal sensing (vision, range, inertial) and fuse into a unified coordinate frame; store as a structured spatial graph with feature attributes (geometry, classification, safety constraints); expose via query interface for downstream planning/execution consumers.",
+      "DP2: Decompose worksite into discrete zones; assign zone-level feature inventories (obstacles, hazards, access points) via manual annotation or semi-automated detection; maintain zone-feature mappings in a relational schema; provide zone-based query API.",
+      "DP3: Capture worksite features as a voxel grid with occupancy and semantic labels; update grid incrementally as new observations arrive; convert grid to feature primitives (planes, edges, clusters) on demand for planning; expose both raw grid and derived features.",
+      "DP4: Establish a feature observation pipeline: raw sensor streams → feature detection (rule-based or learned classifiers) → temporal fusion (Kalman filtering, graph optimization) → persistent feature store; decouple observation from representation via an intermediate feature event stream.",
+      "DP5: Model worksite as a hierarchical spatial decomposition (octree or quadtree) with feature annotations at multiple scales; support both fine-grained (meter-level) and coarse (zone-level) queries; lazy-load and cache features based on planning scope."
+    ],
+    "selected_dp": "DP4: Establish a feature observation pipeline: raw sensor streams → feature detection (rule-based or learned classifiers) → temporal fusion (Kalman filtering, graph optimization) → persistent feature store; decouple observation from representation via an intermediate feature event stream.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Tight coupling between sensor modality and feature detector if classifiers are hard-coded to specific sensor types; mitigate by abstracting sensor input as normalized observations.",
+        "Coupling between temporal fusion strategy and downstream consumers if fusion parameters (e.g., confidence thresholds) are not configurable; mitigate by externalizing fusion policy.",
+        "Coupling to safety plan if feature classification rules embed safety-specific logic; mitigate by separating feature detection (geometry + type) from safety interpretation (policy application)."
+      ],
+      "notes": "DP4 decouples observation (sensor → detection) from representation (fusion → store), enabling independent evolution of sensing hardware and feature models. The intermediate feature event stream acts as a contract boundary, reducing coupling to downstream planning/execution. Hierarchical decomposition (observation → detection → fusion → storage) supports testability and incremental deployment."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Feature detection classifiers (rule-based or learned) are sufficiently accurate and generalizable across worksite conditions; RISK: Misclassification of safety-critical features (e.g., hazards) could propagate to planning; MITIGATION: Require confidence thresholds, human-in-the-loop validation for low-confidence detections, and continuous retraining on site-specific data.",
+      "ASSUMPTION: Temporal fusion (Kalman, graph optimization) converges to stable feature estimates within acceptable latency; RISK: Slow convergence or oscillation in dynamic environments (e.g., moving obstacles); MITIGATION: Tune fusion parameters per site; implement adaptive thresholds; validate convergence offline.",
+      "ASSUMPTION: Persistent feature store schema is stable and extensible; RISK: Adding new feature types or attributes requires schema migration, potentially blocking planning/execution; MITIGATION: Use schema versioning, support backward compatibility, and decouple store schema from query API.",
+      "ASSUMPTION: Feature event stream bandwidth and latency are acceptable for real-time planning; RISK: High-frequency updates or large feature payloads could overwhelm downstream consumers; MITIGATION: Implement filtering, batching, and rate-limiting at the event stream boundary.",
+      "ASSUMPTION: Worksite safety plan and operational policies are available and can be encoded as feature classification rules or constraints; RISK: Policy changes require retraining or reconfiguration; MITIGATION: Externalize policy as configuration; support dynamic policy updates without redeployment."
+    ],
+    "recommended_revision": "Refine DP4 to explicitly separate concerns: (1) Feature Detection: Classify raw observations into feature types (obstacle, hazard, access point, etc.) using domain-agnostic detectors; (2) Temporal Fusion: Aggregate detections over time and space to produce stable feature estimates with confidence; (3) Feature Store: Persist fused features with metadata (timestamp, source, confidence, policy tags); (4) Query Interface: Expose features to planning/execution via a schema-versioned API that supports filtering by type, location, confidence, and policy constraints. Add a Feature Validation layer that cross-checks detected features against the worksite safety plan (e.g., hazard zones, restricted areas) and flags inconsistencies for human review. This ensures that the spatial model remains aligned with safety and operational intent."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "Centralized feature observation pipeline encompassing raw sensor stream ingestion, feature detection (rule-based and learned classifiers), temporal fusion (Kalman filtering, graph optimization), and persistent feature store management. Acts as the authoritative feature event broker decoupling raw observations from downstream representation consumers."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Ingests raw sensor streams (camera, lidar, radar, IMU, GPS) from Vehicle; provides normalized sensor data feed to feature detection pipeline"
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Emits processed feature events (detected objects, trajectories, semantic labels, confidence scores) to downstream consumers (Vehicle, Teleoperation, Safety Services)"
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Publishes high-confidence safety-critical features (collision risks, anomalies) to Safety Services for real-time intervention"
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Communicates with remote teleoperation backend for learned model updates, feature schema synchronization, and optional cloud-based temporal fusion augmentation"
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent containment: NGHE is the natural home for perception intelligence, feature extraction, and temporal reasoning. Raw sensor ingestion (Telemetry in) and feature event emission (Telemetry out) are well-scoped. Minor diffusion: learned classifier updates may require Network Link coordination with remote model servers; safety-critical feature routing to Safety Services is a necessary cross-boundary dependency but architecturally clean via SafetyAlert interface."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor containment: Vehicle is the sensor data source, not the processing locus. Placing the entire pipeline in Vehicle would couple perception intelligence tightly to vehicle firmware, violate separation of concerns, and force Vehicle to own temporal fusion and feature store logic. High diffusion: feature events would need to diffuse back out to Teleoperation and Safety Services, creating circular dependencies."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.28,
+        "diffusion_score": 0.72,
+        "notes": "Poor containment: Teleoperation is a consumer and controller interface, not a perception pipeline owner. Placing feature observation logic here would conflate remote operation concerns with sensor fusion. High diffusion: raw sensor streams originate in Vehicle, not Teleoperation; feature events must propagate to Safety Services and back to Vehicle control loops."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Weak containment: Safety Services is a consumer of safety-critical features, not the producer of the full observation pipeline. While temporal fusion and feature detection are relevant to safety, owning the entire pipeline (including non-safety features, learned classifiers, and persistent store) would bloat Safety Services beyond its safety-specific mandate. High diffusion: raw sensor streams and non-safety features would need to diffuse in from Vehicle and out to Teleoperation."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "NGHE Solution is the architecturally correct boundary for DP4 because: (1) it is the designated perception and intelligence layer, (2) it naturally owns feature detection, temporal fusion, and feature store as core perception capabilities, (3) it decouples raw sensor streams (Vehicle responsibility) from feature events (consumed by Vehicle, Teleoperation, Safety Services), (4) it enables learned classifier management via Network Link without burdening Vehicle firmware, and (5) it maintains clean separation of concerns by keeping perception logic separate from vehicle control, teleoperation, and safety enforcement.",
+    "containment_risks": [
+      "Latency coupling: If temporal fusion (Kalman filtering, graph optimization) introduces unacceptable latency, real-time safety-critical features may not reach Safety Services in time. Mitigation: implement dual-path architecture with fast rule-based features for safety and slower learned features for teleoperation.",
+      "Feature schema evolution: Changes to feature definitions or learned model architectures may require coordinated updates across Vehicle (consumer), Teleoperation (consumer), and Safety Services (consumer). Mitigation: version feature event schema and implement backward compatibility in NGHE Solution.",
+      "Persistent feature store scalability: Long-term feature storage and retrieval may become a bottleneck if Vehicle or Teleoperation demand high-frequency historical feature queries. Mitigation: implement tiered storage (hot/warm/cold) and consider eventual consistency for non-critical queries.",
+      "Network dependency: Cloud-based model updates and remote temporal fusion augmentation introduce dependency on Network Link availability. Mitigation: cache learned models locally in NGHE Solution and degrade gracefully to rule-based features if network is unavailable.",
+      "Diffusion of safety-critical feature routing: SafetyAlert interface creates a direct dependency from NGHE Solution to Safety Services. If safety features are not properly validated before emission, Safety Services may receive false positives. Mitigation: implement confidence thresholding and anomaly detection within NGHE Solution before SafetyAlert emission."
+    ],
+    "recommended_revision": "DP4 is well-formulated and maps cleanly to NGHE Solution. No revision needed. However, consider explicitly decomposing DP4 into sub-DPs to address latency and safety concerns: (1) DP4a: Fast rule-based feature detection for safety-critical observations (low latency, high confidence), (2) DP4b: Learned classifier feature detection for teleoperation and analytics (higher latency, adaptive), (3) DP4c: Temporal fusion and persistent store for non-real-time feature enrichment. This decomposition allows NGHE Solution to implement a multi-tier feature pipeline with clear latency/accuracy trade-offs and explicit safety-critical vs. non-critical feature separation."
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The FR ('Capture and represent worksite spatial features in a machine-readable model') is directly verifiable against the acceptance criterion 'A worksite model/map is generated and available to planning/execution functions for an agreed set of site features.' NGHE Solution's persistent feature store and feature event stream provide the machine-readable representation; downstream consumers (Vehicle, Teleoperation, Safety Services) access features via Telemetry (out) interface. Verification can be performed by: (1) confirming feature events conform to agreed schema, (2) validating feature store contains required site features (objects, trajectories, semantic labels), (3) testing availability and latency of feature queries to planning/execution functions.",
+      "allocation_clarity": "Clear. IM boundary (NGHE Solution) is unambiguous and well-scoped. Ownership is explicitly assigned to a centralized perception and intelligence layer. Interfaces are well-defined (Telemetry in/out, SafetyAlert, Network Link). Responsibility for feature capture, detection, fusion, and storage is consolidated in a single module, eliminating ambiguity about which component owns the worksite model. Downstream consumers (Vehicle, Teleoperation, Safety Services) have clear, documented access paths via feature event streams."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP4 ('Establish a feature observation pipeline: raw sensor streams → feature detection → temporal fusion → persistent feature store; decouple observation from representation via intermediate feature event stream') directly and sufficiently addresses FR. The pipeline architecture ensures worksite spatial features are captured (raw sensors), processed (detection + fusion), and represented (feature store) in machine-readable form. Decoupling via feature event stream enables availability to multiple downstream consumers (planning, execution, safety). DP4 is logically sound, implementable, and traceable to acceptance criteria."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Latency diffusion: Temporal fusion (Kalman filtering, graph optimization) may introduce latency that violates real-time safety-critical feature delivery SLAs. Risk: safety-critical features diffuse into slower learned-classifier pipelines, delaying SafetyAlert emission. Mitigation: implement dual-path architecture (DP4a: fast rule-based for safety; DP4b: learned classifiers for teleoperation) within NGHE Solution to isolate latency-sensitive paths.",
+        "Feature schema evolution diffusion: Changes to feature definitions or learned model architectures require coordinated updates across Vehicle, Teleoperation, and Safety Services consumers. Risk: schema changes diffuse as breaking changes across multiple downstream modules. Mitigation: version feature event schema in NGHE Solution; implement backward compatibility and deprecation policies.",
+        "Learned model update coordination: Learned classifier updates via Network Link introduce external dependency on remote model servers. Risk: model update logic diffuses between NGHE Solution (local cache/inference) and remote backend (training/versioning). Mitigation: establish clear ownership of model lifecycle (training, versioning, deployment) in remote backend; NGHE Solution owns only local caching and inference.",
+        "Safety-critical feature validation diffusion: SafetyAlert interface creates direct dependency from NGHE Solution to Safety Services. Risk: confidence thresholding and anomaly detection logic may diffuse if Safety Services attempts to re-validate features. Mitigation: implement comprehensive validation within NGHE Solution before SafetyAlert emission; Safety Services consumes validated features without re-processing.",
+        "Persistent feature store scalability diffusion: Long-term feature storage may become bottleneck if Vehicle or Teleoperation demand high-frequency historical queries. Risk: query logic diffuses across consumers, creating inconsistent access patterns. Mitigation: implement tiered storage (hot/warm/cold) and query API within NGHE Solution; enforce consistent access patterns via documented interfaces."
+      ],
+      "containment_notes": "Excellent containment (0.92 score). NGHE Solution is the architecturally correct and natural home for DP4. Justification: (1) NGHE is the designated perception and intelligence layer, making it the logical owner of feature detection, temporal fusion, and persistent storage. (2) Raw sensor ingestion (Telemetry in) originates from Vehicle; NGHE processes and decouples via feature event stream (Telemetry out), maintaining clean separation of concerns. (3) Feature events are consumed by Vehicle (control loops), Teleoperation (remote operation), and Safety Services (safety enforcement), all via well-defined interfaces. (4) Learned classifier management via Network Link is cleanly scoped to NGHE without burdening Vehicle firmware. (5) Minor diffusion (0.08 score) is acceptable and architecturally necessary: learned model updates require Network Link coordination (external dependency, not internal diffusion), and SafetyAlert routing to Safety Services is a necessary cross-boundary dependency but architecturally clean via explicit interface. Alternative placements (Vehicle, Teleoperation, Safety Services) all exhibit poor containment (0.28–0.40) and high diffusion (0.60–0.72) due to misalignment with module responsibilities and circular dependencies."
+    },
+    "recommended_revisions": [
+      "Decompose DP4 into three sub-DPs to explicitly address latency and safety concerns: (1) DP4a: 'Implement fast rule-based feature detection for safety-critical observations (collision risks, anomalies) with low-latency, high-confidence thresholding to enable real-time SafetyAlert emission.' (2) DP4b: 'Implement learned classifier feature detection for teleoperation and analytics with adaptive confidence scoring and optional cloud-based model updates via Network Link.' (3) DP4c: 'Implement temporal fusion (Kalman filtering, graph optimization) and persistent feature store for non-real-time feature enrichment, historical queries, and planning/execution support.' This decomposition clarifies latency/accuracy trade-offs and ensures safety-critical features are not delayed by slower learned pipelines.",
+      "Establish explicit SLA for SafetyAlert emission latency (e.g., <100ms from raw sensor to Safety Services) and validate that DP4a (rule-based path) meets this SLA. Document fallback behavior if temporal fusion or learned classifiers introduce unacceptable latency.",
+      "Define feature event schema versioning and backward compatibility policy. Specify how NGHE Solution handles schema evolution without breaking downstream consumers (Vehicle, Teleoperation, Safety Services). Document deprecation timelines and migration paths.",
+      "Clarify ownership of learned model lifecycle: specify whether remote backend (via Network Link) or NGHE Solution owns model training, versioning, and deployment. Document local caching strategy and graceful degradation if Network Link is unavailable.",
+      "Implement confidence thresholding and anomaly detection within NGHE Solution before SafetyAlert emission. Document validation rules and false-positive rates to ensure Safety Services receives high-quality safety-critical features.",
+      "Design tiered storage strategy (hot/warm/cold) for persistent feature store to address scalability concerns. Document query latency SLAs and eventual consistency guarantees for non-critical historical queries.",
+      "Add explicit acceptance criterion: 'Feature events conform to agreed schema and are available to planning/execution functions within [X] milliseconds of raw sensor capture.' This ties DP4 directly to FR and worksite model availability requirement."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "Gate results confirm FR-DP-IM alignment with high verification feasibility and excellent containment (0.92). However, recommended_revisions explicitly call for decomposition of DP4 into three sub-DPs to address latency, safety-criticality, and scalability concerns. The dual-path architecture (DP4a: fast rule-based for safety; DP4b: learned classifiers for teleoperation; DP4c: temporal fusion and storage) is architecturally necessary to prevent safety-critical features from being delayed by slower learned pipelines. Given high safety criticality (risk tailoring factor), decomposing into next-level sub-FRs is justified to ensure safety-critical feature delivery meets explicit SLA and does not diffuse latency risk across the system. Proceeding to sub-level decomposition will clarify latency/accuracy trade-offs and establish verifiable acceptance criteria for each path.",
+    "next_level_sub_frs": [
+      "FR4.1: Detect and emit safety-critical spatial features (collision risks, anomalies, boundary violations) with low-latency, high-confidence thresholding to enable real-time SafetyAlert emission within agreed SLA (e.g., <100ms from raw sensor to Safety Services).",
+      "FR4.2: Detect and classify non-safety-critical spatial features (objects, trajectories, semantic labels) using learned classifiers with adaptive confidence scoring to support teleoperation and analytics.",
+      "FR4.3: Fuse temporal observations (Kalman filtering, graph optimization) and persist enriched spatial features in queryable store to support planning, execution, and historical analysis without introducing unacceptable latency to safety-critical paths.",
+      "FR4.4: Manage feature event schema versioning and backward compatibility to enable downstream consumers (Vehicle, Teleoperation, Safety Services) to evolve independently without breaking changes."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "DP4 is logically sound but insufficiently granular to address latency and safety-criticality concerns. Decomposing into DP4a (fast rule-based), DP4b (learned classifiers), and DP4c (temporal fusion + storage) explicitly separates safety-critical from non-critical paths, preventing latency diffusion and enabling independent SLA verification. DP4.4 (schema versioning) addresses feature schema evolution diffusion risk identified in gate results. Revised DPs will be more verifiable and traceable to acceptance criteria."
+    },
+    "record": {
+      "assumptions": [
+        "Safety-critical feature detection can be implemented via fast rule-based classifiers with acceptable false-positive rates and high confidence thresholds.",
+        "Learned classifier updates via Network Link can be decoupled from real-time safety-critical feature emission (i.e., safety path does not depend on remote model availability).",
+        "Temporal fusion (Kalman filtering, graph optimization) introduces acceptable latency for non-safety-critical features but would violate safety SLA if applied to safety-critical path.",
+        "Downstream consumers (Vehicle, Teleoperation, Safety Services) can tolerate feature event schema versioning and backward compatibility mechanisms without requiring synchronous updates.",
+        "Persistent feature store can be implemented with tiered storage (hot/warm/cold) to address scalability without introducing unacceptable query latency for planning/execution functions."
+      ],
+      "open_risks": [
+        "Safety SLA feasibility: Confirm that rule-based detection for safety-critical features can achieve <100ms latency from raw sensor to SafetyAlert emission. If not achievable, safety-critical feature delivery may require hardware acceleration or edge processing.",
+        "Learned model availability: If Network Link is unavailable, confirm that NGHE Solution can gracefully degrade to rule-based detection without loss of safety-critical feature coverage.",
+        "Feature schema evolution coordination: Specify deprecation timelines and migration paths for schema changes. Risk: downstream consumers may not update in sync, causing feature event parsing failures.",
+        "Persistent store scalability: Confirm that tiered storage strategy can support high-frequency historical queries from Vehicle and Teleoperation without becoming bottleneck. If not, may require distributed query architecture.",
+        "Confidence thresholding calibration: Confirm that rule-based and learned classifiers can be tuned to achieve agreed false-positive/false-negative rates for safety-critical features. If not, may require additional validation layers or human-in-the-loop review."
+      ],
+      "evidence_needed": [
+        "Latency measurements: Benchmark rule-based detection pipeline (raw sensor → feature detection → SafetyAlert emission) to confirm <100ms SLA feasibility.",
+        "Learned model performance: Characterize accuracy, latency, and failure modes of learned classifiers for non-safety-critical features. Establish confidence thresholds and false-positive rates.",
+        "Temporal fusion impact: Measure latency introduced by Kalman filtering and graph optimization. Confirm that non-safety-critical features can tolerate this latency without impacting planning/execution performance.",
+        "Schema versioning strategy: Document feature event schema versioning policy, backward compatibility mechanisms, and deprecation timelines. Validate that downstream consumers can parse multiple schema versions.",
+        "Persistent store performance: Benchmark tiered storage strategy (hot/warm/cold) for typical query patterns from Vehicle, Teleoperation, and Safety Services. Confirm query latency SLAs are met.",
+        "Graceful degradation testing: Simulate Network Link unavailability and confirm that NGHE Solution can continue emitting safety-critical features via rule-based path without external model dependencies.",
+        "Safety validation: Conduct safety analysis (FMEA, FTA) on rule-based detection path to identify failure modes and confirm that SafetyAlert emission is reliable and timely."
+      ]
+    }
+  }
+}

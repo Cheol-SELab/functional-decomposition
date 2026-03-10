@@ -1,0 +1,161 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall enable execution of the load→travel→dump cycle within the customer-defined cycle time target.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting/enabling the capability to achieve cycle time targets, and (2) actually achieving measured performance within acceptance criteria. The refined FR is atomic and solution-neutral—it focuses on the functional obligation (enable execution) without prescribing how (e.g., via speed optimization, path planning, operator training, or equipment design). The acceptance criterion (p95 ≤ CT_target under duty cycle and site conditions) remains a verification gate, not part of the FR itself. This separation allows design parameters (e.g., hydraulic flow rates, control algorithms, operator interfaces) to be evaluated against the functional requirement independently of measured performance validation.",
+    "verification_idea": "Demonstrate that the NGHE solution's design parameters (DP layer: actuation response times, travel speed envelope, dump mechanism cycle time, operator control latency) collectively permit execution of a load→travel→dump cycle. Validate through simulation, bench testing, or controlled field trials that no inherent design constraint prevents achieving the target. Separately, conduct acceptance testing under agreed duty cycle and site conditions to verify p95 ≤ CT_target is met in operation.",
+    "sub_frs": [
+      "FR-NGHE-002.1: The NGHE solution shall enable load acquisition within the cycle time budget.",
+      "FR-NGHE-002.2: The NGHE solution shall enable travel to the dump location within the cycle time budget.",
+      "FR-NGHE-002.3: The NGHE solution shall enable material dump within the cycle time budget."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Decompose cycle into sequential phases (load, travel, dump) with phase-specific timing budgets; allocate time margins to each phase; monitor phase completion via state machine; trigger next phase upon completion or timeout.",
+      "DP2: Implement parallel execution of non-dependent sub-tasks (e.g., travel preparation during load phase) with synchronization barriers; reduce idle time through task overlap.",
+      "DP3: Design adaptive cycle control that measures actual phase durations in real-time, compares against target, and adjusts subsequent phase parameters (speed, acceleration) to meet overall cycle time.",
+      "DP4: Establish fixed cycle time through mechanical/hydraulic governors and preset control sequences; eliminate variability by design rather than feedback.",
+      "DP5: Implement hierarchical timing architecture: high-level cycle orchestrator manages phase sequencing; each phase controller optimizes its own duration within allocated budget; global feedback loop adjusts phase budgets across cycles."
+    ],
+    "selected_dp": "DP5: Implement hierarchical timing architecture with phase-level budgeting, real-time phase monitoring, and cycle-level feedback adjustment. The cycle orchestrator (IM: Cycle Controller) manages load→travel→dump sequencing and enforces phase time budgets. Each phase (load, travel, dump) has a dedicated controller (IM: Phase Controllers) that optimizes execution within its allocated time window. A feedback loop measures p95 cycle time across duty cycles and adjusts phase budgets for subsequent cycles to converge on CT_target. This design separates concerns (phase optimization vs. cycle coordination), enables independent tuning, and provides observability for acceptance testing.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Phase controllers must respect global cycle time budget: mitigated by explicit time budget allocation and enforcement at orchestrator level.",
+        "Feedback loop introduces temporal coupling: cycle N+1 budgets depend on cycle N measurements; mitigated by using statistical aggregation (p95) rather than single-cycle feedback to avoid oscillation.",
+        "Synchronization barriers between phases create hard dependencies: acceptable because load→travel→dump is inherently sequential; no alternative ordering exists.",
+        "Real-time monitoring and adjustment may conflict with determinism: mitigated by performing budget adjustments between cycles (offline) rather than mid-cycle."
+      ],
+      "notes": "DP5 avoids tight coupling by separating phase optimization logic from cycle coordination logic. Each phase controller can be designed and tested independently given a time budget. The orchestrator is decoupled from phase implementation details (it only enforces budgets and sequencing). Feedback operates at cycle granularity, not phase granularity, reducing coupling frequency."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Phase durations are measurable and repeatable within acceptable variance under stated duty cycle and site conditions. RISK: Highly variable site conditions (e.g., soil compaction, load density) may cause phase duration variance to exceed budget margins; mitigation: conduct site characterization study and establish conditional budgets.",
+      "ASSUMPTION: Cycle orchestrator and phase controllers can be implemented with sufficient timing precision (e.g., ±5% phase duration accuracy). RISK: Hardware/software latencies or scheduling jitter may prevent meeting p95 target; mitigation: allocate timing margin (e.g., 10% buffer) in phase budgets.",
+      "ASSUMPTION: Feedback adjustment mechanism converges within acceptable number of cycles (e.g., <10 cycles). RISK: Slow convergence or oscillation may delay acceptance testing; mitigation: use conservative adjustment step sizes and statistical filtering.",
+      "ASSUMPTION: Load, travel, and dump phases are truly independent in terms of control logic (no cross-phase optimization). RISK: Missed opportunity for global optimization (e.g., adjusting load rate to enable faster travel); mitigation: reserve option to introduce cross-phase optimization in DP refinement if p95 target cannot be met.",
+      "ASSUMPTION: Acceptance testing can be conducted under repeatable duty cycle and site conditions. RISK: Field variability may make p95 measurement unreliable; mitigation: define duty cycle and site conditions explicitly in acceptance criteria document.",
+      "ASSUMPTION: No hard real-time constraints (e.g., safety-critical phase transitions) exist beyond cycle time. RISK: If safety interlocks introduce unpredictable delays, cycle time target may become infeasible; mitigation: validate that safety plan does not introduce blocking delays in critical path."
+    ],
+    "recommended_revision": "Refine DP5 by explicitly defining: (1) Phase time budget allocation strategy (e.g., proportional to baseline phase duration, or equal margins); (2) Feedback adjustment algorithm (e.g., proportional control, moving average window size for p95 calculation); (3) Timing measurement points and precision requirements (e.g., sensor resolution, clock accuracy); (4) Convergence criteria and maximum adjustment iterations. Additionally, decompose into sub-FRs for each phase (FR_load, FR_travel, FR_dump) with corresponding DPs to enable parallel detailed design. Validate that worksite safety plan does not introduce blocking delays in load or dump phases that would violate cycle time budget."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "Hierarchical timing architecture including Cycle Controller (orchestrates load→travel→dump sequencing and phase budget enforcement) and Phase Controllers (load, travel, dump phases with dedicated optimization and time-window management). Encompasses real-time phase monitoring, cycle-level feedback adjustment, and p95 cycle time measurement across duty cycles."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Exports p95 cycle time measurements, phase execution times, phase budget utilization, and feedback adjustment decisions for acceptance testing and observability."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives cycle task directives (load, travel, dump sequence initiation) from higher-level planning; Cycle Controller interprets and enforces phase sequencing."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Signals safety violations if phase execution exceeds hard safety limits or if feedback adjustment logic detects unsafe convergence patterns."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "Excellent containment. Cycle Controller and Phase Controllers are intrinsic to vehicle autonomy and real-time execution. Phase budgeting, monitoring, and feedback adjustment are vehicle-local concerns. Telemetry export and Tasking input are clean external interfaces. Minimal diffusion: only safety constraint validation may require SafetyAlert coupling, which is appropriate."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 40,
+        "diffusion_score": 60,
+        "notes": "Poor containment. NGHE Solution is a system-level integration boundary, not a runtime execution module. Placing hierarchical timing and phase controllers at solution level creates diffusion: cycle orchestration logic would be decoupled from vehicle execution, requiring bidirectional synchronization. Phase-level feedback adjustment would need to traverse solution-level interfaces, introducing latency and complexity. Violates separation of concerns."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 15,
+        "diffusion_score": 85,
+        "notes": "Very poor containment. Teleoperation is a human-in-the-loop control interface, not an autonomous execution module. Placing real-time phase controllers and cycle-level feedback adjustment in Teleoperation creates severe diffusion: timing architecture would be remote-dependent, introducing network latency and human reaction delays. Contradicts the design intent of autonomous phase optimization and real-time feedback. Inappropriate ownership."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Very poor containment. Safety Services is a constraint-validation and monitoring module, not an execution module. Placing Cycle Controller and Phase Controllers in Safety Services creates severe diffusion: core autonomy logic would be embedded in a safety-focused boundary, violating separation of concerns. Phase budget optimization would be entangled with safety constraint checking. Feedback adjustment logic would diffuse across safety and execution domains."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module is the natural and only appropriate boundary for DP5. It owns the real-time execution environment, sensor-to-actuator feedback loops, and phase-level autonomy logic. Cycle Controller and Phase Controllers are vehicle-intrinsic concerns. Hierarchical timing with phase budgeting and feedback adjustment are local optimization problems that must reside where execution happens. External interfaces (Tasking, Telemetry, SafetyAlert) cleanly separate vehicle autonomy from higher-level planning, monitoring, and safety oversight.",
+    "containment_risks": [
+      "Risk: If Vehicle module lacks sufficient internal structure (e.g., no clear Cycle Controller vs. Phase Controller separation), DP5 implementation may become monolithic and difficult to test independently. Mitigation: Enforce internal module decomposition within Vehicle to realize Cycle Controller and Phase Controllers as distinct logical components with well-defined interfaces.",
+      "Risk: If feedback adjustment logic (p95 cycle time convergence) is not properly isolated, it may inadvertently modify phase budgets in ways that violate safety constraints. Mitigation: Integrate SafetyAlert interface to validate all budget adjustments before application; log all adjustments for acceptance testing.",
+      "Risk: If Telemetry export is incomplete or delayed, acceptance testing may lack visibility into phase execution and feedback behavior. Mitigation: Ensure Telemetry interface captures phase start/end timestamps, budget utilization, and adjustment decisions in real-time or near-real-time."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "HIGH. The Vehicle module boundary provides direct access to real-time phase execution data (load, travel, dump timestamps), phase budget utilization, and p95 cycle time measurements. Acceptance criterion 'p95 ≤ CT_target' is measurable via Telemetry interface exports. Phase-level feedback adjustment decisions are logged and observable. No remote dependencies or human-in-the-loop latencies compromise measurement integrity.",
+      "allocation_clarity": "CLEAR. FR allocation to Vehicle module is unambiguous: the load→travel→dump cycle is a vehicle-autonomous execution sequence. Cycle Controller orchestrates sequencing; Phase Controllers optimize within budgets; feedback loop converges on CT_target. No competing ownership claims. Tasking input (cycle directives) and Telemetry output (measurements) cleanly separate vehicle execution from higher-level planning and monitoring."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP5 directly addresses FR requirement. Hierarchical timing architecture with phase-level budgeting and cycle-level feedback adjustment is a sound logical solution for autonomous cycle time convergence. Phase separation (load, travel, dump) enables independent tuning while maintaining cycle-level coherence. Real-time monitoring and p95-based feedback provide a closed-loop mechanism to reach CT_target. Design intent is clear and implementable."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "RISK: Cycle Controller and Phase Controllers must be realized as distinct logical components within Vehicle module. If implementation conflates orchestration and phase optimization into a single monolithic entity, testability and independent tuning will degrade. MITIGATION: Enforce internal decomposition; define clear interfaces between Cycle Controller (sequencing, budget enforcement) and Phase Controllers (phase-specific optimization).",
+        "RISK: Feedback adjustment logic (p95 convergence) operates on phase budgets, which are safety-critical parameters. If adjustment decisions bypass SafetyAlert validation, unsafe budget modifications could occur (e.g., reducing a phase budget below minimum safe execution time). MITIGATION: Integrate SafetyAlert interface as a gating mechanism; all budget adjustments must be validated before application. Log all adjustments with timestamps and rationale for acceptance testing.",
+        "RISK: Telemetry export completeness is critical for acceptance testing visibility. If phase start/end timestamps, budget utilization, or adjustment decisions are not captured in real-time or near-real-time, acceptance criterion verification will be compromised. MITIGATION: Ensure Telemetry interface includes phase-level granularity (not just aggregate cycle time); implement buffering to prevent data loss during high-frequency phase transitions.",
+        "RISK: Phase budget allocation at Vehicle module initialization must account for worksite conditions (site-specific terrain, load characteristics, duty cycle variability). If initial budgets are static and do not reflect actual site conditions, feedback adjustment may converge slowly or to suboptimal values. MITIGATION: Implement site-condition calibration phase before acceptance testing; allow feedback adjustment to operate across multiple duty cycles to establish stable convergence."
+      ],
+      "containment_notes": "EXCELLENT containment within Vehicle module (95% score). Cycle Controller and Phase Controllers are vehicle-intrinsic, real-time execution concerns. Phase budgeting, monitoring, and feedback adjustment are local optimization problems that must reside where sensor-to-actuator loops operate. External interfaces (Tasking, Telemetry, SafetyAlert) cleanly separate vehicle autonomy from higher-level planning, monitoring, and safety oversight. No diffusion to NGHE Solution, Teleoperation, or Safety Services. Vehicle module is the only appropriate ownership boundary for DP5."
+    },
+    "recommended_revisions": [
+      "REVISION 1: Explicitly define internal decomposition of Vehicle module to realize Cycle Controller and Phase Controllers as distinct logical components with documented interfaces. Specify: (a) Cycle Controller responsibilities (sequencing, phase budget enforcement, phase transition logic); (b) Phase Controller responsibilities (phase-specific optimization, time-window management, phase completion detection); (c) Interface contract between Cycle Controller and Phase Controllers (budget queries, phase start/end signals, optimization feedback).",
+      "REVISION 2: Integrate SafetyAlert validation gate into feedback adjustment logic. Specify: (a) Pre-adjustment validation: all proposed phase budget changes must be checked against safety constraints (minimum safe execution times, hard limits); (b) Rejection criteria: if adjustment would violate safety constraints, reject and log reason; (c) Logging: all adjustment attempts (accepted and rejected) must be recorded with timestamp, proposed change, validation result, and rationale for acceptance testing traceability.",
+      "REVISION 3: Enhance Telemetry interface specification to include phase-level granularity required for acceptance testing. Specify: (a) Phase start/end timestamps (load_start, load_end, travel_start, travel_end, dump_start, dump_end); (b) Phase budget utilization (actual_time / allocated_budget for each phase); (c) Feedback adjustment decisions (timestamp, phase affected, old_budget, new_budget, adjustment_reason); (d) Cycle-level aggregates (cycle_start, cycle_end, p95_cycle_time, duty_cycle_identifier). Ensure real-time or near-real-time export to support live acceptance testing.",
+      "REVISION 4: Define site-condition calibration procedure to be executed before acceptance testing begins. Specify: (a) Initial phase budget allocation based on site survey (terrain, load characteristics, distance); (b) Calibration duty cycle (number of cycles, load variations, environmental conditions); (c) Feedback adjustment convergence criteria (e.g., p95 cycle time variance < 5% over N consecutive cycles); (d) Acceptance testing entry gate (feedback adjustment must have converged before formal acceptance testing begins). This ensures feedback adjustment operates within realistic site context.",
+      "REVISION 5: Document the relationship between DP5 (hierarchical timing architecture) and worksite safety plan. Specify: (a) How phase budgets are derived from or constrained by safety limits (e.g., maximum safe travel speed, load handling constraints); (b) How SafetyAlert interface integrates with worksite operational policies; (c) How feedback adjustment respects safety-critical phase boundaries (e.g., dump phase cannot be shortened below safe unload time). Ensure DP5 implementation is safety-compliant by design."
+    ]
+  },
+  "decision": {
+    "decision": "REVISE_CURRENT_LEVEL",
+    "justification": "All three gates (FR-IM, FR-DP, DP-IM) pass with HIGH confidence, indicating the functional requirement is sound and the design parameter is logically correct. However, the DP-IM gate identifies five critical diffusion risks and recommended revisions that must be addressed BEFORE proceeding to next-level decomposition. The safety criticality of phase budget adjustment (a safety-critical parameter) and the explicit requirement for internal Vehicle module decomposition (Cycle Controller vs. Phase Controllers) indicate that the current DP5 specification is incomplete at the design parameter level. Specifically: (1) DP5 does not yet explicitly specify the internal logical separation between orchestration (Cycle Controller) and optimization (Phase Controllers); (2) DP5 does not specify the SafetyAlert validation gate for budget adjustments; (3) DP5 does not define the Telemetry interface granularity required for acceptance testing; (4) DP5 does not account for site-condition calibration as a prerequisite to feedback convergence. These are design-level clarifications, not implementation details. Revising DP5 to incorporate these specifications will strengthen the design coherence and reduce implementation risk before sub-FR decomposition proceeds. Once DP5 is revised and re-gated, the path to next-level sub-FRs (Cycle Controller FR, Phase Controller FR, SafetyAlert integration FR, Telemetry export FR) will be clearer and more traceable.",
+    "next_level_sub_frs": [],
+    "revise": {
+      "target": "DP",
+      "why": "DP5 (Hierarchical timing architecture with phase-level budgeting and cycle-level feedback adjustment) is logically sound but incompletely specified. The recommended revisions address five critical design gaps: (1) REVISION 1 requires explicit internal decomposition of Vehicle module into Cycle Controller and Phase Controllers with documented interfaces—this is a DP-level architectural decision, not an IM detail; (2) REVISION 2 requires integration of SafetyAlert validation gate into feedback adjustment logic—this is a DP-level control flow specification; (3) REVISION 3 requires Telemetry interface specification with phase-level granularity—this is a DP-level interface contract; (4) REVISION 4 requires site-condition calibration procedure as a prerequisite to feedback convergence—this is a DP-level operational assumption that must be explicit; (5) REVISION 5 requires documentation of the relationship between DP5 and worksite safety plan—this is a DP-level constraint specification. All five revisions are design-parameter-level clarifications that strengthen the logical solution before implementation packaging (IM) is finalized. Revising DP5 now will prevent rework during IM decomposition and ensure that next-level sub-FRs are derived from a complete and safety-compliant design specification."
+    },
+    "record": {
+      "assumptions": [
+        "Phase budgets are derived from site survey data (terrain, load characteristics, distance) and are not static across all worksites.",
+        "Feedback adjustment operates on phase budgets within safety-validated bounds; SafetyAlert interface provides the validation gate.",
+        "Telemetry interface exports phase-level timestamps and budget utilization data in real-time or near-real-time, enabling live acceptance testing.",
+        "Cycle Controller and Phase Controllers are logically distinct components within Vehicle module, with clear interface contracts for sequencing, budget enforcement, and optimization feedback.",
+        "Site-condition calibration (multiple duty cycles with feedback adjustment convergence) must complete before formal acceptance testing begins.",
+        "Worksite safety plan constrains phase budget allocation; feedback adjustment respects safety-critical phase boundaries (e.g., minimum safe dump time)."
+      ],
+      "open_risks": [
+        "RISK: If DP5 revision does not explicitly specify SafetyAlert validation gate, feedback adjustment logic could modify phase budgets without safety oversight, violating safety-critical constraints. MITIGATION: Revise DP5 to mandate SafetyAlert pre-adjustment validation; define rejection criteria and logging requirements.",
+        "RISK: If Cycle Controller and Phase Controllers are not logically separated in DP5 specification, implementation may conflate orchestration and optimization into a monolithic entity, degrading testability and independent tuning. MITIGATION: Revise DP5 to explicitly define internal decomposition with documented interface contracts.",
+        "RISK: If Telemetry interface specification does not include phase-level granularity, acceptance testing visibility will be compromised; p95 cycle time convergence cannot be verified at phase level. MITIGATION: Revise DP5 to specify Telemetry interface with phase start/end timestamps, budget utilization, and adjustment decision logging.",
+        "RISK: If site-condition calibration is not a prerequisite to acceptance testing, feedback adjustment may not have converged to stable p95 values; acceptance criterion verification will be unreliable. MITIGATION: Revise DP5 to define calibration procedure and convergence criteria as entry gate to formal acceptance testing.",
+        "RISK: If DP5 does not document relationship to worksite safety plan, feedback adjustment may inadvertently violate safety-critical constraints during implementation. MITIGATION: Revise DP5 to specify how phase budgets are constrained by safety limits and how feedback adjustment respects safety boundaries."
+      ],
+      "evidence_needed": [
+        "Revised DP5 specification incorporating all five recommended revisions, with explicit internal decomposition (Cycle Controller, Phase Controllers), SafetyAlert validation gate, Telemetry interface contract, site-condition calibration procedure, and safety-plan relationship documentation.",
+        "Re-gating of revised DP5 against FR-DP and DP-IM gates to confirm that revisions resolve identified diffusion risks and maintain design coherence.",
+        "Preliminary design of Cycle Controller and Phase Controller interfaces (sequencing signals, budget queries, optimization feedback) to validate that internal decomposition is feasible within Vehicle module.",
+        "SafetyAlert interface specification defining validation criteria for phase budget adjustments (minimum safe execution times, hard limits, rejection logic).",
+        "Telemetry interface specification with phase-level data schema (timestamps, budget utilization, adjustment decisions) and export frequency/latency requirements for acceptance testing.",
+        "Site-condition calibration procedure document specifying initial budget allocation, calibration duty cycle, convergence criteria, and acceptance testing entry gate."
+      ]
+    }
+  }
+}

@@ -1,0 +1,165 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall propagate worksite model state changes to all authorized consumers within the customer-defined latency threshold.",
+    "rationale": "The original FR conflates two distinct obligations: (1) detecting/capturing state changes in the worksite model, and (2) delivering those changes to consumers within a time bound. The refined FR focuses on the propagation obligation (the primary functional requirement) and explicitly names the latency constraint as a non-functional acceptance criterion rather than embedding it in the FR itself. The phrase 'authorized consumers' acknowledges that different stakeholders (Site Manager, Operator, Tele-operator, Safety Manager) may have different visibility and update needs, making the requirement solution-neutral with respect to architecture (e.g., pub-sub, polling, event streaming). The term 'propagate' is domain-neutral and avoids prescribing implementation (e.g., 'transmit over network', 'update database', 'push to UI').",
+    "verification_idea": "Measure end-to-end latency from the moment a worksite state change is committed (e.g., equipment position update, safety zone breach detection) to the moment that change is available to each authorized consumer role. Verify against the customer-defined p95 latency target (e.g., ≤1.0 s) across representative update scenarios (position updates, safety events, operational status changes). Confirm that unauthorized consumers do not receive updates.",
+    "sub_frs": [
+      "FR-NGHE-007.1: The NGHE solution shall detect and capture worksite model state changes (e.g., equipment position, safety zone status, operational events).",
+      "FR-NGHE-007.2: The NGHE solution shall deliver worksite model state changes to authorized consumers based on their role and operational context.",
+      "FR-NGHE-007.3: The NGHE solution shall enforce access control such that only authorized stakeholders receive worksite model updates relevant to their role."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Centralized event-driven state propagation with asynchronous message broker (decouples producers from consumers; supports fan-out to multiple authorized subscribers; enables latency-bounded delivery guarantees)",
+      "DP2: Synchronous request-response state synchronization with polling intervals (simple, but couples client availability to server; latency depends on poll frequency and network round-trip)",
+      "DP3: Hybrid push-pull model with server-initiated notifications for critical updates and client-initiated polling for non-critical state (balances responsiveness and resource efficiency; adds complexity in state consistency logic)",
+      "DP4: Peer-to-peer gossip protocol for state dissemination (resilient to single points of failure; eventual consistency model; difficult to enforce hard latency bounds)",
+      "DP5: Publish-subscribe with topic-based authorization filtering at broker level (decouples producers and consumers; authorization enforced at message layer; supports selective delivery based on customer-defined policies)"
+    ],
+    "selected_dp": "DP5: Publish-subscribe with topic-based authorization filtering at broker level, combined with latency-bounded delivery guarantees (e.g., acknowledgment timeouts, priority queuing for safety-critical updates). State changes are published to logical topics; the broker enforces authorization rules before routing to subscribed consumers. Latency SLA is met through broker-level QoS configuration, message prioritization, and consumer subscription management.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Tight coupling between authorization policy definition and broker topic structure (mitigated by parameterizing authorization rules external to topic schema)",
+        "Consumer subscription management must remain decoupled from producer logic (achieved via broker-mediated subscription registry)",
+        "Latency guarantees depend on broker performance and network conditions (not a design coupling, but an operational dependency requiring SLA monitoring)"
+      ],
+      "notes": "DP5 achieves loose coupling by separating concerns: producers emit state changes without knowledge of consumers; consumers subscribe independently; authorization is enforced orthogonally at the broker. This supports the independence axiom. Risk: if authorization rules are hardcoded into topic names or message schemas, coupling increases—mitigation is to externalize authorization metadata."
+    },
+    "assumptions_risks": [
+      "Assumption: Broker infrastructure (message queue, pub-sub system) is available and meets p95 ≤ 1.0 s latency SLA. Risk: broker bottleneck or network congestion could violate latency target. Mitigation: capacity planning, broker clustering, and latency monitoring.",
+      "Assumption: Authorization policies are stable and can be evaluated at message-routing time without blocking. Risk: complex authorization logic (e.g., context-dependent rules) could introduce latency. Mitigation: pre-compute authorization decisions or cache policies.",
+      "Assumption: Worksite model state changes are well-defined and can be serialized into discrete events. Risk: large or frequent state updates could exceed latency budget. Mitigation: delta encoding, batching, or state compression.",
+      "Assumption: All authorized consumers are reachable and responsive within the latency window. Risk: slow or offline consumers could block propagation or require retry logic. Mitigation: asynchronous delivery with timeout handling and dead-letter queues.",
+      "Assumption: Customer-defined latency threshold is technically achievable given network and infrastructure constraints. Risk: if threshold is unrealistic (e.g., < 100 ms over WAN), DP5 may not satisfy FR. Mitigation: validate threshold during requirements refinement; propose alternative DPs if needed."
+    ],
+    "recommended_revision": "FR should be refined to explicitly state: (1) definition of 'authorized consumers' (role-based, attribute-based, or policy-based?); (2) scope of 'worksite model state changes' (all fields, safety-critical fields only, or customer-configurable?); (3) acceptable failure modes (e.g., is eventual consistency acceptable, or is strong consistency required?); (4) network topology assumptions (LAN, WAN, hybrid?). Additionally, clarify whether the p95 ≤ 1.0 s latency includes authorization evaluation, serialization, network transit, and consumer processing, or only broker-to-consumer delivery. This will refine DP5 and reduce implementation risk."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Safety Services",
+      "scope": "Centralized broker-level publish-subscribe infrastructure with topic-based authorization filtering, QoS enforcement, message prioritization, and latency-bounded delivery guarantees for safety-critical state distribution across Vehicle and Teleoperation domains."
+    },
+    "external_interfaces": [
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Safety Services publishes safety-critical state changes and alerts to authorized subscribers (Vehicle, Teleoperation) via topic-based routing with latency SLA enforcement."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Safety Services receives telemetry state updates from Vehicle and Teleoperation to evaluate authorization rules and determine topic routing eligibility."
+      },
+      {
+        "name": "Tasking",
+        "direction": "inout",
+        "details": "Safety Services receives task requests and publishes task-related state changes with authorization filtering and priority queuing to ensure latency-bounded delivery of safety-critical directives."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Safety Services uses Network Link for inter-module communication of broker messages, ensuring QoS and acknowledgment timeout enforcement across distributed consumers."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Safety Services",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit. Safety Services is the natural home for broker-level authorization, QoS enforcement, and latency-bounded delivery of safety-critical updates. Topic-based routing, message prioritization, and acknowledgment timeouts are core safety infrastructure responsibilities. Minimal diffusion: only external interfaces are SafetyAlert (out), Telemetry (in), Tasking (inout), and Network Link (inout) for message transport."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor fit. Vehicle is a consumer/producer of state, not a broker. Placing broker logic here couples authorization, QoS, and prioritization tightly to vehicle-specific concerns. Diffusion is high: Teleoperation and NGHE Solution would need to reach into Vehicle for broker services, violating separation of concerns. Authorization rules and latency SLA enforcement are cross-domain concerns, not vehicle-specific."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Poor fit. Teleoperation is a consumer/producer of state, not a broker. Placing broker logic here creates asymmetric coupling: Vehicle and Safety Services would depend on Teleoperation for message routing and authorization. Diffusion is high: broker concerns are orthogonal to teleoperation-specific logic. Authorization and QoS are cross-domain, not teleoperation-specific."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.28,
+        "diffusion_score": 0.72,
+        "notes": "Poor fit. NGHE Solution is a top-level system container, not a module boundary for broker implementation. Placing broker logic here conflates system-level orchestration with message infrastructure. Diffusion is high: all sub-modules (Vehicle, Teleoperation, Safety Services) would depend on NGHE Solution for basic pub-sub, creating circular dependencies and tight coupling. Broker should be a service, not a system-level concern."
+      }
+    ],
+    "ownership_candidate": "Safety Services",
+    "containment_hypothesis": "Safety Services is the most specific and cohesive boundary for the selected DP. It owns the broker infrastructure, authorization filtering logic, QoS configuration, message prioritization, and latency SLA enforcement. Vehicle and Teleoperation act as publishers and subscribers, interfacing through SafetyAlert, Telemetry, and Tasking. Network Link provides the underlying transport. This design minimizes diffusion by centralizing all broker-level concerns in a single, safety-focused module.",
+    "containment_risks": [
+      "Risk: If authorization rules become highly domain-specific (e.g., Vehicle-only rules, Teleoperation-only rules), Safety Services may accumulate conditional logic that should be pushed to consumers. Mitigation: Use policy-based authorization (e.g., ABAC) to keep rules declarative and externalized.",
+      "Risk: If latency SLA enforcement requires deep knowledge of Vehicle or Teleoperation internals (e.g., processing delays), Safety Services may need to introspect consumer state. Mitigation: Define SLA contracts at interface boundaries; consumers report their own latency budgets via Telemetry.",
+      "Risk: If message prioritization logic must vary per consumer type (Vehicle vs. Teleoperation), Safety Services may become a coordination point for heterogeneous QoS policies. Mitigation: Use subscription metadata to encode per-consumer QoS preferences; broker applies them uniformly.",
+      "Risk: Network Link may not provide sufficient abstraction for broker-level acknowledgment timeouts and retries. Mitigation: Safety Services wraps Network Link calls with timeout and retry logic; does not assume Network Link handles these concerns."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The FR specifies a measurable latency threshold (p95 ≤ 1.0 s per acceptance criteria). Safety Services IM boundary includes explicit QoS configuration, message prioritization, and acknowledgment timeout enforcement as core responsibilities. Latency SLA compliance is verifiable through broker instrumentation (end-to-end message latency metrics, topic delivery times, acknowledgment response times). Test scenarios can be constructed for each supported update type (telemetry, tasking, safety alerts) to validate p95 latency against the threshold.",
+      "allocation_clarity": "Clear. The FR requirement maps unambiguously to Safety Services as the owning module. The DP (publish-subscribe with topic-based authorization and latency-bounded delivery) is fully contained within Safety Services' scope. External interfaces (SafetyAlert out, Telemetry in, Tasking inout, Network Link inout) are well-defined and do not scatter broker responsibilities across Vehicle or Teleoperation. Authorization filtering, QoS enforcement, and message prioritization are centralized, eliminating ambiguity about which module owns latency SLA accountability."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Risk: Authorization rule evaluation may require real-time access to Vehicle or Teleoperation state (e.g., vehicle operational mode, teleoperation session status). If Safety Services must poll or subscribe to fine-grained state changes to make routing decisions, latency could degrade. Mitigation: Define authorization rule inputs as explicit Telemetry interface contracts; Safety Services caches rule-relevant state and invalidates on Telemetry updates. Avoid deep introspection of consumer internals.",
+        "Risk: Message prioritization logic may need to adapt dynamically based on safety context (e.g., emergency stop takes precedence over routine updates). If prioritization rules are hardcoded in Safety Services, adding new safety modes or operational policies requires code changes. Mitigation: Externalize prioritization policies as declarative metadata (e.g., topic priority levels, safety mode mappings) stored in configuration or policy service. Safety Services applies policies uniformly without code coupling.",
+        "Risk: Network Link abstraction may not guarantee the latency bounds required by the SLA. If Network Link introduces variable delays (e.g., congestion, retransmission), Safety Services cannot meet p95 ≤ 1.0 s without compensating logic. Mitigation: Define Network Link SLA contract explicitly (e.g., p95 ≤ 500 ms for broker messages). Safety Services allocates remaining latency budget (500 ms) to broker processing, authorization, and prioritization. If Network Link cannot meet its SLA, escalate as a design risk.",
+        "Risk: Acknowledgment timeout enforcement in Safety Services may conflict with Network Link retry logic. If both layers implement timeouts and retries independently, messages could be duplicated or lost. Mitigation: Clarify ownership: Safety Services owns end-to-end SLA enforcement and timeout decisions; Network Link owns transport-level retries. Safety Services wraps Network Link calls with higher-level timeout logic that supersedes transport retries."
+      ],
+      "containment_notes": "Excellent containment. Safety Services (containment_score 0.92, diffusion_score 0.08) is the correct and cohesive home for the DP. All broker-level concerns—topic-based routing, authorization filtering, QoS configuration, message prioritization, and latency SLA enforcement—are owned by Safety Services. Vehicle and Teleoperation are correctly positioned as publishers/subscribers, not broker hosts. The four external interfaces (SafetyAlert, Telemetry, Tasking, Network Link) are minimal and well-scoped, indicating low diffusion. No broker logic is scattered across multiple modules. The IM boundary is architecturally sound and aligns with the DP intent."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "The DP directly and completely addresses the FR. FR requires propagation of worksite model state changes to authorized consumers within a customer-defined latency threshold. DP5 specifies publish-subscribe with topic-based authorization filtering (addresses 'authorized consumers') and latency-bounded delivery guarantees via broker-level QoS, message prioritization, and acknowledgment timeouts (addresses 'latency threshold'). The DP is implementable, testable against the acceptance criterion (p95 ≤ 1.0 s), and does not introduce unnecessary complexity. No logical gaps or contradictions between FR and DP."
+    },
+    "recommended_revisions": [
+      "Revision 1: Formalize the Network Link SLA contract. Define explicit latency bounds (e.g., p95 ≤ 500 ms) for broker message transport to ensure Safety Services can allocate the remaining latency budget (500 ms) to authorization, prioritization, and broker processing. Document this contract in the Network Link IM specification.",
+      "Revision 2: Externalize authorization rules and message prioritization policies as declarative configuration (e.g., ABAC policy files, topic priority mappings). This decouples Safety Services from domain-specific rule logic and enables policy updates without code changes, reducing the risk of authorization rule diffusion.",
+      "Revision 3: Define Telemetry interface contract explicitly. Specify which state variables Safety Services may consume for authorization rule evaluation (e.g., vehicle mode, teleoperation session status) and their update frequency. This prevents Safety Services from requiring deep introspection of Vehicle or Teleoperation internals.",
+      "Revision 4: Add latency instrumentation requirements to Safety Services IM specification. Specify metrics to be collected: end-to-end message latency (publish to delivery), broker processing latency (authorization + prioritization), and acknowledgment response time. These metrics are essential for verifying p95 ≤ 1.0 s SLA compliance during integration and field testing.",
+      "Revision 5: Clarify timeout and retry ownership between Safety Services and Network Link. Document that Safety Services owns end-to-end SLA enforcement and may override Network Link retries if they exceed the latency budget. Network Link retries are subordinate to Safety Services timeout decisions."
+    ]
+  },
+  "decision": {
+    "decision": "REVISE_CURRENT_LEVEL",
+    "justification": "All three gates (FR-IM, DP-IM, FR-DP) pass with high confidence, and containment is excellent (0.92). However, the recommended_revisions identify five critical gaps that must be closed before proceeding to sub-FR decomposition. Given the high safety criticality of this requirement (latency SLA for safety-critical state propagation), these revisions are not optional refinements—they are essential to establish a defensible design baseline. Specifically: (1) Network Link SLA contract is undefined, creating latency allocation ambiguity; (2) authorization rules and prioritization policies lack formalization, risking diffusion and policy drift; (3) Telemetry interface contract is implicit, inviting scope creep; (4) latency instrumentation requirements are absent, making SLA verification infeasible; (5) timeout/retry ownership is unclear, risking duplicate or lost messages. Addressing these revisions will harden the DP and IM specifications, reduce diffusion risks, and establish clear acceptance criteria for sub-level design. Once revisions are incorporated, the FR is ready for controlled sub-FR decomposition.",
+    "next_level_sub_frs": [],
+    "revise": {
+      "target": "DP|IM",
+      "why": "Revisions 1, 2, 3, 4, and 5 must be applied to the DP and IM specifications before sub-FR decomposition. Revision 1 (Network Link SLA contract) and Revision 5 (timeout/retry ownership) refine the DP by clarifying the latency allocation strategy and interface contracts with Network Link. Revisions 2 and 3 (externalize policies, formalize Telemetry contract) refine the IM by specifying configuration/policy interfaces and Telemetry consumption boundaries. Revision 4 (latency instrumentation) refines the IM by adding explicit observability requirements. These revisions do not change the core DP logic but make it implementable, testable, and defensible in a safety-critical context."
+    },
+    "record": {
+      "assumptions": [
+        "Network Link IM can meet a p95 ≤ 500 ms latency SLA for broker messages (to be formalized in Revision 1).",
+        "Authorization rules and message prioritization policies can be externalized as declarative configuration without loss of expressiveness (to be validated in Revision 2).",
+        "Telemetry interface provides sufficient state variables for authorization rule evaluation without requiring Safety Services to introspect Vehicle or Teleoperation internals (to be formalized in Revision 3).",
+        "Safety Services can instrument end-to-end latency, broker processing latency, and acknowledgment response time with sufficient granularity to verify p95 ≤ 1.0 s SLA (to be specified in Revision 4).",
+        "Safety Services timeout logic can supersede Network Link retries without introducing message loss or duplication (to be clarified in Revision 5)."
+      ],
+      "open_risks": [
+        "Network Link SLA contract undefined: If Network Link cannot guarantee p95 ≤ 500 ms, Safety Services cannot meet the p95 ≤ 1.0 s SLA. Escalation path and fallback strategy needed.",
+        "Authorization rule diffusion: If rules are hardcoded in Safety Services, policy changes require code deployment, increasing risk of unintended side effects in safety-critical logic.",
+        "Telemetry interface scope creep: If Telemetry contract is not formalized, Safety Services may gradually require deeper introspection of Vehicle or Teleoperation state, violating module boundaries.",
+        "Latency instrumentation gaps: Without explicit metrics collection requirements, SLA verification during integration and field testing may be incomplete or inconsistent.",
+        "Timeout/retry conflict: If Safety Services and Network Link timeout logic are not coordinated, messages could be duplicated (if both retry) or lost (if neither retries)."
+      ],
+      "evidence_needed": [
+        "Network Link IM specification with explicit p95 latency SLA for broker messages (Revision 1).",
+        "Declarative policy/configuration schema for authorization rules and message prioritization (Revision 2).",
+        "Telemetry interface contract specifying state variables, update frequency, and authorization rule dependencies (Revision 3).",
+        "Safety Services IM specification with latency instrumentation requirements: end-to-end latency, broker processing latency, acknowledgment response time (Revision 4).",
+        "Clarified ownership model for timeout and retry logic between Safety Services and Network Link (Revision 5).",
+        "Integration test plan validating p95 ≤ 1.0 s SLA across all supported update types (telemetry, tasking, safety alerts) and network conditions.",
+        "Field trial data demonstrating SLA compliance under realistic operational conditions (post-implementation)."
+      ]
+    }
+  }
+}

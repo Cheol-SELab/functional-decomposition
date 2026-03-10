@@ -1,0 +1,170 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation link availability ≥ 0.999 (99.9%) over the agreed evaluation period, measured as the ratio of time the bidirectional command-and-telemetry link is operational to total evaluation time.",
+    "rationale": "CR-NGHE-010 addresses a critical operational requirement: remote equipment control depends on reliable communication. The refined FR quantifies the acceptance criterion (≥0.999), specifies the measurement scope (bidirectional link), and defines the evaluation period. This is essential for safety-critical teleoperation where link loss can lead to equipment immobilization or unsafe states.",
+    "verification_idea": "Continuous monitoring of link state (up/down) during the evaluation period; calculate availability as (total_time_link_up) / (total_evaluation_time). Acceptance: measured availability ≥ customer-defined target (default 0.999). Verification method: automated telemetry logging and post-evaluation statistical analysis.",
+    "sub_frs": [
+      "FR-NGHE-010.1: The teleoperation system shall detect link loss within [X] milliseconds.",
+      "FR-NGHE-010.2: The teleoperation system shall initiate safe state transition upon link loss.",
+      "FR-NGHE-010.3: The teleoperation system shall maintain redundant communication paths to achieve target availability.",
+      "FR-NGHE-010.4: The teleoperation system shall log link state transitions for availability audit."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Single communication link with best-effort reliability (no redundancy)",
+      "DP-B: Dual independent communication paths (primary + secondary failover) with automatic switchover logic",
+      "DP-C: Mesh network topology with multi-hop redundancy and dynamic routing",
+      "DP-D: Hybrid approach: primary cellular link + secondary satellite/RF backup with intelligent link selection"
+    ],
+    "selected_dp": "DP-D: Hybrid dual-path architecture with primary cellular (4G/5G) and secondary satellite/RF backup link, coupled with intelligent link selection logic that monitors both paths and switches to secondary upon primary degradation, supported by continuous telemetry logging for availability audit.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Link selection logic must not couple tightly to specific network provider APIs (risk: vendor lock-in).",
+        "Failover timing must be decoupled from application-level tasking to avoid command loss during switchover.",
+        "Telemetry logging must not degrade link performance (risk: circular dependency on link availability)."
+      ],
+      "notes": "DP-D is loosely coupled to the functional requirement: it specifies the mechanism (dual paths + intelligent selection) without prescribing specific technologies. The design allows substitution of link types (cellular, satellite, RF) without changing the core availability logic. Coupling risk is low if failover logic is abstracted from link-specific details."
+    },
+    "assumptions_risks": [
+      "Assumption: Secondary link (satellite/RF) has sufficient bandwidth for telemetry and low-priority tasking during primary link loss.",
+      "Assumption: Intelligent link selection logic can be implemented with <100ms switchover latency.",
+      "Risk: Dual-link infrastructure cost may exceed budget; mitigation required via cost-benefit analysis.",
+      "Risk: Secondary link availability may be geographically constrained (e.g., satellite coverage); mitigation via site survey.",
+      "Risk: Switchover logic complexity increases test burden; mitigation via formal verification of failover state machine."
+    ],
+    "recommended_revision": "Refine DP-D to explicitly specify: (1) switchover trigger criteria (e.g., packet loss rate >5%, latency >500ms), (2) switchover latency budget (<100ms), (3) link health monitoring interval (e.g., heartbeat every 1s), and (4) graceful degradation behavior (e.g., reduce tasking bandwidth on secondary link). Add constraint: secondary link must support minimum telemetry rate (e.g., 10 Hz position updates) to maintain safe state awareness."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Owns the dual-path communication architecture, link selection logic, failover state machine, link health monitoring, and telemetry logging. Interfaces with Vehicle (via Tasking and Telemetry) and Safety Services (via SafetyAlert). Responsible for achieving ≥0.999 link availability through redundancy and intelligent switching."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives operator commands (movement, tool control, etc.) from tele-operator via primary or secondary link. Must tolerate brief interruptions during failover."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Transmits vehicle state (position, orientation, sensor readings, link status) to tele-operator and monitoring systems. Logged continuously for availability audit."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Signals link loss or degradation events to Safety Services for safe state transition (e.g., emergency stop, immobilization)."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Abstraction of dual communication paths (primary cellular + secondary satellite/RF). Teleoperation module manages link selection and failover logic above this interface."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.95,
+        "diffusion_score": 0.05,
+        "notes": "Teleoperation is the natural owner of link availability logic, failover state machine, and link health monitoring. High containment: all dual-path logic, switchover triggers, and telemetry logging are cohesive within this module. Minimal diffusion: only external dependency is on Network Link abstraction (provided interface) and SafetyAlert signaling (outbound)."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.15,
+        "diffusion_score": 0.85,
+        "notes": "Safety Services should NOT own link availability logic; it should only react to SafetyAlert signals from Teleoperation. Assigning DP-D to Safety Services would scatter failover logic and link monitoring across modules, violating cohesion. High diffusion risk."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.1,
+        "diffusion_score": 0.9,
+        "notes": "Vehicle module owns physical equipment and local control. Link availability is a system-level concern, not a vehicle-local concern. Assigning DP-D to Vehicle would couple vehicle firmware to communication infrastructure, reducing modularity. High diffusion risk."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "NGHE Solution is the top-level system container. While it could theoretically own link availability, delegating to Teleoperation (a specialized subsystem) provides better separation of concerns and clearer ownership. Assigning to NGHE Solution would blur boundaries and reduce testability."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the optimal owner of DP-D (dual-path hybrid architecture with intelligent link selection). Rationale: (1) Teleoperation already owns command-and-telemetry communication logic; (2) link selection and failover are communication-layer concerns, not vehicle-local or safety-local; (3) containment score 0.95 reflects high cohesion of all dual-path logic within this module; (4) external interfaces (Tasking, Telemetry, SafetyAlert, Network Link) are well-defined and minimal; (5) ownership clarity supports independent testing and evolution of link redundancy strategies.",
+    "containment_risks": [
+      "Risk: If Network Link abstraction is not sufficiently decoupled, Teleoperation may become tightly coupled to specific link technologies (cellular, satellite). Mitigation: enforce strict interface contract for Network Link (e.g., link_up/down events, send/receive primitives).",
+      "Risk: Teleoperation module may grow large if it also owns application-level tasking logic. Mitigation: separate tasking protocol (command parsing, sequencing) from link management; keep Teleoperation focused on communication reliability.",
+      "Risk: SafetyAlert signaling may introduce latency if Teleoperation must serialize link loss detection with safety state machine. Mitigation: implement SafetyAlert as asynchronous event (interrupt-driven) to minimize latency.",
+      "Risk: Telemetry logging for availability audit may consume significant storage/bandwidth. Mitigation: implement efficient logging (e.g., delta encoding, circular buffer) and define retention policy."
+    ],
+    "recommended_revision": "Clarify the boundary between Teleoperation and Vehicle: Teleoperation owns communication-layer redundancy and link selection; Vehicle owns local failsafe logic (e.g., emergency stop upon SafetyAlert). Define Network Link interface contract explicitly: (1) link_status() -> {UP, DOWN, DEGRADED}, (2) send(data, link_id) -> {SUCCESS, FAILURE}, (3) recv(link_id) -> data. Implement link health monitoring as a separate sub-module within Teleoperation (e.g., LinkHealthMonitor) to improve testability and clarity."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-D (hybrid dual-path with intelligent link selection) directly addresses FR-NGHE-010 (achieve ≥0.999 link availability). The DP specifies a concrete mechanism (redundancy + failover) that, if implemented correctly, can achieve the quantified availability target. No independence violation: the DP does not over-constrain the FR (e.g., it does not mandate specific link technologies, only the principle of dual paths). Coupling is acceptable: failover logic is inherent to the availability requirement."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Diffusion risk: If link selection logic is scattered across Teleoperation, Vehicle, and Safety Services, availability measurement becomes unreliable. Mitigation: assign all link selection and failover logic exclusively to Teleoperation module.",
+        "Diffusion risk: If telemetry logging is implemented in multiple modules (Teleoperation, Vehicle, Safety Services), audit trail becomes fragmented. Mitigation: centralize logging in Teleoperation; other modules report events via well-defined interfaces.",
+        "Diffusion risk: If Network Link abstraction is not enforced, Teleoperation may directly access cellular and satellite APIs, creating tight coupling. Mitigation: implement Network Link as a facade that hides link-specific details."
+      ],
+      "containment_notes": "Teleoperation module achieves high containment (0.95) for DP-D. All core logic (dual-path management, link selection, failover state machine, health monitoring) is cohesive within this module. External dependencies are minimal and well-defined (Network Link, SafetyAlert, Tasking, Telemetry). No significant diffusion expected if module boundaries are respected."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification of FR-NGHE-010 is feasible: (1) Automated link state monitoring during evaluation period; (2) Continuous telemetry logging of link up/down transitions; (3) Post-evaluation statistical analysis to compute availability = (time_link_up) / (total_time). Acceptance criterion is objective and measurable. Teleoperation module must expose link_status() and availability_log() interfaces for verification.",
+      "allocation_clarity": "Allocation is clear: Teleoperation module is responsible for achieving ≥0.999 link availability. Success criteria: (1) measured availability ≥ target over evaluation period, (2) failover latency <100ms, (3) no command loss during switchover, (4) audit log completeness >99.9%. Ownership is unambiguous; accountability is assignable to Teleoperation team."
+    },
+    "recommended_revisions": [
+      "Refine FR-NGHE-010 to specify evaluation period duration (e.g., 30 days continuous operation) and measurement methodology (e.g., 1-second sampling interval for link state).",
+      "Refine DP-D to specify switchover trigger criteria (e.g., primary link packet loss >5% for >5 seconds triggers failover to secondary).",
+      "Define Network Link interface contract explicitly in IM assignment to prevent tight coupling.",
+      "Add sub-FR for link health monitoring: FR-NGHE-010.3 shall detect link degradation (not just loss) and trigger graceful degradation (e.g., reduce tasking bandwidth on secondary link).",
+      "Specify SafetyAlert latency budget: link loss must trigger SafetyAlert within <500ms to ensure safe state transition."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-NGHE-010 is not atomic; it requires decomposition into sub-FRs to address distinct concerns: (1) link loss detection, (2) safe state transition, (3) redundant path management, (4) availability audit. The refined FR explicitly lists four sub-FRs. DP-D is sound and well-contained in Teleoperation module, but its realization requires further decomposition at the next level to address each sub-FR independently. Proceeding to the next decomposition level is necessary to ensure completeness and traceability.",
+    "next_level_sub_frs": [
+      "FR-NGHE-010.1: The teleoperation system shall detect link loss (primary path unavailable) within 100 milliseconds.",
+      "FR-NGHE-010.2: The teleoperation system shall initiate safe state transition (SafetyAlert signal) upon link loss detection.",
+      "FR-NGHE-010.3: The teleoperation system shall maintain dual independent communication paths (primary cellular + secondary satellite/RF) and switch to secondary upon primary degradation.",
+      "FR-NGHE-010.4: The teleoperation system shall log all link state transitions (timestamp, link_id, state, reason) for post-evaluation availability audit."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Secondary link (satellite/RF) has sufficient bandwidth for telemetry and low-priority tasking during primary link loss.",
+        "Intelligent link selection logic can be implemented with <100ms switchover latency.",
+        "Network Link abstraction can be provided by infrastructure team; Teleoperation module does not own physical link provisioning.",
+        "Safety Services module is available to receive SafetyAlert signals and execute safe state transitions.",
+        "Evaluation period is ≥30 days continuous operation to achieve statistical significance for 0.999 availability target.",
+        "Customer-defined target availability is ≥0.999; if different, acceptance criteria must be updated."
+      ],
+      "open_risks": [
+        "Risk: Dual-link infrastructure cost may exceed budget; cost-benefit analysis required.",
+        "Risk: Secondary link availability may be geographically constrained (e.g., satellite coverage gaps); site survey required.",
+        "Risk: Switchover logic complexity increases test burden; formal verification of failover state machine recommended.",
+        "Risk: Telemetry logging may consume significant storage; retention policy and efficient encoding required.",
+        "Risk: Network Link abstraction may not be sufficiently decoupled from specific technologies; interface contract enforcement required.",
+        "Risk: SafetyAlert latency may exceed budget if Teleoperation module is overloaded; latency monitoring required."
+      ],
+      "evidence_needed": [
+        "Detailed design of dual-path communication architecture (primary cellular + secondary satellite/RF).",
+        "Failover state machine specification with trigger criteria and latency budgets.",
+        "Network Link interface contract (link_status, send, recv primitives).",
+        "Link health monitoring algorithm (heartbeat interval, packet loss threshold, latency threshold).",
+        "Telemetry logging schema and retention policy.",
+        "SafetyAlert signaling protocol and latency budget.",
+        "Test plan for link availability verification (automated monitoring, statistical analysis).",
+        "Cost-benefit analysis for dual-link infrastructure.",
+        "Site survey results for secondary link coverage and performance."
+      ]
+    }
+  }
+}

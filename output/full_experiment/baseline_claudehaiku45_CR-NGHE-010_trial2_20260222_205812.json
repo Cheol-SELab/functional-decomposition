@@ -1,0 +1,164 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation link availability ≥ 0.999 (99.9%) over the agreed evaluation period, measured as the ratio of time the bidirectional command-and-telemetry link is operational to total evaluation time.",
+    "rationale": "CR-NGHE-010 addresses a critical operational requirement: remote operators must reliably command and receive feedback from equipment. The 0.999 threshold (approximately 43 minutes downtime per month) is a standard for safety-critical teleoperation systems. Refinement clarifies measurement scope (bidirectional link), evaluation period (customer-defined), and the quantitative target.",
+    "verification_idea": "Continuous monitoring of link state transitions (up/down) during the evaluation period; automated logging of outage duration and root cause; statistical analysis of availability = (total_time - total_downtime) / total_time.",
+    "sub_frs": [
+      "FR-NGHE-010.1: The teleoperation system shall establish and maintain a bidirectional command link from tele-operator to vehicle.",
+      "FR-NGHE-010.2: The teleoperation system shall establish and maintain a bidirectional telemetry link from vehicle to tele-operator.",
+      "FR-NGHE-010.3: The teleoperation system shall detect link degradation or loss and report status to Safety Services.",
+      "FR-NGHE-010.4: The teleoperation system shall implement redundancy or failover mechanisms to minimize link downtime."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Single communication path with best-effort reliability (no redundancy)",
+      "DP-B: Dual independent communication paths (primary + backup) with automatic failover and health monitoring",
+      "DP-C: Multi-path routing with load balancing and dynamic path selection based on link quality metrics",
+      "DP-D: Hybrid approach combining dual paths with quality-of-service (QoS) prioritization and predictive link health management"
+    ],
+    "selected_dp": "DP-B: Dual independent communication paths (primary + backup) with automatic failover and health monitoring. Primary path uses primary network link; backup path uses secondary network link. Automatic failover triggered when primary link health metrics fall below threshold. Continuous health monitoring on both paths feeds into Safety Services for alerting.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between link health monitoring (DP-B) and Safety Services alerting (external dependency on SafetyAlert interface)",
+        "Coupling between failover logic and Vehicle command processing (must ensure command continuity during switchover)",
+        "Coupling between dual-path management and Network Link provisioning (requires two independent physical/logical paths)"
+      ],
+      "notes": "DP-B is decoupled from the specific network technology (cellular, satellite, mesh) and from vehicle propulsion/control logic. Coupling is primarily at the interface level (SafetyAlert, Tasking, Telemetry) and is manageable through well-defined handoff protocols. No circular dependencies detected."
+    },
+    "assumptions_risks": [
+      "Assumption: Two independent network paths are available at the deployment site (customer responsibility).",
+      "Assumption: Failover latency (typically 100–500 ms) is acceptable for the operator and vehicle control loop.",
+      "Risk: If both paths fail simultaneously (e.g., site-wide network outage), availability target cannot be met; mitigation requires customer network redundancy planning.",
+      "Risk: Failover logic complexity increases test burden; requires extensive scenario coverage (path loss, latency spike, packet loss, asymmetric degradation).",
+      "Risk: Operator awareness of active path may be required for diagnostics; unclear if operator training/UI is in scope."
+    ],
+    "recommended_revision": "Clarify with customer whether failover latency ≤ 500 ms is acceptable and whether operator notification of path switch is required. Confirm availability of two independent network paths at deployment site. Consider adding explicit requirement for failover test procedures and acceptance criteria."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "The Teleoperation module owns the dual-path communication logic, failover controller, link health monitoring, and interface adaptation to Vehicle and Safety Services. It abstracts the underlying network technology and presents a unified command/telemetry interface to the operator and vehicle."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives operator commands (movement, tool control, mode changes) from tele-operator console; routed to Vehicle via primary or backup path."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Transmits vehicle state (position, orientation, sensor readings, system health) from Vehicle to tele-operator console; aggregated from primary or backup path."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Reports link health status, failover events, and availability metrics to Safety Services for operator alerting and system-level safety decisions."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Bidirectional access to primary and backup network paths; Teleoperation module manages path selection, health monitoring, and failover logic at this interface."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.95,
+        "diffusion_score": 0.05,
+        "notes": "Teleoperation is the natural owner of dual-path failover logic, health monitoring, and command/telemetry routing. High cohesion: all link availability concerns are localized. Minimal diffusion: only SafetyAlert reporting leaks out; this is appropriate for safety-critical alerting."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.15,
+        "diffusion_score": 0.85,
+        "notes": "Vehicle module should not own teleoperation link management; it is a consumer of commands and producer of telemetry. Placing failover logic in Vehicle would couple vehicle control to network topology, violating separation of concerns. High diffusion risk."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.1,
+        "diffusion_score": 0.9,
+        "notes": "Safety Services should consume link health alerts, not own the failover logic. Placing link management in Safety Services would blur the boundary between monitoring/alerting and active control. High diffusion risk."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "NGHE Solution is the system-level container but should not directly implement link failover; this is a subsystem responsibility. Placing logic at solution level would prevent reuse and testing of Teleoperation as an independent module. High diffusion risk."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the optimal owner of DP-B (dual-path failover). It has clear ownership of command/telemetry routing, natural access to both network paths, and responsibility for link availability. Coupling to SafetyAlert is appropriate and minimal.",
+    "containment_risks": [
+      "Risk: If network path selection logic is also owned by a separate Network Link module, there is potential for diffusion of failover responsibility. Mitigation: Teleoperation module must own the failover decision logic; Network Link module provides only path abstraction and health metrics.",
+      "Risk: If Vehicle module implements its own link recovery (e.g., local buffering, retry logic), there is duplication. Mitigation: Vehicle should be stateless with respect to link state; Teleoperation handles all recovery.",
+      "Risk: If Safety Services implements link monitoring independently, there is duplication. Mitigation: Teleoperation is the single source of truth for link health; Safety Services consumes SafetyAlert events."
+    ],
+    "recommended_revision": "Confirm that Teleoperation module owns the failover controller and that Network Link module is a passive provider of dual-path abstraction. Document the interface contract for SafetyAlert (alert types, frequency, latency). Establish clear ownership of link health metrics (who measures, who stores, who reports)."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-B (dual-path failover with health monitoring) directly addresses FR-NGHE-010 (achieve ≥0.999 link availability). The DP is specific, measurable, and implementable. Failover logic and redundancy are the standard approach for achieving high availability in teleoperation systems. No functional gap detected."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Diffusion risk: If failover logic is split between Teleoperation and Vehicle modules, testing and debugging become difficult. Mitigation: Teleoperation owns all failover logic; Vehicle is a passive consumer.",
+        "Diffusion risk: If link health metrics are collected by multiple modules, there is inconsistency. Mitigation: Teleoperation is the single source of truth; other modules consume via SafetyAlert."
+      ],
+      "containment_notes": "Teleoperation module provides strong containment for DP-B. All dual-path management, failover decision logic, and health monitoring are localized. External interfaces (Tasking, Telemetry, SafetyAlert, Network Link) are well-defined and minimal. No significant architectural diffusion detected."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification of FR-NGHE-010 is feasible via Teleoperation module. Link availability can be measured by instrumenting the module to log state transitions and calculate uptime. Failover events can be injected via test harness (simulate path loss, latency spike). Acceptance testing can run over the customer-defined evaluation period.",
+      "allocation_clarity": "Allocation is clear: Teleoperation module is responsible for achieving ≥0.999 availability. Success criteria: (1) dual paths operational, (2) failover latency ≤ 500 ms, (3) no data loss during switchover, (4) SafetyAlert reporting is timely and accurate."
+    },
+    "recommended_revisions": [
+      "Refine the acceptance criteria for failover latency and data loss tolerance. Confirm with customer and Safety Manager.",
+      "Document the network path provisioning responsibility (customer vs. NGHE). Clarify SLA for each path (latency, jitter, packet loss).",
+      "Define the link health monitoring metrics (e.g., round-trip time, packet loss rate, error rate) and thresholds for failover trigger.",
+      "Establish test plan for failover scenarios: single path loss, both paths degraded, asymmetric path quality, rapid path switching."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-NGHE-010 is not atomic; it decomposes into four sub-FRs (command link, telemetry link, link degradation detection, redundancy/failover). DP-B is sound and well-allocated to Teleoperation module. However, the sub-FRs require further decomposition to address specific concerns: (1) command link establishment and maintenance, (2) telemetry link establishment and maintenance, (3) link health monitoring and alerting, (4) failover mechanism and path switching. Each sub-FR will have its own DP and IM assignment. Proceeding to the next level of decomposition is necessary to ensure completeness and traceability.",
+    "next_level_sub_frs": [
+      "FR-NGHE-010.1: The teleoperation system shall establish and maintain a bidirectional command link from tele-operator to vehicle with latency ≤ [customer-defined] ms.",
+      "FR-NGHE-010.2: The teleoperation system shall establish and maintain a bidirectional telemetry link from vehicle to tele-operator with latency ≤ [customer-defined] ms.",
+      "FR-NGHE-010.3: The teleoperation system shall continuously monitor link health (latency, packet loss, error rate) and report degradation to Safety Services within [customer-defined] seconds.",
+      "FR-NGHE-010.4: The teleoperation system shall automatically failover from primary to backup path when primary link health falls below [customer-defined] threshold, completing switchover within [customer-defined] ms with zero command loss."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Two independent network paths are available at the deployment site (customer responsibility).",
+        "Failover latency ≤ 500 ms is acceptable for operator and vehicle control loop.",
+        "Link health metrics (latency, packet loss, error rate) can be measured reliably by Teleoperation module.",
+        "SafetyAlert interface supports timely reporting of link status changes (latency ≤ 1 second).",
+        "Vehicle module is stateless with respect to link state and does not implement its own recovery logic.",
+        "Operator training and UI for failover awareness are in scope (to be confirmed)."
+      ],
+      "open_risks": [
+        "Risk: Both network paths fail simultaneously (site-wide outage); mitigation requires customer network redundancy planning and acceptance that 0.999 target may not be achievable in all scenarios.",
+        "Risk: Failover logic complexity increases test burden; requires extensive scenario coverage and may introduce latent bugs.",
+        "Risk: Operator may not be aware of active path; could lead to confusion during diagnostics or troubleshooting.",
+        "Risk: Network path provisioning and SLA are customer responsibilities; unclear if customer has committed to dual-path availability.",
+        "Risk: Link health monitoring thresholds (latency, packet loss) are not yet defined; incorrect thresholds could trigger false failovers or miss real degradation."
+      ],
+      "evidence_needed": [
+        "Customer confirmation of network path availability and SLA for each path.",
+        "Definition of link health monitoring metrics and failover trigger thresholds.",
+        "Acceptance criteria for failover latency and data loss tolerance.",
+        "Test plan and test cases for failover scenarios (single path loss, both paths degraded, asymmetric degradation, rapid switching).",
+        "Operator training and UI requirements for failover awareness.",
+        "Safety analysis (FMEA, FTA) for link failure modes and mitigation strategies.",
+        "Measurement methodology and instrumentation for link availability calculation."
+      ]
+    }
+  }
+}

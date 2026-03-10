@@ -1,0 +1,168 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall propagate worksite model state changes to all authorized consumers within the customer-defined latency threshold.",
+    "rationale": "The original FR conflates two distinct obligations: (1) detecting/capturing state changes in the worksite model, and (2) delivering those changes to consumers within a time bound. The refined FR focuses on the propagation obligation (the primary latency concern) and removes the vague 'operational use' qualifier in favor of explicit reference to customer-defined acceptance criteria. The term 'propagate' is solution-neutral (avoids prescribing polling, pub-sub, or push mechanisms) and 'authorized consumers' acknowledges that different stakeholders (operator, tele-operator, safety manager, maintenance) may have different visibility and latency requirements.",
+    "verification_idea": "Measure end-to-end latency from the moment a worksite state change is committed (e.g., equipment position update, hazard detection, task completion) to the moment all authorized consumer interfaces (HMI, remote dashboard, safety system, maintenance log) reflect that change. Validate against customer-defined p95 threshold (e.g., ≤1.0 s) across representative update scenarios (position updates, safety events, task transitions). Confirm that latency is measured consistently and that 'authorized consumers' are correctly filtered by role/permission.",
+    "sub_frs": [
+      "FR-NGHE-007.1: The NGHE solution shall detect and capture worksite model state changes (equipment position, task status, hazard events, environmental conditions) from all active sensors and operator inputs.",
+      "FR-NGHE-007.2: The NGHE solution shall propagate worksite model state changes to all authorized consumers within the customer-defined latency threshold.",
+      "FR-NGHE-007.3: The NGHE solution shall enforce access control such that each consumer receives only worksite model state changes relevant to their authorized role and operational context."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Centralized event-driven state propagation with asynchronous message broker (decouples producers from consumers; supports fan-out to multiple authorized subscribers; enables latency-bounded delivery guarantees)",
+      "DP2: Synchronous request-response state synchronization with polling intervals (simple but couples client to server; latency depends on poll frequency; not suitable for p95 ≤ 1.0s without aggressive polling)",
+      "DP3: Hybrid push-pull with change-data-capture (CDC) stream and consumer-side subscription registry (producers emit change events; consumers subscribe to filtered streams; supports selective authorization and latency SLA enforcement)",
+      "DP4: Peer-to-peer gossip protocol with eventual consistency (decentralized; no single broker; difficult to enforce hard latency bounds and authorization policies)",
+      "DP5: Direct point-to-point notification with per-consumer connection management (tight coupling; scales poorly with consumer count; difficult to enforce uniform latency SLA)"
+    ],
+    "selected_dp": "DP3: Hybrid push-pull with change-data-capture (CDC) stream and consumer-side subscription registry. Producers emit worksite model state changes as immutable events to a durable, ordered change stream. Authorized consumers subscribe to filtered views of the stream based on role/permission policies. Delivery is push-initiated (broker-to-consumer) with acknowledgment-based flow control. Latency SLA is enforced via stream partitioning, consumer group coordination, and configurable retention/replay semantics. Authorization filtering occurs at subscription time and at stream ingestion (policy enforcement point).",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Tight coupling between producer and stream schema: mitigated by versioning and schema registry; producers and consumers evolve independently",
+        "Consumer-side filtering logic duplication: mitigated by centralizing authorization rules in a policy service; consumers reference policies, not embed them",
+        "Latency coupling to stream broker performance: mitigated by horizontal scaling of broker and consumer groups; SLA is measurable and tunable",
+        "Dependency on durable stream infrastructure: acceptable; stream broker is a shared utility, not a per-consumer coupling point"
+      ],
+      "notes": "DP3 decouples producers from consumers via the event stream abstraction. Authorization is a cross-cutting concern handled by a dedicated policy service, not embedded in producers or consumers. Latency is bounded by stream throughput, consumer lag, and network transit—all independently tunable. Schema evolution is managed via versioning, allowing producers and consumers to upgrade asynchronously."
+    },
+    "assumptions_risks": [
+      "Assumption: Worksite model state changes are expressible as discrete, immutable events (not continuous analog streams). Risk: If state is highly granular or high-frequency, event volume may exceed broker throughput; mitigation: aggregate events at source or use sampling.",
+      "Assumption: p95 ≤ 1.0s latency is achievable with local network and co-located broker/consumer infrastructure. Risk: WAN latency, network congestion, or broker overload may violate SLA; mitigation: define SLA under specified network conditions; monitor and alert on latency percentiles.",
+      "Assumption: Authorization policies are stable and can be evaluated at subscription time. Risk: Dynamic, fine-grained per-event authorization may require per-event policy checks, increasing latency; mitigation: cache policies; use coarse-grained roles at subscription, fine-grained filtering at consumer.",
+      "Assumption: Consumers can tolerate eventual consistency (brief lag between state change and notification). Risk: If strong consistency is required, DP3 may not be suitable; mitigation: clarify consistency requirements with stakeholders; consider synchronous RPC for critical updates.",
+      "Assumption: Stream broker is a single point of failure. Risk: Broker outage blocks all consumers; mitigation: deploy broker with replication and failover; design consumers to queue locally and retry.",
+      "Assumption: Consumer authorization is static (role-based). Risk: Attribute-based or context-dependent authorization (e.g., time-of-day, location) requires dynamic policy evaluation; mitigation: integrate with a policy decision point (PDP) at subscription or ingestion time."
+    ],
+    "recommended_revision": "Refine FR to explicitly state: (1) Consistency model: eventual or strong? (2) Authorization granularity: role-based, attribute-based, or per-event? (3) Failure mode: is broker unavailability acceptable, or must consumers fall back to polling/caching? (4) Event volume and frequency: typical and peak rates of worksite model changes. (5) Consumer topology: fixed set of known consumers, or dynamic registration? Revise DP3 to include: (a) A policy service (IM) that evaluates and caches authorization rules; (b) A stream broker (IM) with replication and consumer group coordination; (c) A consumer subscription registry (IM) that maps authorized consumers to stream partitions; (d) Latency monitoring and alerting (IM) to detect SLA violations. Map each IM to an owning team and define interfaces (event schema, policy API, subscription protocol)."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "Enterprise-level event streaming, CDC pipeline, subscription registry, authorization policy enforcement, and consumer group coordination for worksite model state distribution across all connected systems (Vehicle, Teleoperation, Safety Services)."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Worksite model state changes (immutable events) ingested from producers; CDC stream source."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Filtered task-relevant state events pushed to Teleoperation and Vehicle consumers via subscription registry."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Safety-filtered state events pushed to Safety Services consumers; authorization filtering enforced at subscription and ingestion."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Durable, ordered change stream transport; acknowledgment-based flow control; latency SLA enforcement via partitioning and retention semantics."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Highest cohesion: CDC pipeline, event stream, subscription registry, authorization policy enforcement, and consumer group coordination are all enterprise-level concerns naturally owned by the solution layer. Diffusion is minimal: only Network Link (transport) and Telemetry (ingestion source) cross boundary; Tasking and SafetyAlert are intentional push outputs to authorized consumers."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.15,
+        "diffusion_score": 0.85,
+        "notes": "Poor containment: Vehicle is a consumer, not a broker/coordinator. CDC stream, subscription registry, authorization policy, and consumer group coordination are not vehicle-specific concerns. High diffusion: stream logic, retention, partitioning, and policy enforcement would leak across Teleoperation and Safety Services."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.18,
+        "diffusion_score": 0.82,
+        "notes": "Poor containment: Teleoperation is a consumer domain, not a broker. CDC pipeline, subscription registry, and authorization policy are cross-system concerns. High diffusion: stream coordination and policy enforcement would need to be replicated or shared across Vehicle and Safety Services."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Poor containment: Safety Services is a consumer, not a broker/coordinator. CDC stream, subscription registry, and authorization policy are not safety-specific. High diffusion: stream logic and policy enforcement would leak across Vehicle and Teleoperation consumers."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "DP3 (hybrid push-pull CDC with subscription registry and authorization filtering) is fundamentally an enterprise-level data distribution and policy enforcement concern. It must coordinate across all consumers (Vehicle, Teleoperation, Safety Services) and enforce consistent authorization policies. Containment within NGHE Solution is strong because: (1) CDC stream, durable ordering, and partitioning are solution-wide infrastructure; (2) subscription registry and consumer group coordination are cross-system concerns; (3) authorization policy enforcement at ingestion and subscription time is a centralized, reusable concern; (4) latency SLA enforcement via stream partitioning and retention is a solution-level non-functional requirement. Placing this DP in any consumer module (Vehicle, Teleoperation, Safety Services) would fragment the stream logic, duplicate authorization policies, and violate single responsibility.",
+    "containment_risks": [
+      "Risk: If authorization policies diverge per consumer (Vehicle vs. Teleoperation vs. Safety Services), policy enforcement may need to be consumer-aware, increasing coupling between NGHE Solution and downstream modules. Mitigation: Define authorization policies as declarative, role-based rules stored in a centralized policy store within NGHE Solution; consumers declare their role/permission context at subscription time.",
+      "Risk: If stream partitioning strategy must be tuned per consumer latency SLA, NGHE Solution must expose partition configuration as a consumer-facing interface. Mitigation: Establish SLA tiers (e.g., real-time, near-real-time, batch) and map consumers to tiers at subscription time; partition strategy is internal to NGHE Solution.",
+      "Risk: If Telemetry ingestion rate or schema changes frequently, CDC pipeline may require frequent updates. Mitigation: Design CDC pipeline to be schema-agnostic (e.g., event envelope with metadata); version events and support schema evolution.",
+      "Risk: Network Link transport reliability and latency are external dependencies. If Network Link fails, acknowledgment-based flow control and SLA enforcement degrade. Mitigation: Implement circuit breaker and fallback strategies; document SLA assumptions on Network Link availability."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP3 (hybrid push-pull CDC with subscription registry and authorization filtering) directly addresses the FR requirement to propagate worksite model state changes to authorized consumers within latency threshold. The DP specifies: (1) immutable event emission as the propagation mechanism, (2) durable, ordered change stream as the transport substrate, (3) role/permission-based subscription filtering for authorization, (4) push-initiated delivery with acknowledgment-based flow control for reliability, and (5) explicit latency SLA enforcement via stream partitioning and retention semantics. The mapping is logically sound and complete."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "DIFFUSION RISK (Low): Authorization policy enforcement is split across two points—subscription time and stream ingestion. If policy rules are not centrally versioned and synchronized, divergent enforcement logic could emerge across ingestion and subscription modules. Mitigation: Establish a single, versioned policy store within NGHE Solution; both ingestion and subscription modules reference the same policy engine.",
+        "DIFFUSION RISK (Low): Stream partitioning strategy for latency SLA enforcement may require consumer-aware tuning. If different consumers (Vehicle, Teleoperation, Safety Services) have different latency SLAs, partition configuration could leak into consumer-specific logic. Mitigation: Define SLA tiers as declarative metadata; NGHE Solution maps consumers to tiers at subscription time; partitioning is internal.",
+        "DIFFUSION RISK (Low): CDC pipeline schema evolution handling is not explicitly assigned. If schema changes propagate unevenly across producers and consumers, event deserialization could fail. Mitigation: Enforce schema versioning and evolution rules at CDC ingestion; consumers declare supported schema versions at subscription.",
+        "DIFFUSION RISK (Minimal): Network Link transport is an external dependency. If acknowledgment-based flow control or latency SLA enforcement depends on Network Link guarantees not explicitly contractualized, SLA enforcement could degrade silently. Mitigation: Document Network Link SLA assumptions (e.g., max latency, reliability); implement circuit breaker and fallback strategies in NGHE Solution."
+      ],
+      "containment_notes": "DP3 exhibits strong containment within NGHE Solution (containment_score: 0.92, diffusion_score: 0.08). CDC pipeline, event stream, subscription registry, authorization policy enforcement, and consumer group coordination are all enterprise-level, cross-system concerns that naturally belong in the solution layer. Placing this DP in any consumer module (Vehicle, Teleoperation, Safety Services) would fragment stream logic, duplicate authorization policies, and violate single responsibility. The only intentional boundary crossings are: (1) Telemetry ingestion (external producer source), (2) Tasking and SafetyAlert outputs (intentional push to authorized consumers), and (3) Network Link transport (external infrastructure). These are appropriate external interfaces, not diffusion. Ownership by NGHE Solution is strongly justified."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "HIGH. The acceptance criterion (p95 latency ≤ 1.0 s for supported update scenarios) is measurable and testable. Verification strategy: (1) Instrument CDC stream ingestion, subscription registry lookup, authorization filtering, and push delivery with latency probes; (2) measure end-to-end latency from worksite model state change emission to consumer acknowledgment; (3) collect p95 latency across representative update scenarios (e.g., vehicle position update, safety alert, task assignment); (4) validate against customer-defined threshold. Stream partitioning and consumer group coordination are observable via broker metrics (e.g., Kafka lag, partition assignment). Authorization filtering can be validated via audit logs and policy compliance checks.",
+      "allocation_clarity": "HIGH. The IM boundary (NGHE Solution) is clearly scoped as the enterprise-level event streaming, CDC pipeline, subscription registry, authorization policy enforcement, and consumer group coordination layer. External interfaces are well-defined: Telemetry (in), Tasking (out), SafetyAlert (out), Network Link (inout). Consumer modules (Vehicle, Teleoperation, Safety Services) are clearly positioned as subscribers, not brokers. Ownership is unambiguous: NGHE Solution owns the DP realization; consumers own subscription logic and event consumption. No allocation ambiguity detected."
+    },
+    "recommended_revisions": [
+      "REVISION 1: Explicitly define authorization policy versioning and synchronization mechanism. Add to DP3: 'Authorization policies are stored in a centralized, versioned policy store within NGHE Solution. Both stream ingestion (policy enforcement point 1) and subscription registry (policy enforcement point 2) reference the same policy engine via a well-defined policy query interface. Policy updates are atomic and propagate to both enforcement points within [X] ms to prevent divergent authorization decisions.'",
+      "REVISION 2: Clarify schema evolution handling in CDC pipeline. Add to DP3: 'CDC pipeline ingests events with explicit schema versioning metadata. Producers emit events with a schema_version field. Subscription registry allows consumers to declare supported schema versions at subscription time. CDC pipeline enforces schema compatibility checks at ingestion; incompatible events are routed to a dead-letter queue with audit logging.'",
+      "REVISION 3: Document Network Link SLA assumptions and fallback strategy. Add to DP3: 'Latency SLA enforcement assumes Network Link provides [max latency X ms, reliability Y%]. If Network Link latency exceeds threshold or reliability degrades, NGHE Solution implements circuit breaker logic: (1) pause new subscriptions, (2) buffer events in local retention, (3) emit SLA violation alert to operations. Fallback: switch to batch delivery mode with extended retention window.'",
+      "REVISION 4: Specify consumer group coordination semantics for exactly-once delivery. Add to DP3: 'Consumer group coordination ensures exactly-once event delivery per consumer group via offset management. Consumers acknowledge events after processing; NGHE Solution commits offsets atomically. If consumer crashes, rebalancing restarts from last committed offset. Rebalancing latency is bounded by [X] ms to maintain SLA.'",
+      "REVISION 5: Add observability and SLA monitoring interface. Add to DP3: 'NGHE Solution exposes metrics for: (1) end-to-end latency (p50, p95, p99) per consumer group, (2) authorization policy enforcement latency, (3) stream lag per partition, (4) consumer group rebalancing frequency and duration, (5) dead-letter queue depth. Metrics are queryable via [monitoring interface] and trigger alerts if SLA thresholds are breached.'"
+    ]
+  },
+  "decision": {
+    "decision": "REVISE_CURRENT_LEVEL",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass with high confidence, and containment analysis strongly justifies NGHE Solution ownership. However, the gate results expose five critical diffusion risks and specification gaps that must be resolved before proceeding to sub-FR decomposition. Given the high safety criticality of the worksite model state propagation domain, these gaps pose unacceptable risk: (1) Authorization policy enforcement is split across two points without explicit synchronization guarantees, creating potential for divergent authorization decisions in safety-critical scenarios. (2) Schema evolution handling is unspecified, risking event deserialization failures that could silently degrade state consistency. (3) Network Link SLA assumptions are not contractualized, leaving latency SLA enforcement vulnerable to silent degradation. (4) Consumer group rebalancing semantics are not explicitly bounded, risking SLA violations during failure recovery. (5) Observability and SLA monitoring interfaces are not defined, preventing operational verification of safety-critical latency thresholds. Revising DP3 to incorporate the five recommended revisions will harden the specification against these risks and establish a defensible baseline for sub-FR decomposition. Proceeding to ZIGZAG_DOWN without these revisions would propagate ambiguity and safety risk into lower-level functional decomposition.",
+    "next_level_sub_frs": [],
+    "revise": {
+      "target": "DP",
+      "why": "DP3 (hybrid push-pull CDC with subscription registry and authorization filtering) is logically sound and well-contained, but the specification lacks critical detail on authorization policy synchronization, schema evolution, Network Link SLA contractualization, consumer group rebalancing bounds, and observability interfaces. These gaps are not minor clarifications—they are architectural decisions that directly impact safety-critical latency SLA enforcement and state consistency guarantees. Incorporating the five recommended revisions into DP3 will: (1) eliminate the split-enforcement authorization risk by mandating a centralized, versioned policy store with atomic propagation to both enforcement points; (2) prevent schema evolution failures by requiring explicit schema versioning and compatibility checking at ingestion; (3) contractualize Network Link assumptions and define circuit breaker fallback logic; (4) bound consumer group rebalancing latency to maintain SLA; (5) establish observability and alerting for operational SLA verification. These revisions transform DP3 from a logically sound but underspecified design into a safety-hardened, operationally verifiable specification suitable for decomposition into sub-FRs."
+    },
+    "record": {
+      "assumptions": [
+        "Authorization policy store is centrally managed within NGHE Solution and supports atomic, versioned updates with sub-[X]ms propagation to both ingestion and subscription enforcement points.",
+        "CDC pipeline supports explicit schema versioning metadata in event payloads and enforces schema compatibility checks at ingestion time.",
+        "Network Link provides contractualized SLA guarantees (max latency, reliability %) that are documented and monitored; NGHE Solution implements circuit breaker and fallback strategies if Network Link SLA is breached.",
+        "Consumer group coordination uses offset-based exactly-once delivery semantics with bounded rebalancing latency (≤ [X] ms) to maintain end-to-end latency SLA.",
+        "Observability infrastructure (metrics, alerting) is available to monitor end-to-end latency, authorization enforcement latency, stream lag, rebalancing frequency, and dead-letter queue depth.",
+        "Safety criticality of worksite model state propagation justifies investment in explicit policy synchronization, schema evolution handling, and SLA monitoring rather than best-effort delivery."
+      ],
+      "open_risks": [
+        "RISK (High): If authorization policy synchronization mechanism is not implemented with atomic, versioned updates, divergent authorization decisions could emerge between ingestion and subscription enforcement points, potentially allowing unauthorized consumers to receive safety-critical state changes. MITIGATION: Mandate centralized policy store with explicit versioning and synchronization SLA; implement audit logging and compliance checks to detect divergence.",
+        "RISK (High): If schema evolution handling is not enforced at CDC ingestion, schema mismatches between producers and consumers could cause silent event deserialization failures, leading to incomplete or corrupted state propagation. MITIGATION: Require explicit schema versioning in event payloads; enforce schema compatibility checks at ingestion; route incompatible events to dead-letter queue with alerting.",
+        "RISK (Medium): If Network Link SLA assumptions are not contractualized and monitored, latency SLA enforcement could degrade silently when Network Link performance degrades, violating safety-critical latency thresholds without operational visibility. MITIGATION: Document Network Link SLA assumptions explicitly; implement circuit breaker and fallback strategies; monitor Network Link latency and reliability continuously.",
+        "RISK (Medium): If consumer group rebalancing latency is not bounded, rebalancing events during consumer failures could cause transient SLA violations, particularly for safety-critical consumers (e.g., Safety Services). MITIGATION: Specify maximum rebalancing latency; implement fast rebalancing strategies (e.g., static membership, cooperative rebalancing); monitor rebalancing frequency and duration.",
+        "RISK (Medium): If observability and SLA monitoring interfaces are not defined, operational teams cannot verify that latency SLA thresholds are being met, preventing early detection of SLA violations or degradation. MITIGATION: Define comprehensive metrics (p50, p95, p99 latency, lag, rebalancing frequency); implement alerting for SLA threshold breaches; expose metrics via standard monitoring interface."
+      ],
+      "evidence_needed": [
+        "Specification of authorization policy versioning and synchronization mechanism: policy store design, versioning scheme, atomic update semantics, propagation SLA, and audit logging strategy.",
+        "Specification of schema evolution handling: schema versioning metadata format, compatibility checking rules, dead-letter queue design, and consumer schema version declaration mechanism.",
+        "Network Link SLA contract: documented max latency, reliability %, and failure modes; circuit breaker and fallback strategy design; monitoring and alerting rules.",
+        "Consumer group rebalancing specification: offset management semantics, rebalancing strategy (static vs. cooperative), maximum rebalancing latency bound, and monitoring metrics.",
+        "Observability and SLA monitoring interface specification: metrics definitions (latency percentiles, lag, rebalancing frequency), alerting rules, monitoring tool integration, and operational runbook for SLA violations.",
+        "Safety analysis: verification that revised DP3 with explicit policy synchronization, schema evolution handling, and SLA monitoring meets safety-critical latency and state consistency requirements.",
+        "Integration testing plan: test scenarios for authorization policy divergence detection, schema evolution failure handling, Network Link SLA breach and fallback, consumer group rebalancing under failure, and SLA monitoring accuracy."
+      ]
+    }
+  }
+}

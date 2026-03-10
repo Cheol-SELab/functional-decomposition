@@ -1,0 +1,157 @@
+{
+  "refined_fr": {
+    "refined_fr": "Enable measurement and reporting of energy consumption per unit of work output (energy_per_ton) to support evaluation against customer-defined energy efficiency targets.",
+    "rationale": "The original FR conflates two distinct obligations: (1) the system's capability to measure and report energy efficiency metrics, and (2) the achievement of a target value. The refined FR focuses on the enablement function (measurement and reporting infrastructure) which is within system design control, while deferring the achievement criterion to acceptance testing and operational validation. This separates the 'what the system must do' (provide visibility into energy efficiency) from 'what the customer must achieve' (meet the target). The FR is now solution-neutral: it does not prescribe how energy is measured (sensors, algorithms, data pipelines) or how reporting is delivered (dashboard, API, log file).",
+    "verification_idea": "Verify that the system captures energy_used (kWh or equivalent) and ton_moved (mass or work units) over the agreed evaluation period, computes energy_per_ton, and makes this metric accessible to authorized stakeholders (Site Manager, Safety Manager, Maintenance/Quality) in a documented, auditable format. Acceptance test: confirm that reported energy_per_ton values can be independently validated against ground-truth measurements.",
+    "sub_frs": [
+      "FR-NGHE-003.1: Measure and log total energy consumed by the NGHE solution during operation.",
+      "FR-NGHE-003.2: Measure and log total work output (mass moved or equivalent unit) during operation.",
+      "FR-NGHE-003.3: Compute energy efficiency metric (energy_per_ton) from logged energy and work data.",
+      "FR-NGHE-003.4: Report energy efficiency metric to authorized stakeholders in a retrievable, time-stamped format."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Decompose energy consumption measurement into two independent measurement streams (energy input and work output), each with dedicated acquisition and validation logic, combined via a calculation module that computes the ratio and compares against target threshold.",
+      "DP2: Implement a unified telemetry pipeline that captures raw sensor data, applies domain-specific transformations (energy normalization, ton-equivalence conversion), and emits standardized efficiency metrics at configurable reporting intervals.",
+      "DP3: Establish a hierarchical measurement architecture where local edge nodes perform real-time energy and work quantification, transmit validated summaries to a central aggregation service, which computes period-level efficiency ratios and generates compliance reports.",
+      "DP4: Design a state-machine-based measurement controller that sequences through acquisition phases (energy sampling, work counting, validation), accumulates totals in independent registers, and triggers reporting when evaluation period boundary is reached."
+    ],
+    "selected_dp": "DP1: Decompose energy consumption measurement into two independent measurement streams (energy input and work output), each with dedicated acquisition and validation logic, combined via a calculation module that computes the ratio and compares against target threshold.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Energy and work measurement streams share a common clock/synchronization reference—mitigated by timestamping each measurement independently and aligning during aggregation rather than enforcing real-time lock-step.",
+        "Calculation module depends on both streams being available and valid—mitigated by explicit validation gates and graceful degradation (e.g., reporting incomplete periods with confidence flags).",
+        "Target threshold comparison logic is tightly bound to acceptance criteria—acceptable coupling because the threshold is a fixed input parameter, not a derived or feedback-dependent value."
+      ],
+      "notes": "DP1 achieves low coupling by isolating measurement concerns (energy vs. work) and deferring their combination to a single, stateless calculation point. This supports independent testing, replacement of either measurement stream, and clear ownership boundaries. DP2 and DP3 introduce higher coupling through unified pipelines and hierarchical dependencies; DP4 couples state transitions to measurement phases, increasing complexity."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Energy input and work output can be measured independently without mutual interference. RISK: If measurement apparatus (e.g., power meter and load cell) share electrical grounds or mechanical mounting, cross-talk may introduce systematic bias. Mitigation: Specify isolation requirements in IM layer.",
+      "ASSUMPTION: Evaluation period boundaries are externally defined and stable (no mid-period redefinition). RISK: Ambiguity in period start/end times could lead to partial data inclusion. Mitigation: Require explicit period-open and period-close events with audit logging.",
+      "ASSUMPTION: Energy_per_ton ratio is meaningful only when work output > 0 (division by zero). RISK: Idle periods or zero-load conditions could trigger invalid metric states. Mitigation: Define handling rules (e.g., exclude idle periods, report as N/A, or use minimum threshold).",
+      "ASSUMPTION: Customer-defined E_target is a single scalar value applicable across all operating conditions. RISK: If target varies by load class, ambient conditions, or equipment state, a single threshold may be insufficient. Mitigation: Extend DP to support conditional targets or clarify scope with customer.",
+      "ASSUMPTION: Measurement accuracy and resolution are adequate to detect compliance/non-compliance. RISK: If measurement uncertainty is comparable to margin between actual and target efficiency, false positives/negatives are likely. Mitigation: Specify measurement uncertainty budget and confidence intervals in IM layer."
+    ],
+    "recommended_revision": "FR (refined): Enable independent measurement and real-time validation of energy consumption and work output, compute their ratio (energy_per_ton) at evaluation period boundaries, and report compliance status against customer-defined energy efficiency target E_target, with explicit handling of edge cases (zero work, measurement gaps) and confidence metadata to support transparent evaluation and dispute resolution. DP1 should be extended to include: (1) a validation sub-module that checks for data completeness and measurement quality before ratio calculation, (2) a configuration interface for period boundaries and target thresholds, and (3) a reporting sub-module that emits both the ratio and confidence/uncertainty estimates. This revision clarifies the scope of DP1 and reduces ambiguity in acceptance criteria."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Safety Services",
+      "scope": "Centralized module for energy consumption monitoring, validation, and threshold-based safety decision-making. Owns dual measurement stream acquisition logic, independent validation pipelines, ratio calculation, and threshold comparison for energy efficiency anomaly detection."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Receives raw energy input measurements (e.g., power draw, fuel consumption) and work output metrics (e.g., distance traveled, payload moved) from Vehicle subsystem."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Emits safety alerts when energy efficiency ratio falls below target threshold, signaling potential mechanical degradation or operational anomaly."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives target energy efficiency thresholds and measurement configuration parameters from mission planning or operator commands."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Safety Services",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit. Energy efficiency monitoring is inherently a safety-critical function (anomalies indicate mechanical failure risk). Dual measurement streams, validation logic, and threshold comparison are all safety-domain concerns. Minimal diffusion: only requires inbound telemetry and outbound alerts. Calculation module is internal to Safety Services."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.65,
+        "diffusion_score": 0.35,
+        "notes": "Moderate fit but problematic. Vehicle owns the physical sensors and actuators, but energy efficiency *analysis* and *safety decision-making* should not reside in the vehicle control layer. Would create tight coupling between vehicle dynamics and safety logic. Threshold comparison and alert generation would diffuse to Safety Services anyway."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.58,
+        "diffusion_score": 0.42,
+        "notes": "Weak fit. NGHE Solution is likely a top-level system orchestrator. Placing detailed measurement stream logic and validation here violates separation of concerns. Would create unnecessary coupling between system-level coordination and low-level sensor validation. Calculation module would be too high-level."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor fit. Teleoperation is operator interface and command relay. Energy efficiency monitoring is not a teleoperation concern. Would create spurious coupling between remote control logic and safety monitoring. Measurement streams and validation belong elsewhere."
+      }
+    ],
+    "ownership_candidate": "Safety Services",
+    "containment_hypothesis": "Energy consumption measurement decomposition is fundamentally a safety-critical monitoring function. The dual measurement streams (energy input vs. work output) and threshold-based anomaly detection are safety domain responsibilities. Safety Services is the natural owner because: (1) it already owns threshold-based decision logic, (2) it is responsible for detecting and alerting on system anomalies, (3) energy efficiency degradation is a proxy for mechanical failure, and (4) the DP requires no diffusion of core logic outside Safety Services—only inbound telemetry and outbound alerts.",
+    "containment_risks": [
+      "Risk: Telemetry interface may not provide sufficient granularity or frequency for real-time energy stream validation. Mitigation: Confirm Telemetry contract includes both energy input and work output metrics at required sampling rate.",
+      "Risk: Calculation module (ratio and threshold comparison) may require tuning or recalibration based on vehicle type or mission profile. Mitigation: Ensure Tasking interface allows dynamic threshold updates without code changes.",
+      "Risk: If energy sensors are distributed across Vehicle subsystem, validation logic in Safety Services may have latency or synchronization issues. Mitigation: Define clear timestamp and sequencing semantics in Telemetry interface.",
+      "Risk: Safety Services may become overloaded if it also owns other safety monitors (e.g., collision detection, thermal monitoring). Mitigation: Ensure Safety Services is designed as a composable safety orchestrator, not a monolithic module."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP1 correctly decomposes the FR into two independent measurement streams (energy input and work output) with dedicated acquisition and validation logic, combined via a calculation module. This decomposition is sound: it separates concerns (measurement vs. validation vs. calculation), enables independent verification of each stream, and directly supports the acceptance criterion (energy_per_ton ≤ E_target). The DP is verifiable and traces cleanly to the FR."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Moderate risk: Telemetry interface granularity. If Vehicle subsystem does not provide energy input and work output metrics at sufficient sampling frequency or precision, Safety Services cannot perform real-time validation. Mitigation: Confirm Telemetry contract specifies both metrics, sampling rate (≥ required frequency for anomaly detection), and timestamp semantics.",
+        "Moderate risk: Calculation module tuning. Threshold comparison logic may require vehicle-type or mission-profile-specific calibration. If thresholds are hardcoded in Safety Services, recalibration requires code changes. Mitigation: Ensure Tasking interface supports dynamic threshold updates and parameterization without redeployment.",
+        "Low-to-moderate risk: Sensor synchronization. If energy sensors are distributed across Vehicle subsystem, Safety Services may encounter latency or clock-skew issues when correlating energy input with work output. Mitigation: Define clear sequencing and timestamp alignment semantics in Telemetry interface contract.",
+        "Low risk: Safety Services scope creep. If Safety Services accumulates multiple safety monitors (energy efficiency, collision detection, thermal monitoring), it may become a monolithic bottleneck. Mitigation: Design Safety Services as a composable orchestrator with clear internal module boundaries for each safety function."
+      ],
+      "containment_notes": "Excellent containment fit (0.92 score). Energy efficiency monitoring is inherently a safety-critical function: degradation signals mechanical failure risk. The DP's dual measurement streams, validation pipelines, ratio calculation, and threshold comparison are all safety-domain concerns. Safety Services is the natural owner because it already owns threshold-based decision logic and anomaly alerting. Minimal diffusion: only inbound Telemetry (raw measurements) and outbound SafetyAlert (anomaly signals). The calculation module is internal to Safety Services. No spurious coupling to Vehicle dynamics, system orchestration, or teleoperation. Recommended owner: Safety Services."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The acceptance criterion (energy_per_ton ≤ E_target over evaluation period) is directly measurable via the DP's calculation module. Safety Services can log energy_per_ton values and compare against E_target. Verification requires: (1) Telemetry provides accurate energy input and work output metrics, (2) Tasking interface supplies correct E_target threshold, (3) Safety Services calculation is validated (unit tests, integration tests with mock telemetry). Feasibility is strong provided Telemetry and Tasking interfaces are well-specified.",
+      "allocation_clarity": "Clear. The FR is allocated to Safety Services via DP1. Ownership boundaries are explicit: Safety Services owns measurement decomposition, validation, calculation, and threshold comparison. External dependencies are well-defined: Telemetry (inbound), Tasking (inbound), SafetyAlert (outbound). No ambiguity about which module is responsible for energy efficiency monitoring or anomaly detection. Allocation is traceable and testable."
+    },
+    "recommended_revisions": [
+      "Revision 1: Strengthen Telemetry interface contract. Specify: (a) energy input metric(s) (e.g., power draw in kW, fuel consumption in L/h), (b) work output metric(s) (e.g., distance in km, payload in tons), (c) minimum sampling frequency (e.g., 1 Hz or higher for real-time anomaly detection), (d) timestamp precision and synchronization semantics (e.g., UTC with ±100ms tolerance), (e) data quality guarantees (e.g., sensor accuracy, missing-data handling). This mitigates the telemetry granularity risk.",
+      "Revision 2: Parameterize threshold logic in Tasking interface. Allow dynamic updates to E_target and any calibration parameters (e.g., sensor offsets, smoothing windows) without code changes. Define a configuration schema (e.g., JSON or protobuf) that Safety Services can parse and apply at runtime. This mitigates the calculation module tuning risk.",
+      "Revision 3: Define synchronization semantics for dual measurement streams. Specify how Safety Services correlates energy input and work output when they arrive asynchronously from Vehicle subsystem. Options: (a) buffer and align by timestamp, (b) use a sliding window, (c) require Vehicle to emit synchronized tuples. Document latency tolerance and clock-skew handling. This mitigates the sensor synchronization risk.",
+      "Revision 4: Document Safety Services internal module structure. If Safety Services will own multiple safety monitors (energy efficiency, collision detection, thermal monitoring, etc.), define clear internal boundaries and interfaces between them. Ensure the energy efficiency monitor is a composable sub-module, not monolithic. This mitigates scope creep and maintainability risks.",
+      "Revision 5: Add acceptance test plan. Specify test cases for: (a) energy_per_ton calculation correctness (unit tests with known inputs), (b) threshold comparison logic (boundary tests at E_target), (c) end-to-end integration with mock Telemetry and Tasking, (d) anomaly alert generation and timing. This ensures verification feasibility is realized in practice."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass with high confidence. The DP is logically sound, the IM allocation is excellent (0.92 containment fit), and verification is feasible. However, the gate results surface five concrete diffusion risks and interface contract gaps that must be resolved before decomposition can proceed safely. The recommended revisions target critical dependencies (Telemetry interface granularity, Tasking parameterization, synchronization semantics) that are prerequisites for the next level of decomposition. Rather than immediately decompose into sub-FRs, we must first resolve these interface and internal structure concerns at the current level. This is a ZIGZAG_DOWN decision: return to DP and IM refinement to harden the design before pushing decomposition deeper.",
+    "next_level_sub_frs": [],
+    "revise": {
+      "target": "DP|IM",
+      "why": "The DP is sound in principle, but its realization depends critically on three interface contracts and one internal architectural decision that are currently underspecified: (1) Telemetry interface must guarantee energy input and work output metrics at sufficient sampling frequency and precision (Revision 1); (2) Tasking interface must support dynamic threshold parameterization without redeployment (Revision 2); (3) Safety Services must define synchronization semantics for correlating asynchronous dual measurement streams (Revision 3); (4) Safety Services internal module structure must be documented to prevent scope creep and ensure the energy efficiency monitor is composable (Revision 4). These revisions are DP-level (design logic) and IM-level (module boundary and interface) concerns. Implementing them will eliminate moderate-risk diffusion pathways and ensure the DP can be realized reliably. Only after these revisions are incorporated should we decompose into sub-FRs for measurement validation, calculation, and threshold comparison."
+    },
+    "record": {
+      "assumptions": [
+        "Telemetry subsystem can provide energy input and work output metrics at the required sampling frequency and precision (to be confirmed by Revision 1).",
+        "Tasking subsystem can supply dynamic threshold parameters (E_target) and support runtime updates without Safety Services redeployment (to be confirmed by Revision 2).",
+        "Vehicle subsystem emits energy and work output measurements with timestamps that can be correlated within acceptable latency tolerance (to be confirmed by Revision 3).",
+        "Safety Services is designed as a composable orchestrator with clear internal module boundaries, not a monolithic accumulator of safety functions (to be confirmed by Revision 4).",
+        "Energy efficiency monitoring is inherently a safety-critical function because degradation signals mechanical failure risk (validated by high containment fit and safety criticality context)."
+      ],
+      "open_risks": [
+        "Telemetry interface granularity: If Vehicle subsystem does not provide energy input and work output metrics at sufficient sampling frequency or precision, Safety Services cannot perform real-time validation. Severity: Moderate. Mitigation: Confirm Telemetry contract specifies both metrics, sampling rate (≥ required frequency for anomaly detection), and timestamp semantics.",
+        "Calculation module tuning: Threshold comparison logic may require vehicle-type or mission-profile-specific calibration. If thresholds are hardcoded in Safety Services, recalibration requires code changes. Severity: Moderate. Mitigation: Ensure Tasking interface supports dynamic threshold updates and parameterization without redeployment.",
+        "Sensor synchronization: If energy sensors are distributed across Vehicle subsystem, Safety Services may encounter latency or clock-skew issues when correlating energy input with work output. Severity: Low-to-moderate. Mitigation: Define clear sequencing and timestamp alignment semantics in Telemetry interface contract.",
+        "Safety Services scope creep: If Safety Services accumulates multiple safety monitors (energy efficiency, collision detection, thermal monitoring), it may become a monolithic bottleneck. Severity: Low. Mitigation: Design Safety Services as a composable orchestrator with clear internal module boundaries for each safety function."
+      ],
+      "evidence_needed": [
+        "Telemetry interface specification: energy input metric(s) (e.g., power draw in kW, fuel consumption in L/h), work output metric(s) (e.g., distance in km, payload in tons), minimum sampling frequency (e.g., 1 Hz or higher), timestamp precision and synchronization semantics (e.g., UTC with ±100ms tolerance), data quality guarantees (sensor accuracy, missing-data handling).",
+        "Tasking interface specification: configuration schema for dynamic threshold updates (e.g., JSON or protobuf), E_target parameter definition, calibration parameter support (e.g., sensor offsets, smoothing windows), runtime update semantics without redeployment.",
+        "Synchronization semantics document: correlation strategy for asynchronous dual measurement streams (buffer and align by timestamp, sliding window, or synchronized tuples), latency tolerance, clock-skew handling, sequencing guarantees.",
+        "Safety Services internal architecture document: module boundaries for energy efficiency monitor, collision detection, thermal monitoring, and other safety functions; clear interfaces between sub-modules; composability design patterns.",
+        "Acceptance test plan: unit tests for energy_per_ton calculation correctness, boundary tests for threshold comparison at E_target, end-to-end integration tests with mock Telemetry and Tasking, anomaly alert generation and timing verification."
+      ]
+    }
+  }
+}

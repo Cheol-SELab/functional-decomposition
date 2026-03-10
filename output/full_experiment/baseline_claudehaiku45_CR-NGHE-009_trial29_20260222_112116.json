@@ -1,0 +1,170 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation communication packet loss at or below the customer-defined threshold (acceptance criterion: ≤1% under agreed network conditions) to ensure safe and effective remote equipment operation.",
+    "rationale": "CR-NGHE-009 addresses a critical quality-of-service requirement for teleoperation. Packet loss directly impacts operator situational awareness, control responsiveness, and safety. Refining the FR to explicitly reference the acceptance criterion (≤1%) and network conditions scope clarifies the verification boundary and prevents ambiguity in acceptance testing.",
+    "verification_idea": "Conduct network stress testing under agreed worksite conditions (bandwidth, latency, interference profiles) with teleoperation traffic (Telemetry, Tasking, SafetyAlert) flowing bidirectionally. Measure packet loss over representative mission durations. Acceptance: observed packet loss ≤ customer-defined limit (default 1%).",
+    "sub_frs": [
+      "FR-NGHE-009.1: The teleoperation subsystem shall transmit operator commands (Tasking) with <1% packet loss under agreed network conditions.",
+      "FR-NGHE-009.2: The teleoperation subsystem shall receive vehicle telemetry (Telemetry) with <1% packet loss under agreed network conditions.",
+      "FR-NGHE-009.3: The teleoperation subsystem shall transmit safety alerts (SafetyAlert) with <1% packet loss under agreed network conditions.",
+      "FR-NGHE-009.4: The teleoperation subsystem shall adapt communication strategy (e.g., compression, prioritization, retransmission) to maintain packet loss ≤ customer threshold across varying network conditions."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Implement redundant network paths (dual connectivity) with automatic failover to reduce single-point-of-failure packet loss.",
+      "DP-B: Deploy adaptive quality-of-service (QoS) management with traffic prioritization (SafetyAlert > Tasking > Telemetry) and dynamic payload compression to maintain packet loss within threshold.",
+      "DP-C: Integrate forward error correction (FEC) and selective retransmission protocols at the application layer to recover lost packets without exceeding latency budgets.",
+      "DP-D: Combine DP-B and DP-C: adaptive QoS with prioritization + FEC/retransmission to provide defense-in-depth against packet loss across diverse network conditions."
+    ],
+    "selected_dp": "DP-D: Implement a multi-layered packet loss mitigation strategy combining (1) adaptive QoS with traffic prioritization (SafetyAlert > Tasking > Telemetry), (2) dynamic payload compression, and (3) forward error correction (FEC) with selective retransmission at the application layer. This approach provides resilience across varying network conditions while maintaining safety-critical alert delivery and operator control responsiveness.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "DP-D couples teleoperation communication logic (QoS, prioritization, FEC) with network link management (Network Link interface). Coupling is acceptable because packet loss mitigation inherently requires visibility into network conditions and adaptive behavior.",
+        "DP-D couples safety alert delivery (SafetyAlert interface) with general telemetry/tasking flows. Coupling is managed via explicit prioritization hierarchy, reducing risk of safety alerts being dropped.",
+        "DP-D does not couple vehicle control logic (Tasking generation) with packet loss mitigation; mitigation is transparent to the operator/control layer."
+      ],
+      "notes": "Coupling is intentional and necessary. The design separates concerns: vehicle control logic remains independent; packet loss mitigation is localized to the teleoperation communication layer. This supports modularity and testability."
+    },
+    "assumptions_risks": [
+      "Assumption: Network conditions (bandwidth, latency, jitter, interference) are characterized and agreed with the customer before design finalization.",
+      "Assumption: FEC overhead and retransmission latency do not violate operator control loop timing requirements (typically <500ms round-trip for safe teleoperation).",
+      "Risk: Aggressive compression may degrade telemetry fidelity (e.g., video quality), impacting operator situational awareness. Mitigation: define compression thresholds and test with operators.",
+      "Risk: FEC adds computational overhead on both vehicle and tele-operator sides. Mitigation: profile CPU/power impact and validate feasibility on target hardware.",
+      "Risk: Prioritization logic (SafetyAlert > Tasking > Telemetry) may starve non-critical telemetry under sustained packet loss, reducing operator awareness. Mitigation: implement minimum bandwidth reservation for telemetry.",
+      "Risk: Selective retransmission may introduce out-of-order packet delivery. Mitigation: implement sequence numbering and reordering buffers."
+    ],
+    "recommended_revision": "Refine DP-D to explicitly define: (1) QoS priority levels and bandwidth allocation percentages, (2) FEC scheme (e.g., Reed-Solomon, Turbo codes) and overhead budget, (3) retransmission timeout and maximum retry count, (4) compression algorithm and quality thresholds, (5) latency budget for the entire mitigation pipeline. These parameters must be tuned during detailed design and validated against network condition profiles and operator control loop requirements."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "The Teleoperation module owns the end-to-end communication pipeline for remote equipment operation, including packet loss mitigation, QoS management, traffic prioritization, FEC/retransmission, and compression. It interfaces with the Vehicle module (via Tasking and Telemetry) and the Network Link (via Network Link interface). It also coordinates with Safety Services for SafetyAlert delivery."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Operator commands flow from tele-operator into Teleoperation module. Teleoperation applies QoS prioritization and FEC before transmission over Network Link."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle telemetry (sensor data, status) flows from Vehicle module through Teleoperation module. Teleoperation applies compression and FEC before transmission over Network Link to tele-operator."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "Safety alerts flow bidirectionally: from Safety Services to Teleoperation (for transmission to tele-operator) and from Vehicle to Teleoperation (for relay to Safety Services and tele-operator). Teleoperation prioritizes SafetyAlert over other traffic."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Teleoperation module transmits/receives all teleoperation traffic (Tasking, Telemetry, SafetyAlert) over the Network Link. Teleoperation monitors Network Link quality metrics (packet loss, latency, jitter) to adapt QoS and FEC parameters."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "Teleoperation is the natural owner of packet loss mitigation logic. QoS, prioritization, FEC, and compression are core teleoperation concerns. Minimal diffusion: only Network Link interface monitoring leaks out, which is acceptable and necessary for adaptive behavior."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Vehicle module should not own packet loss mitigation; it is a communication-layer concern, not a vehicle control concern. Assigning DP-D to Vehicle would couple vehicle logic with network communication details, violating separation of concerns."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 35,
+        "diffusion_score": 65,
+        "notes": "Safety Services owns safety policy and alert generation, not communication quality. While SafetyAlert delivery is safety-critical, the packet loss mitigation mechanism is a communication concern, not a safety policy concern. Assigning DP-D to Safety Services would blur the boundary between safety logic and communication infrastructure."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 40,
+        "diffusion_score": 60,
+        "notes": "NGHE Solution is the system-level container. Assigning DP-D here would leave implementation responsibility ambiguous and prevent clear ownership. Teleoperation is a more specific and appropriate owner."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the optimal owner of packet loss mitigation (DP-D) because: (1) it is the natural locus of teleoperation communication logic, (2) it already owns the Tasking, Telemetry, and SafetyAlert interfaces, (3) it has direct visibility into Network Link quality, (4) assigning DP-D to Teleoperation keeps vehicle control logic and safety policy logic independent and testable, (5) containment score of 95 reflects minimal diffusion and high cohesion.",
+    "containment_risks": [
+      "Risk: Teleoperation module may become complex if QoS, FEC, compression, and prioritization logic are not well-modularized internally. Mitigation: decompose Teleoperation into sub-modules (QoS Manager, FEC Engine, Compression Engine, Traffic Prioritizer) during detailed design.",
+      "Risk: Teleoperation module depends on accurate Network Link quality metrics (latency, jitter, packet loss feedback). If Network Link does not provide these metrics, Teleoperation cannot adapt. Mitigation: ensure Network Link interface includes quality-of-service feedback channel.",
+      "Risk: Teleoperation module must handle bidirectional traffic (Tasking in, Telemetry out, SafetyAlert inout) with different prioritization rules. Complexity may increase. Mitigation: define clear prioritization matrix and test with representative traffic patterns.",
+      "Risk: FEC and retransmission add latency. If latency budget is tight (e.g., <200ms round-trip), DP-D may not be feasible. Mitigation: validate latency impact early in detailed design and adjust FEC parameters if needed."
+    ],
+    "recommended_revision": "Confirm that the Network Link interface provides real-time quality metrics (packet loss rate, latency, jitter) to enable Teleoperation's adaptive QoS logic. If not, extend Network Link interface to include a feedback channel. Additionally, define internal sub-module boundaries within Teleoperation (QoS Manager, FEC Engine, Compression Engine, Traffic Prioritizer) to manage complexity and enable independent testing."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-D (multi-layered packet loss mitigation with QoS, FEC, compression, and prioritization) directly addresses the refined FR (maintain packet loss ≤ customer threshold under agreed network conditions). The DP is solution-neutral (does not prescribe specific algorithms or hardware), logically sound, and feasible. The coupling check confirms that DP-D does not introduce unintended cross-domain dependencies. Assumptions and risks are documented and manageable."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Teleoperation module ownership is appropriate; diffusion score of 5 is minimal. The only external dependency is Network Link interface monitoring, which is necessary and acceptable.",
+        "No diffusion of packet loss mitigation logic to Vehicle, Safety Services, or other modules. Ownership boundary is clear."
+      ],
+      "containment_notes": "Teleoperation module has a containment score of 95, indicating strong cohesion and minimal diffusion. The module naturally owns teleoperation communication logic, including packet loss mitigation. Internal sub-module decomposition (QoS Manager, FEC Engine, etc.) is recommended to manage complexity, but this is a detailed design concern, not a gate-level issue."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification of the refined FR (packet loss ≤ customer threshold) is feasible via network stress testing under agreed worksite conditions. Teleoperation module can be tested in isolation (with mock Vehicle and Network Link) or integrated with full system. Acceptance criteria are clear and measurable.",
+      "allocation_clarity": "Allocation of DP-D to Teleoperation module is clear. Teleoperation owns QoS, prioritization, FEC, and compression logic. Vehicle module owns vehicle control and sensor logic (independent of packet loss mitigation). Safety Services owns safety policy and alert generation (independent of communication quality). Interfaces (Tasking, Telemetry, SafetyAlert, Network Link) are well-defined and assigned to Teleoperation."
+    },
+    "recommended_revisions": [
+      "Refine DP-D to specify QoS priority levels, FEC scheme, retransmission parameters, compression thresholds, and latency budget. These parameters must be tuned during detailed design.",
+      "Extend Network Link interface to include real-time quality metrics (packet loss rate, latency, jitter) to enable Teleoperation's adaptive behavior.",
+      "Define internal sub-module boundaries within Teleoperation (QoS Manager, FEC Engine, Compression Engine, Traffic Prioritizer) to manage complexity and enable independent testing.",
+      "Conduct early latency profiling to validate that FEC and retransmission do not violate operator control loop timing requirements (<500ms round-trip).",
+      "Define compression quality thresholds and test with operators to ensure telemetry fidelity is maintained."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The refined FR is clear, the selected DP is sound and well-justified, and the assigned IM (Teleoperation) is appropriate with high containment and minimal diffusion. All gates pass. However, the FR is not fully atomic: it decomposes into four sub-FRs (command transmission, telemetry reception, safety alert transmission, and adaptive communication strategy). To ensure complete functional decomposition and traceability, the next level must decompose these sub-FRs into their own DP and IM assignments. Additionally, DP-D requires detailed parameter specification (QoS levels, FEC scheme, retransmission logic, compression thresholds) that should be captured as sub-level design decisions.",
+    "justification_detail": "ZIGZAG_DOWN is appropriate because: (1) the current level (FR-DP-IM) is well-formed and passes all gates, (2) the sub-FRs are well-defined and ready for decomposition, (3) detailed design parameters (QoS levels, FEC scheme, etc.) are best captured at the next decomposition level, (4) internal Teleoperation sub-modules (QoS Manager, FEC Engine, etc.) should be explicitly designed at the next level.",
+    "next_level_sub_frs": [
+      "FR-NGHE-009.1: The teleoperation subsystem shall transmit operator commands (Tasking) with <1% packet loss under agreed network conditions.",
+      "FR-NGHE-009.2: The teleoperation subsystem shall receive vehicle telemetry (Telemetry) with <1% packet loss under agreed network conditions.",
+      "FR-NGHE-009.3: The teleoperation subsystem shall transmit safety alerts (SafetyAlert) with <1% packet loss under agreed network conditions.",
+      "FR-NGHE-009.4: The teleoperation subsystem shall adapt communication strategy (e.g., compression, prioritization, retransmission) to maintain packet loss ≤ customer threshold across varying network conditions."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Network conditions (bandwidth, latency, jitter, interference) are characterized and agreed with the customer before design finalization.",
+        "FEC overhead and retransmission latency do not violate operator control loop timing requirements (typically <500ms round-trip).",
+        "Network Link interface provides real-time quality metrics (packet loss rate, latency, jitter) to enable adaptive QoS.",
+        "Operator control loop can tolerate the latency introduced by FEC and retransmission.",
+        "Compression algorithms are available and can be implemented within computational and power budgets.",
+        "Vehicle and Safety Services modules do not own packet loss mitigation logic; this is a Teleoperation concern."
+      ],
+      "open_risks": [
+        "Aggressive compression may degrade telemetry fidelity, impacting operator situational awareness. Mitigation: define compression thresholds and test with operators.",
+        "FEC adds computational overhead on both vehicle and tele-operator sides. Mitigation: profile CPU/power impact and validate feasibility on target hardware.",
+        "Prioritization logic may starve non-critical telemetry under sustained packet loss. Mitigation: implement minimum bandwidth reservation for telemetry.",
+        "Selective retransmission may introduce out-of-order packet delivery. Mitigation: implement sequence numbering and reordering buffers.",
+        "Latency budget may be exceeded if FEC and retransmission parameters are not tuned correctly. Mitigation: conduct early latency profiling."
+      ],
+      "evidence_needed": [
+        "Network condition profiles (bandwidth, latency, jitter, interference) agreed with customer.",
+        "Operator control loop timing requirements and latency budget.",
+        "FEC scheme selection and overhead analysis (e.g., Reed-Solomon, Turbo codes).",
+        "Compression algorithm selection and quality impact assessment.",
+        "QoS priority levels and bandwidth allocation percentages.",
+        "Retransmission timeout and maximum retry count parameters.",
+        "Network stress testing results validating packet loss ≤ customer threshold.",
+        "Latency profiling results confirming operator control loop requirements are met.",
+        "Operator acceptance testing with representative telemetry and compression settings."
+      ]
+    }
+  }
+}

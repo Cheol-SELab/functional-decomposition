@@ -1,0 +1,176 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and designated work zones with sufficient fidelity to support autonomous path planning, collision avoidance, and operator situational awareness.",
+    "rationale": "The original FR was vague on scope (what constitutes 'area analysis') and lacked explicit linkage to downstream functional consumers (planning, execution, safety). Refinement adds: (1) real-time update cadence to support dynamic safety; (2) explicit feature taxonomy (terrain, static obstacles, dynamic hazards, work zones); (3) fidelity requirement tied to use cases (path planning, collision avoidance, situational awareness); (4) availability requirement for planning/execution functions.",
+    "verification_idea": "Acceptance test: Worksite model is generated within 5 minutes of system initialization; model is updated at ≥2 Hz; model includes all terrain features within ±0.5 m horizontal accuracy and ±0.1 m vertical accuracy; model is accessible via standardized query interface to planning and safety modules; model correctly represents at least 95% of static obstacles and work zones identified in pre-mission survey.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire worksite sensor data (LiDAR, camera, GNSS, IMU) with sufficient coverage and refresh rate.",
+      "CR-NGHE-006.2: Process sensor data into a unified 3D terrain and obstacle map with real-time update.",
+      "CR-NGHE-006.3: Classify and label map features (terrain type, obstacle type, hazard type, work zone boundary).",
+      "CR-NGHE-006.4: Provide worksite model query and subscription interface to planning, execution, and safety functions.",
+      "CR-NGHE-006.5: Validate worksite model against pre-mission survey and operator input; flag discrepancies as safety alerts."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized mapping service (SLAM-based or survey-grade GNSS + LiDAR fusion) running on vehicle compute, publishing model via standardized message bus to all consumers.",
+      "DP-B: Distributed sensor processing (each sensor stream processed independently on edge devices, results fused at planning layer) with eventual consistency model.",
+      "DP-C: Hybrid: vehicle-resident SLAM for real-time local mapping + cloud-based survey-grade refinement for long-term model persistence and multi-vehicle coordination.",
+      "DP-D: Operator-in-the-loop manual annotation of pre-loaded map with sensor-assisted obstacle detection overlay."
+    ],
+    "selected_dp": "DP-C: Hybrid architecture—vehicle-resident real-time SLAM (Simultaneous Localization and Mapping) for immediate obstacle detection and path planning support, coupled with asynchronous cloud-based survey-grade map refinement for persistent worksite model and multi-vehicle coordination. Real-time map published via Telemetry interface; refined model available via Tasking interface for planning functions.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "DP-C introduces temporal coupling between real-time SLAM and cloud refinement—latency in cloud feedback could cause stale map data in planning layer. Mitigated by explicit versioning and confidence scores on map features.",
+        "DP-C couples vehicle compute (SLAM) with network availability (cloud sync). Mitigated by graceful degradation: vehicle operates on local SLAM if network unavailable; cloud refinement is asynchronous and non-blocking.",
+        "DP-C couples worksite model with teleoperation latency—if tele-operator relies on cloud-refined map, network delay affects situational awareness. Mitigated by dual-stream: real-time SLAM to tele-operator, refined map to planning."
+      ],
+      "notes": "DP-C is decoupled from specific sensor modality (SLAM algorithm agnostic) and from specific cloud platform, reducing technology lock-in. Coupling is primarily temporal (sync latency) and network-dependent, both manageable via architecture."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Vehicle has sufficient onboard compute (GPU/CPU) to run real-time SLAM at ≥2 Hz with <500 ms latency.",
+      "ASSUMPTION: Network connectivity (4G/5G or private radio) is available for cloud sync; graceful degradation is acceptable if connectivity is lost.",
+      "ASSUMPTION: Pre-mission survey data (baseline map) is available to initialize cloud model; SLAM refines incrementally.",
+      "RISK: SLAM drift over long missions (>8 hours) without loop closure or GNSS correction. Mitigation: integrate GNSS/RTK for periodic drift correction.",
+      "RISK: Cloud refinement latency (minutes to hours) may not reflect rapid site changes (e.g., new equipment arrival). Mitigation: operator override and manual annotation capability.",
+      "RISK: Multi-vehicle SLAM coordination (if multiple NGHE units operate simultaneously) requires shared map frame. Mitigation: centralized map server with vehicle-to-server sync protocol."
+    ],
+    "recommended_revision": "Clarify compute budget and network SLA in DP-C. Specify SLAM algorithm (e.g., ORB-SLAM3, LIO-SAM) and cloud map service (e.g., PostGIS, Cesium Ion). Define versioning and confidence scoring scheme for map features to support safety-critical downstream consumers."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "The Vehicle module owns the real-time worksite mapping function, including onboard sensor integration (LiDAR, camera, GNSS, IMU), SLAM computation, local map storage, and publication of real-time map state via Telemetry interface. Vehicle also owns the interface to cloud-based map refinement service (asynchronous, non-blocking)."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle publishes real-time worksite map (terrain, obstacles, hazards, work zones) as Telemetry stream at ≥2 Hz. Consumers: planning functions, tele-operator display, safety services. Payload: 3D point cloud or voxel grid with feature labels and confidence scores."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives map query/subscription requests from planning and execution functions via Tasking interface. Requests specify region of interest, feature types, and update frequency. Vehicle responds with map snapshot or stream."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Vehicle publishes map discrepancy alerts (e.g., unexpected obstacle detected, work zone boundary violated) via SafetyAlert interface to Safety Services. Triggers operator notification and autonomous safety response if configured."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Vehicle uses Network Link for asynchronous communication with cloud-based map refinement service. Uploads local SLAM map snapshots; downloads refined map updates and multi-vehicle coordination data."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Vehicle is the natural owner of real-time SLAM and sensor fusion—these are tightly coupled to vehicle state (pose, velocity) and onboard compute. Sensor hardware (LiDAR, camera) is vehicle-resident. Diffusion risk: map query/subscription logic could leak into planning modules if interface is not well-defined; mitigated by explicit Tasking interface contract."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.65,
+        "diffusion_score": 0.35,
+        "notes": "NGHE Solution could own the overall mapping orchestration and cloud service integration, but would require Vehicle to expose low-level sensor streams and SLAM state, increasing coupling. Not recommended as primary owner; better as orchestrator of Vehicle + cloud service."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Safety Services could own map validation and discrepancy detection, but should not own real-time SLAM or sensor fusion—these are not safety-specific and would be duplicated if Safety Services also maintained a map. Better role: consume map from Vehicle, validate against safety policies, publish SafetyAlert."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Teleoperation could display map to tele-operator, but should not own map generation or refinement. Teleoperation is a consumer of map data, not a producer. High diffusion risk if map logic is embedded in tele-operator UI."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "Vehicle module owns real-time worksite mapping (SLAM, sensor fusion, local map storage) and publishes map state via Telemetry and SafetyAlert interfaces. Cloud-based map refinement is a service external to Vehicle, accessed via Network Link. Planning, execution, and safety functions consume map via Tasking and Telemetry interfaces. This assignment minimizes diffusion (map logic is not scattered across planning, safety, or teleoperation modules) and aligns with vehicle-centric architecture (sensors and compute are vehicle-resident).",
+    "containment_risks": [
+      "RISK: Vehicle module becomes a 'god module' if it also owns path planning, collision avoidance, and task execution. Mitigation: clearly separate Vehicle responsibilities (sensing, mapping, state estimation) from planning/execution responsibilities (path planning, task scheduling). Use Tasking interface as the boundary.",
+      "RISK: Real-time SLAM is computationally intensive; if Vehicle module also owns other heavy functions (e.g., video processing for anomaly detection), compute contention could degrade map update rate. Mitigation: allocate dedicated compute cores to SLAM; monitor CPU/GPU utilization; implement graceful degradation if compute is saturated.",
+      "RISK: Map data structure (point cloud, voxel grid, occupancy grid) is not standardized across Vehicle and consumers. Mitigation: define canonical map representation in Telemetry interface specification; provide conversion utilities if consumers use different formats.",
+      "RISK: Cloud map refinement service is external to Vehicle module; if service is unavailable, Vehicle continues with local SLAM but loses long-term map persistence and multi-vehicle coordination. Mitigation: design Vehicle to operate independently; cloud service is optional enhancement, not critical path."
+    ],
+    "recommended_revision": "Explicitly define the Vehicle-to-Cloud interface (Network Link usage) in a separate sub-module or interface specification. Clarify ownership of map versioning, feature labeling, and confidence scoring—these could be owned by Vehicle or by a shared map service. Define fallback behavior if cloud service is unavailable (e.g., local map only, no multi-vehicle coordination). Specify compute resource allocation (CPU cores, GPU memory) for SLAM to ensure real-time performance."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid SLAM + cloud refinement) directly addresses all sub-FRs: (1) real-time sensor data acquisition via onboard sensors; (2) SLAM-based processing into unified 3D map; (3) feature classification via SLAM output and cloud refinement; (4) map query interface via Tasking; (5) validation via cloud refinement and SafetyAlert. DP-C is not over-constrained (allows multiple SLAM algorithms, cloud platforms) and is not under-constrained (specifies real-time + persistent map, hybrid architecture). Coupling is acceptable and manageable."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Vehicle module owns both real-time SLAM and cloud sync logic. If cloud sync is complex (e.g., multi-vehicle coordination, map merging), it could diffuse into planning or safety modules. Mitigation: encapsulate cloud sync in a dedicated sub-module within Vehicle or in a separate 'Map Service' module (if available).",
+        "Telemetry interface publishes raw map data (point cloud, voxel grid). If consumers (planning, safety, teleoperation) each implement their own map parsing and feature extraction, logic diffuses. Mitigation: Vehicle publishes pre-processed map with labeled features; consumers subscribe to specific feature types."
+      ],
+      "containment_notes": "Vehicle is the clear owner of real-time mapping. Containment score 0.92 is high; diffusion score 0.08 is low. Primary diffusion risk is map query/subscription logic leaking into planning modules if Tasking interface is not well-specified. Secondary risk: cloud sync complexity. Both are manageable with clear interface contracts and sub-module boundaries."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification of CR-NGHE-006 is feasible via: (1) unit tests of SLAM algorithm (accuracy, drift, loop closure); (2) integration tests of sensor fusion (LiDAR + camera + GNSS); (3) system tests of map generation and update rate in controlled worksite; (4) acceptance tests of map accuracy against survey-grade ground truth; (5) field tests of map availability to planning/execution functions. All tests can be conducted on Vehicle module in isolation or integrated with planning/safety modules.",
+      "allocation_clarity": "Allocation is clear: Vehicle owns mapping; planning/execution/safety own consumption. Interfaces (Telemetry, Tasking, SafetyAlert, Network Link) are well-defined. Ownership boundaries are explicit. No ambiguity on who is responsible for map generation, update, validation, or distribution."
+    },
+    "recommended_revisions": [
+      "Specify SLAM algorithm and cloud map service in DP-C to reduce technology risk.",
+      "Define map data structure (point cloud format, voxel resolution, feature label taxonomy) in Telemetry interface specification.",
+      "Clarify compute resource allocation (CPU cores, GPU memory, storage) for Vehicle module to ensure real-time SLAM performance.",
+      "Define fallback behavior if cloud service is unavailable (e.g., local SLAM only, no multi-vehicle coordination).",
+      "Specify map versioning and confidence scoring scheme to support safety-critical downstream consumers.",
+      "Add sub-FR for map validation against pre-mission survey and operator input (currently implicit in CR-NGHE-006.5)."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "CR-NGHE-006 is not atomic; it decomposes into five sub-FRs (sensor acquisition, processing, classification, query interface, validation). Each sub-FR requires further refinement and DP selection. DP-C (hybrid SLAM + cloud) is sound and passes FR-DP and DP-IM gates, but implementation details (SLAM algorithm, cloud service, compute allocation, map data structure) must be resolved at the next decomposition level. Vehicle module assignment is clear and passes containment analysis. Proceeding to next level is justified to detail sensor acquisition, SLAM processing, feature classification, and query interface.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire worksite sensor data (LiDAR, camera, GNSS, IMU) with sufficient coverage and refresh rate.",
+      "CR-NGHE-006.2: Process sensor data into a unified 3D terrain and obstacle map with real-time update.",
+      "CR-NGHE-006.3: Classify and label map features (terrain type, obstacle type, hazard type, work zone boundary).",
+      "CR-NGHE-006.4: Provide worksite model query and subscription interface to planning, execution, and safety functions.",
+      "CR-NGHE-006.5: Validate worksite model against pre-mission survey and operator input; flag discrepancies as safety alerts."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Vehicle has sufficient onboard compute (GPU/CPU) to run real-time SLAM at ≥2 Hz with <500 ms latency.",
+        "Network connectivity (4G/5G or private radio) is available for cloud sync; graceful degradation is acceptable if connectivity is lost.",
+        "Pre-mission survey data (baseline map) is available to initialize cloud model; SLAM refines incrementally.",
+        "SLAM algorithm (e.g., ORB-SLAM3, LIO-SAM) is mature and available as open-source or commercial product.",
+        "Cloud map service (e.g., PostGIS, Cesium Ion) is available and can be integrated with Vehicle module.",
+        "Map data structure (point cloud, voxel grid, occupancy grid) can be standardized across Vehicle and consumers.",
+        "Tele-operator and planning functions can tolerate real-time SLAM uncertainty (confidence scores on features).",
+        "Multi-vehicle coordination (if applicable) is handled by cloud service, not by Vehicle module."
+      ],
+      "open_risks": [
+        "SLAM drift over long missions (>8 hours) without loop closure or GNSS correction. Mitigation: integrate GNSS/RTK for periodic drift correction.",
+        "Cloud refinement latency (minutes to hours) may not reflect rapid site changes. Mitigation: operator override and manual annotation capability.",
+        "Compute contention if Vehicle module also owns other heavy functions. Mitigation: allocate dedicated compute cores to SLAM.",
+        "Map data structure not standardized across Vehicle and consumers. Mitigation: define canonical representation in Telemetry interface.",
+        "Cloud service unavailability impacts multi-vehicle coordination and long-term map persistence. Mitigation: design Vehicle to operate independently.",
+        "Safety criticality of worksite model (high) requires validation against pre-mission survey and operator input. Mitigation: implement CR-NGHE-006.5 with explicit validation logic."
+      ],
+      "evidence_needed": [
+        "SLAM algorithm performance data (accuracy, drift, loop closure success rate) for target worksite terrain types.",
+        "Vehicle compute specifications (CPU, GPU, memory, storage) and SLAM computational requirements.",
+        "Network connectivity SLA (latency, bandwidth, availability) for cloud sync.",
+        "Pre-mission survey data format and availability (e.g., LiDAR point cloud, orthophoto, DEM).",
+        "Cloud map service API and integration examples.",
+        "Map data structure specification (point cloud format, voxel resolution, feature label taxonomy).",
+        "Acceptance criteria for map accuracy (horizontal, vertical, feature detection rate).",
+        "Tele-operator and planning function requirements for map update rate, latency, and confidence scores.",
+        "Multi-vehicle coordination requirements (if applicable).",
+        "Fallback behavior specification if cloud service is unavailable."
+      ]
+    }
+  }
+}

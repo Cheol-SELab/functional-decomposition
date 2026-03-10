@@ -1,0 +1,173 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall establish and maintain teleoperation communication channels with end-to-end latency (sensor-to-operator-to-actuator) not exceeding 150 ms at the 95th percentile under agreed network conditions, enabling safe and responsive remote equipment control.",
+    "rationale": "The original FR is vague on scope (end-to-end vs. link-only), measurement point (p95 quantile), and operational context (network conditions). Refinement clarifies that latency is measured from sensor acquisition through operator decision to actuator response, establishes the p95 acceptance criterion explicitly, and anchors measurement to agreed network conditions to enable reproducible verification.",
+    "verification_idea": "Instrument teleoperation path with timestamped events at sensor capture, operator input, and actuator command execution. Collect latency samples across agreed network conditions (bandwidth, jitter, packet loss profiles). Compute p95 latency distribution. Acceptance: p95 ≤ 150 ms in all agreed conditions.",
+    "sub_frs": [
+      "FR-NGHE-008.1: Sensor data shall be acquired and timestamped at the vehicle with minimal latency overhead (target: <10 ms).",
+      "FR-NGHE-008.2: Telemetry transmission from vehicle to operator station shall complete within agreed network latency budget (target: <60 ms p95).",
+      "FR-NGHE-008.3: Operator input (control commands) shall be captured, processed, and transmitted to vehicle within agreed latency budget (target: <60 ms p95).",
+      "FR-NGHE-008.4: Vehicle shall receive, decode, and execute operator commands with minimal processing latency (target: <20 ms).",
+      "FR-NGHE-008.5: Teleoperation system shall detect and gracefully handle latency excursions and network degradation without loss of safety state."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Implement low-latency telemetry pipeline with hardware-timestamped sensor capture, priority-queued network transmission, and operator-side predictive rendering to mask network jitter.",
+      "DP-B: Deploy edge computing at vehicle with local sensor fusion and command buffering; operator station uses deterministic polling with adaptive timeout to minimize round-trip latency variance.",
+      "DP-C: Establish dedicated low-latency network link (separate from general telemetry) for critical control commands; use dual-path architecture (primary + fallback) with automatic failover.",
+      "DP-D: Implement latency-aware middleware layer that monitors end-to-end latency in real-time, throttles non-critical telemetry, and triggers safety-mode transitions if p95 latency exceeds threshold."
+    ],
+    "selected_dp": "DP-B + DP-D (hybrid): Deploy edge computing at vehicle with local sensor fusion and command buffering to reduce processing latency; implement latency-aware middleware at operator station and vehicle to monitor end-to-end latency in real-time, throttle non-critical telemetry under congestion, and trigger safety-mode transitions if p95 latency exceeds 150 ms threshold. This approach balances deterministic local processing (DP-B) with adaptive runtime monitoring and graceful degradation (DP-D).",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "DP-B (edge computing) is logically independent of DP-D (latency monitoring); they operate at different layers (local processing vs. system-wide observability).",
+        "DP-D depends on DP-B's timestamping infrastructure to measure latency accurately; this is a weak coupling (data dependency, not functional coupling).",
+        "No circular dependencies or conflicting control logic detected."
+      ],
+      "notes": "The hybrid approach avoids over-coupling by assigning edge computing to vehicle domain and latency monitoring to middleware layer. Both DPs are necessary: DP-B reduces baseline latency; DP-D ensures safety under degraded conditions."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Vehicle has sufficient compute capacity to run edge sensor fusion and command buffering without introducing additional latency.",
+      "ASSUMPTION: Network conditions are measurable and can be characterized in advance (bandwidth, jitter, packet loss profiles).",
+      "ASSUMPTION: Operator station and vehicle can synchronize clocks to within ±5 ms for accurate latency measurement.",
+      "RISK: If edge computing introduces unexpected latency (e.g., due to sensor driver delays), baseline latency target may be missed.",
+      "RISK: If network conditions are highly variable or unpredictable, latency monitoring may not provide sufficient warning time for graceful degradation.",
+      "RISK: Safety-mode transition logic must be carefully designed to avoid oscillation (repeated mode switches) under marginal latency conditions."
+    ],
+    "recommended_revision": "Refine DP-D to specify the latency threshold monitoring strategy: (1) define the safety-mode transition trigger (e.g., p95 latency > 150 ms for >5 consecutive seconds), (2) specify which telemetry streams are throttled first (non-critical sensors before critical ones), (3) define the fallback control mode (e.g., operator-supervised autonomous hold or manual local control). This will reduce ambiguity in implementation."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Teleoperation module owns the end-to-end latency control logic, including operator-side command capture and transmission, vehicle-side command reception and execution, telemetry pipeline management, and latency monitoring middleware. The module integrates with Vehicle (for edge computing and actuator control), Safety Services (for safety-mode transitions), and Network Link (for transmission)."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Teleoperation module outputs timestamped sensor telemetry (position, orientation, load, diagnostics) to operator station and monitoring systems. Latency-aware throttling applied under congestion."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Teleoperation module receives operator control commands (movement, tool actuation, mode changes) from operator station. Commands are timestamped and queued for transmission to vehicle."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "Teleoperation module receives safety alerts from Safety Services (e.g., latency threshold exceeded) and sends latency-related safety events (e.g., mode transition triggers) to Safety Services for logging and operator notification."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Teleoperation module uses Network Link for bidirectional transmission of telemetry and commands. Module monitors link quality (latency, jitter, packet loss) and adapts transmission strategy accordingly."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "NGHE Solution is the top-level system container. Teleoperation is a major subsystem but not the entire solution. Assigning to NGHE Solution would diffuse ownership and obscure the latency control boundary. Not recommended as primary IM."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Vehicle module owns edge computing, sensor acquisition, and actuator control. However, teleoperation latency is an end-to-end property that spans vehicle and operator station. Assigning to Vehicle alone would split the latency control logic and obscure the operator-side contribution. Partial containment only."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.95,
+        "diffusion_score": 0.05,
+        "notes": "Teleoperation module is the natural home for end-to-end latency control. It owns the operator-side command pipeline, vehicle-side command reception, telemetry management, and latency monitoring middleware. Latency is a property of the teleoperation subsystem, not a property of Vehicle or Safety Services alone. High containment, minimal diffusion."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Safety Services owns safety-mode transitions and alerts. Teleoperation latency monitoring feeds into Safety Services, but the latency control logic itself is not a safety service. Assigning to Safety Services would conflate latency management with safety management. Not recommended as primary IM."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "Teleoperation module is the correct IM boundary because: (1) it owns the operator-side command capture and transmission pipeline, (2) it owns the vehicle-side command reception and execution pipeline, (3) it owns the telemetry acquisition and transmission pipeline, (4) it owns the latency monitoring middleware that measures and reacts to latency excursions. The module has clear ownership of all components that directly contribute to end-to-end latency. External dependencies (Vehicle for edge computing, Safety Services for mode transitions, Network Link for transmission) are well-defined and minimal.",
+    "containment_risks": [
+      "RISK: If Vehicle module does not implement edge computing as specified in DP-B, Teleoperation module cannot achieve latency targets. Dependency on Vehicle implementation quality is high.",
+      "RISK: If Network Link does not provide the agreed latency characteristics, Teleoperation module's latency monitoring may detect excursions but cannot correct them. Teleoperation module must have clear escalation path to Network Link owner.",
+      "RISK: If Safety Services does not respond promptly to latency-triggered safety alerts, operator may not be notified of mode transitions in time. Interface contract between Teleoperation and Safety Services must specify response time SLA.",
+      "RISK: Teleoperation module may become a bottleneck if latency monitoring logic is not efficiently implemented. Performance testing and profiling required during detailed design."
+    ],
+    "recommended_revision": "Define explicit interface contracts between Teleoperation and Vehicle, Safety Services, and Network Link: (1) Vehicle must provide timestamped sensor data and command execution confirmation within specified latency budgets. (2) Safety Services must acknowledge latency-triggered alerts within 10 ms. (3) Network Link must provide latency and jitter metrics to Teleoperation module for adaptive throttling. These contracts will clarify ownership boundaries and enable independent testing."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "Selected DP (hybrid edge computing + latency-aware middleware) directly addresses the refined FR (end-to-end latency ≤ 150 ms p95). DP-B reduces baseline latency through local processing; DP-D ensures safety under degraded conditions. The mapping is clear and traceable. No functional gaps detected."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Teleoperation module depends on Vehicle module for edge computing implementation. If Vehicle does not deliver on DP-B, Teleoperation cannot achieve latency targets. Recommend explicit dependency tracking and integration testing.",
+        "Teleoperation module depends on Network Link for transmission characteristics. If Network Link does not meet agreed latency budget, Teleoperation's latency monitoring may detect excursions but cannot correct them. Recommend clear escalation path and SLA definition.",
+        "Latency monitoring middleware (DP-D) is distributed across operator station and vehicle. Synchronization and clock skew must be managed carefully. Recommend centralized time reference (e.g., NTP) and validation of clock accuracy."
+      ],
+      "containment_notes": "Teleoperation module has high containment (0.95) for latency control logic. External dependencies are well-defined and minimal. Module boundaries are clear. Ownership is unambiguous. Recommended for implementation."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible via instrumentation of teleoperation path with timestamped events. Latency can be measured directly in production or test environment. Acceptance criterion (p95 ≤ 150 ms) is quantitative and testable. Recommend automated latency monitoring and alerting in production.",
+      "allocation_clarity": "Allocation of latency targets to sub-FRs is clear: sensor acquisition (<10 ms), telemetry transmission (<60 ms p95), operator input transmission (<60 ms p95), vehicle command execution (<20 ms), graceful degradation (safety-mode transition). Each sub-FR is assigned to a specific component or layer. Ownership is unambiguous."
+    },
+    "recommended_revisions": [
+      "Refine DP-D to specify latency threshold monitoring strategy: define safety-mode transition trigger, specify telemetry throttling priority, define fallback control mode.",
+      "Define explicit interface contracts between Teleoperation and Vehicle, Safety Services, Network Link: specify latency budgets, response time SLAs, and escalation paths.",
+      "Establish centralized time reference (e.g., NTP) for clock synchronization across operator station and vehicle. Validate clock accuracy to within ±5 ms.",
+      "Plan automated latency monitoring and alerting in production. Define metrics dashboard and escalation procedures for latency excursions.",
+      "Conduct integration testing between Teleoperation and Vehicle, Safety Services, Network Link to validate end-to-end latency under agreed network conditions."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The refined FR is well-defined and traceable to a selected DP and assigned IM. However, the DP is complex (hybrid approach with two sub-strategies) and the IM has significant external dependencies (Vehicle, Safety Services, Network Link). To reduce risk and ensure feasibility, recommend decomposing the FR into sub-FRs and assigning each to a specific component or layer. This will clarify ownership, enable independent testing, and reduce integration risk.",
+    "next_level_sub_frs": [
+      "FR-NGHE-008.1: Sensor data shall be acquired and timestamped at the vehicle with minimal latency overhead (target: <10 ms). [Assigned to: Vehicle module, edge computing layer]",
+      "FR-NGHE-008.2: Telemetry transmission from vehicle to operator station shall complete within agreed network latency budget (target: <60 ms p95). [Assigned to: Teleoperation module, telemetry pipeline]",
+      "FR-NGHE-008.3: Operator input (control commands) shall be captured, processed, and transmitted to vehicle within agreed latency budget (target: <60 ms p95). [Assigned to: Teleoperation module, command pipeline]",
+      "FR-NGHE-008.4: Vehicle shall receive, decode, and execute operator commands with minimal processing latency (target: <20 ms). [Assigned to: Vehicle module, command execution layer]",
+      "FR-NGHE-008.5: Teleoperation system shall detect and gracefully handle latency excursions and network degradation without loss of safety state. [Assigned to: Teleoperation module + Safety Services, latency monitoring and safety-mode transition]"
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "The selected DP (hybrid edge computing + latency-aware middleware) is sound but needs refinement to specify: (1) latency threshold monitoring strategy (trigger conditions, throttling priority, fallback mode), (2) clock synchronization approach (NTP, accuracy targets), (3) interface contracts with Vehicle, Safety Services, Network Link (latency budgets, response time SLAs). Recommend revising DP-D to include these details before proceeding to detailed design."
+    },
+    "record": {
+      "assumptions": [
+        "Vehicle module has sufficient compute capacity to run edge sensor fusion and command buffering without introducing additional latency.",
+        "Network conditions are measurable and can be characterized in advance (bandwidth, jitter, packet loss profiles).",
+        "Operator station and vehicle can synchronize clocks to within ±5 ms for accurate latency measurement.",
+        "Safety Services can respond to latency-triggered alerts within 10 ms.",
+        "Network Link provides latency and jitter metrics to Teleoperation module for adaptive throttling.",
+        "Operator can tolerate graceful degradation (e.g., reduced telemetry refresh rate) under network congestion."
+      ],
+      "open_risks": [
+        "If Vehicle module does not implement edge computing as specified, Teleoperation module cannot achieve latency targets.",
+        "If Network Link does not provide agreed latency characteristics, Teleoperation module's latency monitoring may detect excursions but cannot correct them.",
+        "If Safety Services does not respond promptly to latency-triggered alerts, operator may not be notified of mode transitions in time.",
+        "If latency monitoring logic is not efficiently implemented, Teleoperation module may become a bottleneck.",
+        "If network conditions are highly variable or unpredictable, latency monitoring may not provide sufficient warning time for graceful degradation.",
+        "If safety-mode transition logic is poorly designed, system may oscillate between modes under marginal latency conditions."
+      ],
+      "evidence_needed": [
+        "Detailed design of Vehicle edge computing layer with latency measurements for sensor acquisition and command execution.",
+        "Detailed design of Teleoperation latency monitoring middleware with clock synchronization approach and threshold monitoring strategy.",
+        "Interface contracts between Teleoperation and Vehicle, Safety Services, Network Link with explicit latency budgets and response time SLAs.",
+        "Integration test plan for end-to-end latency validation under agreed network conditions.",
+        "Production monitoring plan for latency metrics, alerting, and escalation procedures.",
+        "Safety analysis of latency-triggered mode transitions to ensure no loss of safety state."
+      ]
+    }
+  }
+}

@@ -1,0 +1,169 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and designated work zones with sufficient fidelity to support autonomous path planning, collision avoidance, and operator situational awareness.",
+    "rationale": "The original FR was vague on fidelity requirements, update frequency, and intended consumers. Refinement clarifies that the worksite model must be dynamic (not static), support both autonomous and tele-operated modes, and be accessible to planning and execution subsystems. High safety criticality demands explicit hazard representation and real-time capability.",
+    "verification_idea": "Acceptance test: (1) Model accuracy within ±0.5 m for terrain and obstacles in a 500 m² test site; (2) Update latency ≤ 2 s for dynamic hazards; (3) Model accessible via standardized interface to planning and safety subsystems; (4) Hazard detection and representation verified against ground truth survey.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire worksite sensor data (LiDAR, camera, GNSS, IMU) and fuse into unified coordinate frame.",
+      "CR-NGHE-006.2: Detect, classify, and track static terrain and obstacles (elevation, geometry, material properties).",
+      "CR-NGHE-006.3: Detect, classify, and track dynamic hazards (personnel, moving equipment, temporary barriers).",
+      "CR-NGHE-006.4: Represent work zones, exclusion zones, and operational boundaries in the model.",
+      "CR-NGHE-006.5: Publish worksite model state and updates to authorized planning, execution, and safety subsystems with defined latency and fidelity SLAs.",
+      "CR-NGHE-006.6: Validate model consistency and detect model degradation or sensor failures; alert Safety Services."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Onboard multi-sensor fusion (LiDAR + stereo camera + GNSS/IMU) with local occupancy grid and object detection; periodic upload to cloud for persistent map; planning/safety subsystems query cloud or onboard cache.",
+      "DP-B: Distributed sensor network (fixed ground-based LiDAR + cameras at site perimeter) with centralized fusion server; vehicle receives map updates via wireless; all planning/safety queries served from central map.",
+      "DP-C: Hybrid: Vehicle carries primary sensors (LiDAR, camera); fuses locally into egocentric model; periodically synchronizes with site-wide model maintained by fixed infrastructure; planning/safety subsystems access site-wide model; vehicle also maintains local cache for safety-critical functions.",
+      "DP-D: Lightweight onboard mapping (camera + wheel odometry) with heavy reliance on pre-loaded site survey; minimal real-time updates; suitable only for low-variability sites."
+    ],
+    "selected_dp": "DP-C: Hybrid onboard + infrastructure fusion. Vehicle carries LiDAR and camera; performs local egocentric fusion for real-time safety (collision avoidance, hazard detection). Periodically synchronizes with site-wide model maintained by fixed infrastructure (or cloud service). Planning and safety subsystems access the authoritative site-wide model; vehicle maintains local cache for safety-critical autonomous functions. This balances real-time responsiveness (onboard), global consistency (infrastructure), and resilience (dual-path access).",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Dependency on network availability for site-wide model sync (mitigated by local cache and autonomous fallback).",
+        "Synchronization latency between vehicle and infrastructure models (acceptable if bounded and monitored).",
+        "Sensor calibration and coordinate frame alignment between onboard and infrastructure systems (standard engineering practice)."
+      ],
+      "notes": "DP-C exhibits loose coupling: vehicle can operate autonomously with local model; infrastructure model is advisory/planning-level. No tight functional coupling between onboard and infrastructure fusion pipelines. Decoupling is achieved via well-defined model exchange format and asynchronous sync."
+    },
+    "assumptions_risks": [
+      "Assumption: Site infrastructure (fixed sensors or cloud service) is available and maintained; Risk: If unavailable, vehicle reverts to onboard-only mode with degraded global awareness.",
+      "Assumption: Network bandwidth sufficient for periodic model sync (LiDAR point clouds or occupancy grids); Risk: High-frequency updates may saturate network; mitigation: compress/downsample for sync, keep full resolution locally.",
+      "Assumption: Onboard compute (GPU/FPGA) sufficient for real-time LiDAR + camera fusion; Risk: Latency > 2 s; mitigation: prototype and benchmark early.",
+      "Assumption: Coordinate frame alignment between vehicle and infrastructure is maintained (e.g., via GNSS or fiducial markers); Risk: Misalignment causes safety hazards; mitigation: continuous validation and alert on frame drift."
+    ],
+    "recommended_revision": "DP-C is sound but requires explicit specification of: (1) Model exchange format (e.g., OctoMap, voxel grid, semantic mesh); (2) Sync frequency and latency SLA; (3) Fallback behavior if sync fails; (4) Coordinate frame definition and validation protocol. Recommend adding a sub-DP for 'Model Representation and Exchange' to clarify these details before detailed design."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "The Vehicle module owns the onboard sensor suite (LiDAR, camera, IMU, GNSS), local sensor fusion pipeline, egocentric worksite model, and autonomous safety-critical functions (collision avoidance, hazard detection). The Vehicle module also owns the interface to the site-wide model (via Telemetry or Tasking channels) and maintains a local cache of the authoritative model for fallback."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle publishes sensor data (raw or fused) and local model state to infrastructure/cloud for site-wide model update and operator situational awareness."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives updated site-wide model (or model deltas) from infrastructure/planning subsystem; also receives work-zone and exclusion-zone definitions."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "Vehicle publishes detected hazards and model degradation alerts to Safety Services; receives safety-critical alerts (e.g., personnel detected in work zone) from Safety Services."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Vehicle communicates with infrastructure/cloud via wireless network for model sync, tasking, and telemetry."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.85,
+        "diffusion_score": 0.15,
+        "notes": "Vehicle naturally owns onboard sensors and local fusion. Diffusion: model sync and site-wide model access require coordination with infrastructure (outside Vehicle). Local cache mitigates diffusion. High containment justified."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Safety Services could own hazard detection and alerting logic, but sensor data acquisition and local fusion are Vehicle responsibilities. Splitting would create tight coupling and latency issues. Low containment; not recommended as primary owner."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Teleoperation is a use case (tele-operator views model), not an owner. Model generation is independent of teleoperation mode. Low containment; not suitable."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.5,
+        "diffusion_score": 0.5,
+        "notes": "NGHE Solution is the system-level container. Could own the overall mapping function, but operational responsibility (sensor management, local fusion) belongs to Vehicle. Moderate containment; suitable as system-level orchestrator, but Vehicle is the primary implementation module."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module is the natural owner of worksite mapping because it carries the primary sensors (LiDAR, camera) and must perform real-time local fusion for safety-critical autonomous functions. The Vehicle module interfaces with Safety Services (hazard alerts) and infrastructure (model sync via Telemetry/Tasking) but retains primary responsibility for data acquisition and local model generation.",
+    "containment_risks": [
+      "Risk: Vehicle module becomes overloaded with sensor fusion, model management, and autonomous planning logic. Mitigation: Decompose into sub-modules (Sensor Fusion, Local Mapping, Autonomous Planner) in next level.",
+      "Risk: Model sync latency or network failure causes Vehicle to operate with stale site-wide model. Mitigation: Local cache and autonomous fallback; Safety Services monitors model freshness.",
+      "Risk: Coordinate frame misalignment between Vehicle and infrastructure models causes safety hazards. Mitigation: Continuous validation; SafetyAlert interface triggers alert on frame drift > threshold.",
+      "Risk: Onboard compute insufficient for real-time fusion. Mitigation: Prototype and benchmark; consider offloading non-safety-critical fusion to infrastructure."
+    ],
+    "recommended_revision": "Vehicle assignment is sound. Recommend clarifying in next level: (1) Sub-module for Sensor Fusion (owns LiDAR + camera fusion); (2) Sub-module for Local Mapping (owns egocentric occupancy grid and object tracking); (3) Sub-module for Model Sync (owns Telemetry/Tasking interface and cache management). This decomposition reduces diffusion and clarifies ownership boundaries."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (Hybrid onboard + infrastructure fusion) directly addresses the refined FR. It specifies how to acquire, fuse, and represent worksite data (terrain, obstacles, hazards, work zones) with real-time local capability and global consistency. The DP is implementable and aligns with high safety criticality (local autonomous fallback + infrastructure validation)."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Model sync between Vehicle and infrastructure introduces asynchronous coupling; mitigated by local cache and bounded latency SLA.",
+        "Coordinate frame alignment requires continuous validation; mitigated by SafetyAlert interface and frame drift monitoring.",
+        "Network dependency for site-wide model access; mitigated by local cache and autonomous fallback."
+      ],
+      "containment_notes": "Vehicle module contains onboard sensors, local fusion, and local model. Infrastructure model and sync logic are outside Vehicle scope but accessed via Telemetry/Tasking interfaces. Containment is high for safety-critical local functions; diffusion is acceptable for planning-level global model access. No single module owns the entire DP; this is intentional (distributed architecture). Ownership is clear: Vehicle owns local, Safety Services owns hazard validation, infrastructure owns site-wide model (not explicitly modeled here but implied)."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible: (1) Sensor accuracy and fusion latency can be measured in lab and field tests; (2) Model fidelity can be validated against ground truth survey; (3) Interface compliance (Telemetry, Tasking, SafetyAlert) can be tested via integration tests; (4) Autonomous fallback can be tested via network failure scenarios.",
+      "allocation_clarity": "Allocation is clear: Vehicle owns data acquisition and local fusion; Safety Services owns hazard validation and alerting; infrastructure (not explicitly modeled) owns site-wide model. Interfaces are well-defined (Telemetry, Tasking, SafetyAlert, Network Link). Responsibilities are distinct and testable."
+    },
+    "recommended_revisions": [
+      "Clarify model exchange format and sync protocol in DP before detailed design.",
+      "Define model fidelity SLAs (accuracy, update latency, coverage) in FR.",
+      "Specify fallback behavior and autonomous mode constraints in DP.",
+      "Add sub-module decomposition in next level to reduce Vehicle module complexity."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The refined FR is well-scoped and the selected DP is sound, but the DP requires further decomposition to clarify sub-functions (sensor fusion, local mapping, model sync, hazard detection) and their allocation to sub-modules. The Vehicle module assignment is appropriate but will benefit from sub-module decomposition to reduce complexity and clarify ownership. Proceeding to the next decomposition level is justified to detail the sensor fusion pipeline, local mapping algorithm, and model sync protocol.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire and synchronize multi-sensor data (LiDAR, camera, IMU, GNSS) in a unified coordinate frame with latency ≤ 100 ms.",
+      "CR-NGHE-006.2: Fuse sensor data into a local egocentric occupancy grid and object detection map; update rate ≥ 10 Hz.",
+      "CR-NGHE-006.3: Detect, classify, and track static obstacles (terrain, rocks, structures) and dynamic hazards (personnel, equipment) with confidence scores.",
+      "CR-NGHE-006.4: Represent work zones, exclusion zones, and operational boundaries; validate against safety policies.",
+      "CR-NGHE-006.5: Synchronize local model with site-wide model; resolve conflicts and maintain consistency.",
+      "CR-NGHE-006.6: Validate model quality and detect sensor failures; publish alerts to Safety Services."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Site infrastructure (fixed sensors or cloud service) is available and maintained for site-wide model.",
+        "Onboard compute (GPU/FPGA) is sufficient for real-time LiDAR + camera fusion at ≥ 10 Hz.",
+        "Network bandwidth is sufficient for periodic model sync (compressed occupancy grids or point clouds).",
+        "Coordinate frame alignment between Vehicle and infrastructure is maintained via GNSS or fiducial markers.",
+        "Safety Services has access to Vehicle-published hazard alerts via SafetyAlert interface.",
+        "Operators (Site Manager, Tele-operator) have access to site-wide model via planning/execution subsystems (not explicitly modeled here)."
+      ],
+      "open_risks": [
+        "Onboard compute latency for real-time fusion may exceed 2 s; requires prototyping and benchmarking.",
+        "Network failure or latency may cause Vehicle to operate with stale site-wide model; fallback behavior must be validated.",
+        "Coordinate frame misalignment between Vehicle and infrastructure may cause safety hazards; continuous validation required.",
+        "Model sync protocol and conflict resolution strategy not yet defined; requires detailed design.",
+        "Sensor calibration and maintenance procedures not yet specified; requires operational planning."
+      ],
+      "evidence_needed": [
+        "Prototype of onboard sensor fusion pipeline with latency measurements.",
+        "Field test data validating model accuracy against ground truth survey.",
+        "Network bandwidth and latency analysis for model sync.",
+        "Coordinate frame alignment validation protocol and test results.",
+        "Safety analysis (FMEA) for model degradation and sensor failure scenarios.",
+        "Integration test results for Telemetry, Tasking, SafetyAlert interfaces.",
+        "Autonomous fallback test results (network failure, sensor failure scenarios)."
+      ]
+    }
+  }
+}

@@ -1,0 +1,170 @@
+{
+  "refined_fr": {
+    "refined_fr": "Enable measurement and reporting of material throughput in volumetric or mass units per unit time.",
+    "rationale": "The original FR conflates two distinct obligations: (1) the system's capability to measure/report throughput metrics, and (2) the achievement of a customer-defined target. The latter is a success criterion dependent on operational execution, not a system requirement. The refined FR isolates the system's functional obligation—providing visibility into throughput—which is solution-neutral and testable independent of whether a specific productivity target is met. The target itself belongs in acceptance criteria or KPI definitions, not in the FR.",
+    "verification_idea": "Demonstrate that the NGHE solution captures and reports material throughput (m³/h or ton/h) during representative operations. Verify data accuracy against independent measurement. Confirm reporting is accessible to Site Manager and relevant stakeholders in real time or near-real time.",
+    "sub_frs": [
+      "Acquire material throughput data (volume or mass per time interval) during active operations.",
+      "Calculate and aggregate throughput metrics in customer-specified units (m³/h or ton/h).",
+      "Report throughput metrics to authorized stakeholders with sufficient frequency and fidelity for operational decision-making."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Continuous volumetric flow measurement via inline sensor with real-time signal conditioning and local data buffering",
+      "DP2: Periodic mass-based sampling with calibrated weighing and extrapolation to throughput rate over fixed time windows",
+      "DP3: Hybrid dual-path measurement (volumetric primary + mass-based verification) with cross-validation logic to detect sensor drift or blockage",
+      "DP4: Indirect throughput inference from upstream/downstream process parameters (e.g., pump speed, conveyor belt tension, material density assumptions) with periodic calibration checkpoints",
+      "DP5: Decoupled measurement architecture: independent volumetric and mass measurement subsystems with asynchronous aggregation and reporting layer"
+    ],
+    "selected_dp": "DP5: Decoupled measurement architecture with independent volumetric and mass measurement subsystems, asynchronous aggregation, and a reporting layer that reconciles both signals and flags discrepancies for operator review.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Temporal synchronization between volumetric and mass subsystems—mitigated by timestamping and windowed reconciliation rather than hard real-time coupling",
+        "Shared calibration reference—mitigated by independent calibration schedules and cross-validation logic rather than single point of failure",
+        "Reporting layer dependency on both measurement streams—acceptable because reporting is asynchronous and can queue partial data; neither measurement blocks the other"
+      ],
+      "notes": "DP5 avoids tight coupling by treating volumetric and mass measurement as independent logical streams that converge only at the reporting/aggregation boundary. This supports modularity, testability, and graceful degradation (one sensor failure does not silence the other). The acceptance criterion (reported productivity ≥ target) is met by either stream independently; dual measurement provides confidence and drift detection."
+    },
+    "assumptions_risks": [
+      "Assumption: Material properties (density, moisture content) remain stable or are known within acceptable variance during the evaluation period. Risk: If density varies significantly, volumetric and mass measurements will diverge; mitigation: cross-validation logic flags discrepancies for operator investigation.",
+      "Assumption: Both measurement subsystems can be calibrated independently and maintain calibration over the evaluation period. Risk: Calibration drift in one or both subsystems could bias reported throughput. Mitigation: periodic recalibration checkpoints and trending analysis.",
+      "Assumption: The worksite safety plan permits installation of inline measurement devices without creating new hazards (e.g., pressure drop, blockage risk, electrical safety). Risk: Measurement apparatus itself could become a safety liability. Mitigation: design review against safety plan; ensure measurement devices are fail-safe and do not impede emergency shutdown.",
+      "Assumption: Operator acceptance and training on dual-measurement reporting (including discrepancy alerts) is feasible. Risk: Operators may ignore or misinterpret cross-validation warnings. Mitigation: clear UI/UX design and documented procedures for responding to measurement disagreement.",
+      "Assumption: Data aggregation and reporting infrastructure can tolerate asynchronous arrival of volumetric and mass data without introducing unacceptable latency or data loss. Risk: Network or storage failures could corrupt or delay throughput reports. Mitigation: local buffering, checksums, and retry logic in aggregation layer."
+    ],
+    "recommended_revision": "Refine DP5 to explicitly define the reconciliation logic and reporting interface: (1) Specify the time window for aggregating volumetric and mass measurements (e.g., 5-minute rolling average, 1-hour batch). (2) Define the discrepancy threshold (e.g., if volumetric and mass throughput differ by >10%, flag as anomaly). (3) Clarify the reporting output: does the system report both measurements separately, a weighted average, or a 'best estimate' with confidence bounds? (4) Establish the IM (Implementation Module) boundary: which subsystems own volumetric measurement, mass measurement, aggregation, and reporting—and what are the interface contracts (data format, timing, error handling)? This will enable evaluation of DP->IM mapping quality and support detailed design and testing."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "Centralized measurement aggregation and reconciliation system that owns both volumetric and mass measurement subsystems, manages asynchronous signal fusion, and provides operator-facing reporting with discrepancy flagging."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Transmits reconciled measurement data, subsystem health status, and discrepancy flags to remote monitoring and operator dashboards."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives measurement mode commands, calibration requests, and reporting configuration updates from operator or autonomous control logic."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Emits critical measurement discrepancies or subsystem failures that require immediate operator intervention or system shutdown."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Provides communication backbone for asynchronous aggregation between volumetric and mass measurement subsystems if they are distributed; also supports remote telemetry and tasking."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.95,
+        "diffusion_score": 0.05,
+        "notes": "Excellent containment. NGHE Solution is the natural owner of measurement aggregation, reconciliation logic, and operator reporting. Both volumetric and mass subsystems are measurement concerns within the solution domain. Asynchronous aggregation and discrepancy flagging are core NGHE responsibilities. Minimal diffusion: only telemetry output, tasking input, and safety alerts cross boundaries."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor containment. Vehicle module typically owns physical actuators and sensors but not measurement logic or operator reporting. Placing reconciliation and reporting here would scatter measurement concerns across vehicle hardware and NGHE logic. High diffusion: aggregation logic would need to reach back to NGHE, and operator reporting would be misaligned with vehicle responsibilities."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.25,
+        "diffusion_score": 0.75,
+        "notes": "Very poor containment. Teleoperation is primarily a communication and control interface layer, not a measurement processing domain. Placing measurement aggregation and reconciliation here violates separation of concerns. High diffusion: measurement logic would be entangled with operator UI/UX, and subsystem coordination would be obscured."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Weak containment. Safety Services owns safety-critical logic and alerts but not measurement aggregation or reconciliation. While discrepancy flagging has safety implications, the core DP (decoupled measurement architecture with asynchronous aggregation) is not a safety service concern. High diffusion: measurement logic would be split between NGHE and Safety Services, creating unclear ownership."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "The NGHE Solution module is the optimal boundary because it owns the measurement domain end-to-end: it defines the decoupled architecture for volumetric and mass subsystems, manages asynchronous aggregation logic, and produces operator-facing reporting with discrepancy reconciliation. This keeps measurement concerns cohesive and avoids scattering logic across vehicle hardware, teleoperation UI, or safety services. External interfaces (Telemetry, Tasking, SafetyAlert, Network Link) provide clean boundaries for data flow without requiring the DP to diffuse into other modules.",
+    "containment_risks": [
+      "If volumetric or mass measurement subsystems are physically distributed across Vehicle and NGHE, the Network Link interface must be robust and latency-tolerant to support asynchronous aggregation without introducing race conditions or stale-data artifacts.",
+      "Discrepancy flagging logic must be carefully scoped: if Safety Services owns the decision to halt operations based on measurement conflicts, a clear handoff protocol via SafetyAlert is required to avoid logic duplication.",
+      "Operator reporting (via Telemetry) must not become a dumping ground for raw subsystem telemetry; NGHE must enforce a clean contract that only reconciled, actionable data is exported.",
+      "If measurement calibration or mode switching is frequent, the Tasking interface must support atomic updates to both subsystems to prevent transient inconsistencies during reconfiguration."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP5 directly addresses the FR by specifying a decoupled measurement architecture with independent volumetric and mass subsystems, asynchronous aggregation, and reconciliation-based reporting. The DP is solution-oriented (how to measure and report) rather than a restatement of the requirement (what to measure). The inclusion of discrepancy flagging adds operator-facing transparency, which is essential for throughput reporting credibility."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Network Link latency and reliability: If volumetric and mass subsystems are physically distributed (e.g., one in Vehicle, one in NGHE), asynchronous aggregation depends on robust inter-module communication. Race conditions or message loss could produce stale or inconsistent reconciliation. Mitigation: Define maximum acceptable latency and implement idempotent aggregation logic with timestamped signals.",
+        "Discrepancy flagging handoff: The DP specifies flagging for operator review, but the SafetyAlert interface suggests Safety Services may own the decision to halt operations. If both NGHE and Safety Services implement discrepancy logic, ownership becomes unclear and logic may duplicate. Mitigation: Establish a clear protocol—NGHE detects and flags discrepancies; Safety Services decides operational response based on severity thresholds.",
+        "Calibration atomicity: If measurement mode or calibration commands arrive via Tasking while aggregation is in progress, transient inconsistencies may occur (e.g., volumetric subsystem in new mode, mass subsystem in old mode). Mitigation: Require Tasking to support atomic, coordinated updates to both subsystems, or implement a quiescence protocol before mode switches.",
+        "Telemetry contract creep: The Telemetry interface risks becoming a raw data dump if not carefully scoped. NGHE must enforce that only reconciled, actionable measurement data is exported, not intermediate subsystem signals. Mitigation: Define a strict telemetry schema and validate all outbound messages against it."
+      ],
+      "containment_notes": "NGHE Solution achieves 0.95 containment score and is the clear optimal owner. The DP (decoupled measurement architecture, asynchronous aggregation, reconciliation, and reporting) is entirely within NGHE's measurement domain. Vehicle, Teleoperation, and Safety Services all score poorly (0.25–0.4) because they lack measurement processing responsibilities. The four external interfaces (Telemetry, Tasking, SafetyAlert, Network Link) are clean boundaries that do not require the DP to diffuse. However, the distributed nature of volumetric and mass subsystems (likely spanning Vehicle and NGHE) introduces a moderate diffusion risk at the IM level: the Network Link interface must be robust, and aggregation logic must tolerate asynchronous, potentially out-of-order signals."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The FR specifies measurable outputs (material throughput in volumetric or mass units per unit time) and the IM boundary (NGHE Solution) owns the aggregation and reporting logic. Verification can be conducted by injecting known volumetric and mass signals into the NGHE subsystems during representative operations and confirming that reported productivity meets or exceeds `productivity_target` over the agreed evaluation period (per acceptance criteria). Discrepancy flagging can be verified by introducing deliberate measurement conflicts and confirming that NGHE detects and reports them to the operator.",
+      "allocation_clarity": "Clear. The FR is allocated to NGHE Solution, which owns both the volumetric and mass measurement subsystems, the asynchronous aggregation logic, and the operator-facing reporting layer. Ownership boundaries are well-defined: Vehicle provides raw sensor data via Network Link; Teleoperation and Safety Services consume reconciled data and alerts via their respective interfaces. The only ambiguity is the exact distribution of volumetric and mass subsystems (whether both are in NGHE or split between Vehicle and NGHE), but this does not affect allocation clarity—NGHE owns the aggregation and reconciliation regardless of subsystem location."
+    },
+    "recommended_revisions": [
+      "Explicitly define the Network Link protocol for asynchronous aggregation: specify message format, timestamping, ordering guarantees, and latency bounds. Include a mechanism to detect and handle out-of-order or delayed signals (e.g., sequence numbers, timeout-based stale-data detection).",
+      "Establish a formal handoff protocol between NGHE and Safety Services for discrepancy flagging: NGHE detects and reports discrepancies via SafetyAlert; Safety Services owns the decision to halt operations based on severity thresholds. Document the severity classification scheme and response actions.",
+      "Define the Tasking interface contract for measurement mode and calibration updates: require atomic, coordinated updates to both volumetric and mass subsystems, or implement a quiescence protocol (e.g., pause aggregation, update both subsystems, resume). Include rollback logic in case of partial failures.",
+      "Specify the Telemetry schema and validation rules: document which measurement data (reconciled throughput, subsystem health, discrepancy flags) are exported and in what format. Prohibit raw subsystem signals from being transmitted unless explicitly requested for diagnostics.",
+      "Add a verification plan that includes: (1) injection of known volumetric and mass signals to confirm reported productivity meets `productivity_target`; (2) deliberate measurement conflicts to verify discrepancy detection and flagging; (3) latency and ordering tests on the Network Link to confirm asynchronous aggregation robustness; (4) mode-switching tests to confirm atomicity and consistency."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The FR-DP-IM gates all pass with high confidence, and the DP is well-scoped and solution-oriented. However, the gate results expose four critical diffusion risks and architectural dependencies that cannot be fully resolved at this level: (1) Network Link protocol robustness for asynchronous aggregation, (2) ownership handoff between NGHE and Safety Services for discrepancy response, (3) atomicity of measurement mode/calibration updates across distributed subsystems, and (4) Telemetry schema governance. These are not defects in the current FR-DP-IM but rather dependencies that must be decomposed into sub-FRs to ensure architectural coherence and risk mitigation. Given the high safety criticality, deriving sub-FRs to address these dependencies is essential before detailed design proceeds.",
+    "next_level_sub_frs": [
+      "FR5.1: Ensure asynchronous aggregation of volumetric and mass measurement signals is robust to network latency, message loss, and out-of-order delivery, with bounded staleness and consistency guarantees.",
+      "FR5.2: Detect and flag measurement discrepancies (volumetric vs. mass throughput conflicts) with sufficient granularity and timeliness to enable operator intervention and Safety Services decision-making.",
+      "FR5.3: Coordinate measurement mode and calibration updates atomically across volumetric and mass subsystems to prevent transient inconsistencies during mode transitions.",
+      "FR5.4: Export reconciled measurement data and system health telemetry via a well-defined, validated schema that prevents raw subsystem signals from leaking into external consumers unless explicitly authorized for diagnostics."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "The current DP5 is logically sound but lacks explicit specification of the four sub-mechanisms required to mitigate diffusion risks: (1) asynchronous aggregation protocol with ordering and staleness handling, (2) discrepancy detection and flagging logic with severity classification, (3) atomic mode/calibration update coordination, and (4) Telemetry schema validation. Revise DP5 to reference these sub-DPs as integral components, or accept that they will be derived as sub-level DPs during the next decomposition cycle. Recommend the latter to maintain clarity at this level while ensuring traceability."
+    },
+    "record": {
+      "assumptions": [
+        "Volumetric and mass measurement subsystems are physically or logically distributed (likely spanning Vehicle and NGHE), requiring inter-module communication via Network Link.",
+        "Safety Services owns the decision to halt operations in response to measurement discrepancies; NGHE owns detection and flagging.",
+        "Tasking interface can be extended to support atomic, coordinated updates to both subsystems, or a quiescence protocol is acceptable.",
+        "Telemetry consumers (external systems, diagnostics) will respect a strict schema and will not attempt to access raw subsystem signals without explicit authorization.",
+        "Network Link provides asynchronous, best-effort message delivery with potential for latency, loss, and out-of-order arrival; no guarantees of ordering or atomicity."
+      ],
+      "open_risks": [
+        "Network Link latency and reliability: Race conditions or message loss during asynchronous aggregation could produce stale or inconsistent reconciliation. Mitigation strategy required at sub-FR level.",
+        "Discrepancy flagging handoff: Unclear ownership between NGHE and Safety Services for discrepancy response logic; risk of duplication or gaps. Formal protocol required.",
+        "Calibration atomicity: Measurement mode or calibration updates arriving during aggregation could cause transient inconsistencies. Coordination mechanism required.",
+        "Telemetry contract creep: Risk that raw subsystem signals leak into external consumers, violating the reconciliation-based reporting principle. Schema validation required.",
+        "Safety criticality: High. Measurement discrepancies could mask throughput errors or sensor failures, affecting operational safety and product quality. Discrepancy detection and flagging must be reliable and timely."
+      ],
+      "evidence_needed": [
+        "Network Link protocol specification: message format, timestamping, ordering guarantees, latency bounds, and out-of-order/stale-data handling mechanism.",
+        "Discrepancy detection algorithm and severity classification scheme: define thresholds for flagging, escalation criteria, and handoff protocol to Safety Services.",
+        "Atomic update mechanism for measurement mode and calibration: either Tasking-level atomicity or NGHE-level quiescence protocol with rollback logic.",
+        "Telemetry schema definition and validation rules: document exported data types, formats, and access controls; prohibit raw subsystem signals unless explicitly authorized.",
+        "Verification plan for asynchronous aggregation robustness: latency and ordering tests, deliberate message loss scenarios, and consistency checks under representative operational conditions.",
+        "Verification plan for discrepancy detection: injection of deliberate measurement conflicts and confirmation of timely, accurate flagging.",
+        "Verification plan for atomic mode switching: confirmation that both subsystems transition consistently and no intermediate states leak into aggregation logic."
+      ]
+    }
+  }
+}

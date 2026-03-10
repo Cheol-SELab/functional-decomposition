@@ -13,7 +13,7 @@ def save_run_json(
     filename_prefix: str,
     run_id: Optional[str] = None,
 ) -> Path:
-    out_path = Path(outdir)
+    out_path = Path(outdir).resolve()
     out_path.mkdir(parents=True, exist_ok=True)
 
     ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")

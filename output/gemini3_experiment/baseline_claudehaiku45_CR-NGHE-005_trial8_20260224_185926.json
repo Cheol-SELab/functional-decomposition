@@ -1,0 +1,168 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-005 Refined: The NGHE solution shall automatically derive performance requirements (cycle time, energy efficiency, availability, safety margins) from worksite mission context and operational parameters, record them in a traceable baseline, and maintain a managed history of all requirement updates and calibration changes with full audit trail.",
+    "rationale": "The original FR was vague on 'method' and lacked explicit traceability and history management. Refinement adds specificity: (1) automatic derivation from mission context, (2) explicit baseline recording, (3) managed history with audit trail. This aligns with acceptance criteria demanding 'documented set of performance targets traceable to worksite inputs' and 'history of baselines/calibration updates.' High safety criticality demands explicit safety margin derivation and audit capability.",
+    "verification_idea": "Verification shall confirm: (a) performance targets are automatically computed from worksite mission inputs (e.g., terrain, payload, cycle count); (b) baseline is recorded with timestamp, operator ID, and mission context; (c) all updates are logged with before/after values and justification; (d) traceability chain from worksite input → derived requirement → baseline record is complete and auditable.",
+    "sub_frs": [
+      "CR-NGHE-005.1: Derive performance targets from worksite mission context (terrain, payload, cycle time, energy budget, availability SLA).",
+      "CR-NGHE-005.2: Record derived performance targets as a baseline with full context (timestamp, operator, mission ID, environmental conditions).",
+      "CR-NGHE-005.3: Maintain a managed history of all performance requirement and calibration updates with audit trail (who, when, why, before/after values).",
+      "CR-NGHE-005.4: Ensure traceability from worksite inputs through derived requirements to recorded baselines and all downstream allocations."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized Performance Derivation Engine – A dedicated software module that ingests worksite mission parameters (via Tasking interface), applies deterministic algorithms to compute performance targets, records baselines in a versioned database, and exposes a query/audit API.",
+      "DP-B: Distributed Derivation with Local Caching – Performance derivation logic embedded in Vehicle and Teleoperation modules, with periodic synchronization to a central audit log; allows offline operation but risks inconsistency.",
+      "DP-C: Manual Baseline Entry with Post-Hoc Validation – Operators manually enter performance targets via a UI form; system validates against mission context and logs changes; minimal automation, high operator burden.",
+      "DP-D: Hybrid Derivation with Safety-Critical Validation – Automatic derivation engine computes targets; Safety Services module independently validates safety margins and availability constraints before baseline is committed."
+    ],
+    "selected_dp": "DP-D: Hybrid Derivation with Safety-Critical Validation – Automatic derivation engine computes performance targets from worksite mission context; Safety Services module independently validates safety margins and availability constraints; only after validation passes is the baseline recorded and locked in the audit log. This approach ensures high safety assurance (critical for high safety criticality), maintains full traceability, and provides a clear separation of concerns (derivation vs. safety validation).",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between derivation engine and Safety Services validation logic is intentional and well-defined: derivation engine outputs candidate targets; Safety Services consumes them and returns pass/fail + safety margin report. This is a clean, unidirectional dependency.",
+        "Coupling to Tasking interface (mission context input) is necessary and unavoidable; managed via well-defined schema.",
+        "Coupling to audit log (baseline recording) is necessary; managed via append-only interface."
+      ],
+      "notes": "DP-D avoids the inconsistency risks of DP-B (distributed logic) and the automation gaps of DP-C (manual entry). DP-A (centralized without safety validation) was rejected because high safety criticality demands explicit validation gate. DP-D introduces a validation loop but this is justified by the risk profile."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Worksite mission context is available via Tasking interface in a well-defined, machine-readable format (e.g., JSON schema with terrain type, payload mass, cycle count, energy budget, availability SLA).",
+      "ASSUMPTION: Safety Services module has the capability and authority to validate safety margins and availability constraints; this requires clear definition of safety validation rules and thresholds.",
+      "RISK: If Safety Services validation is slow or frequently rejects baselines, operator workflow may be disrupted. Mitigation: define SLA for validation response time (e.g., <5 seconds) and provide clear feedback on rejection reasons.",
+      "RISK: If derivation algorithm is incorrect or incomplete, all downstream baselines will be wrong. Mitigation: algorithm must be formally specified, tested against historical mission data, and subject to periodic calibration audits.",
+      "RISK: Audit log may grow unbounded over time, impacting query performance. Mitigation: implement log retention policy and archival strategy."
+    ],
+    "recommended_revision": "Clarify the interface contract between the derivation engine and Safety Services: (1) define the schema for candidate performance targets; (2) define the schema for safety validation rules and thresholds; (3) define the response format (pass/fail + margin report); (4) specify the SLA for validation response time. This will reduce coupling ambiguity and enable parallel development."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "The NGHE Solution module is the top-level system boundary. It contains or orchestrates all subsystems (Vehicle, Teleoperation, Safety Services) and owns the performance requirement derivation, baseline recording, and audit trail management. The derivation engine and audit log are realized as software artifacts within this module, with clear interfaces to Vehicle (for operational telemetry), Teleoperation (for mission context via Tasking), and Safety Services (for safety validation)."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Worksite mission context (terrain type, payload mass, cycle count, energy budget, availability SLA, operator ID, mission timestamp) flows into the NGHE Solution from Teleoperation or Site Manager. Used to drive performance target derivation."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Derived performance targets, baseline records, and audit trail are exposed as telemetry to Vehicle and Teleoperation for operational awareness and compliance checking."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "NGHE Solution sends candidate performance targets to Safety Services for validation (out); receives validation results and safety margin reports (in). SafetyAlert is the control interface for safety-critical validation gate."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "NGHE Solution uses Network Link to communicate with remote Tele-operator and Site Manager for mission context updates and baseline approval workflows."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "NGHE Solution is the natural top-level owner of performance requirement derivation and baseline management. The derivation engine, audit log, and validation orchestration are core system functions that belong at the solution level. Minimal diffusion: only interfaces to Safety Services (for validation) and Teleoperation (for mission context) are external. High containment score reflects that this is the system's primary responsibility for requirement traceability and audit."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Vehicle module could theoretically compute performance targets based on its own telemetry (e.g., fuel consumption, cycle time), but this would create a distributed, inconsistent derivation logic. Vehicle should consume derived targets from NGHE Solution, not own the derivation. High diffusion risk if derivation logic is split between Vehicle and NGHE Solution."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 25,
+        "diffusion_score": 75,
+        "notes": "Teleoperation module provides mission context (Tasking) but should not own the derivation engine. If derivation logic is embedded in Teleoperation, it becomes tightly coupled to the remote operator interface and difficult to reuse for autonomous or local operation modes. High diffusion risk."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 40,
+        "diffusion_score": 60,
+        "notes": "Safety Services owns the validation gate (safety margin checking, availability constraint validation) but not the derivation engine itself. If Safety Services also owns derivation, it conflates two concerns: computing targets vs. validating them. Moderate containment score reflects that Safety Services is a critical partner in the DP-D design but not the primary owner."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "The NGHE Solution module is the correct owner of performance requirement derivation, baseline recording, and audit trail management. This placement ensures: (1) centralized, consistent derivation logic; (2) clear separation of concerns (derivation vs. safety validation); (3) system-level traceability and audit capability; (4) reusability across Vehicle, Teleoperation, and autonomous operation modes. Safety Services is a critical validator but not the owner.",
+    "containment_risks": [
+      "RISK: If NGHE Solution module is too large or monolithic, the derivation engine may become difficult to test and maintain. Mitigation: decompose the derivation engine into smaller, testable sub-modules (e.g., mission context parser, target computation engine, baseline recorder, audit log manager) within the NGHE Solution boundary.",
+      "RISK: If the interface between NGHE Solution and Safety Services is poorly defined, validation logic may leak into the derivation engine or vice versa. Mitigation: enforce strict interface contracts and use formal specification (e.g., OpenAPI, Protocol Buffers) for SafetyAlert interface.",
+      "RISK: If the audit log is stored in NGHE Solution but accessed by multiple subsystems (Vehicle, Teleoperation, Safety Services), concurrent access and consistency issues may arise. Mitigation: implement a centralized, transactional audit log service with clear locking and versioning semantics.",
+      "RISK: If worksite mission context (Tasking) is not available in a machine-readable format, the derivation engine cannot automate target computation. Mitigation: establish a formal schema for Tasking interface and validate all incoming mission context against it."
+    ],
+    "recommended_revision": "Define the internal architecture of NGHE Solution to show how the derivation engine, baseline recorder, and audit log manager are organized and interact. Specify the data model for performance targets, baselines, and audit records. Define the validation contract with Safety Services (input schema, output schema, SLA). This will reduce ambiguity and enable clear allocation of sub-requirements to sub-modules in the next decomposition level."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "The refined FR clearly specifies what the system must do: derive, record, and manage performance requirements with full traceability and audit trail. DP-D (Hybrid Derivation with Safety-Critical Validation) directly addresses all aspects of the FR: (1) automatic derivation from mission context satisfies 'derive'; (2) baseline recording with context satisfies 'record'; (3) managed history with audit trail satisfies 'manage'; (4) safety validation gate satisfies high safety criticality constraint. The DP is not over-constrained and leaves room for implementation choices (e.g., algorithm details, database technology). Coupling check passes: the dependency between derivation engine and Safety Services is intentional and well-defined."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "DIFFUSION RISK (LOW): If the derivation engine is not properly encapsulated within NGHE Solution, its logic may leak into Vehicle or Teleoperation modules, creating inconsistency. Mitigation: enforce module boundaries via code organization and interface contracts.",
+        "DIFFUSION RISK (LOW): If the audit log is accessed by multiple subsystems without clear ownership, concurrent access issues may arise. Mitigation: implement a centralized, transactional audit log service with clear locking semantics.",
+        "DIFFUSION RISK (MEDIUM): If Safety Services validation rules are not clearly specified, the validation gate may become a bottleneck or source of confusion. Mitigation: formally specify validation rules and thresholds; define SLA for validation response time."
+      ],
+      "containment_notes": "NGHE Solution is the correct owner of performance requirement derivation and baseline management. Containment score of 95 reflects that this is a core system function with minimal external dependencies. The module boundary is clear: derivation engine, baseline recorder, and audit log manager are internal to NGHE Solution; interfaces to Vehicle, Teleoperation, and Safety Services are well-defined. No significant diffusion risks identified."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification of CR-NGHE-005 is feasible within the NGHE Solution module boundary. Test cases can be designed to: (1) inject worksite mission context via Tasking interface; (2) verify that performance targets are correctly derived; (3) verify that baselines are recorded with full context; (4) verify that audit trail captures all updates; (5) verify that traceability chain is complete and auditable. Safety validation gate can be tested by injecting candidate targets that violate safety constraints and verifying that they are rejected. All verification can be performed at the NGHE Solution level without requiring integration with Vehicle or Teleoperation.",
+      "allocation_clarity": "The allocation of CR-NGHE-005 to NGHE Solution is clear and unambiguous. Sub-requirements (CR-NGHE-005.1 through 005.4) can be allocated to internal sub-modules (derivation engine, baseline recorder, audit log manager, traceability manager) in the next decomposition level. Each sub-requirement has a clear verification method and acceptance criterion. No allocation ambiguity identified."
+    },
+    "recommended_revisions": [
+      "Formally specify the schema for worksite mission context (Tasking interface): define all required fields (terrain type, payload mass, cycle count, energy budget, availability SLA, operator ID, mission timestamp), data types, and validation rules. This will enable automated validation of incoming mission context and reduce derivation errors.",
+      "Formally specify the performance target derivation algorithm: define the mathematical model, input parameters, output targets, and calibration procedure. This will enable testing, validation, and periodic calibration audits.",
+      "Formally specify the safety validation rules and thresholds: define what constitutes a valid safety margin, availability constraint, and other safety-critical parameters. This will enable clear communication with Safety Services and reduce validation ambiguity.",
+      "Define the data model for baselines and audit records: specify all fields (timestamp, operator ID, mission context, derived targets, validation results, approval status, change history). This will enable consistent recording and auditing.",
+      "Define the SLA for performance requirement derivation and validation: specify maximum time from mission context input to baseline approval. This will enable operational planning and identify bottlenecks."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "CR-NGHE-005 is not atomic and requires further decomposition. The refined FR specifies four distinct sub-requirements (derivation, recording, history management, traceability) that must be allocated to internal sub-modules or design elements. The selected DP (DP-D: Hybrid Derivation with Safety-Critical Validation) is sound and passes all gates, but it requires detailed specification of the derivation algorithm, validation rules, data model, and interface contracts. The assigned IM (NGHE Solution) is correct and has high containment score, but the internal architecture must be decomposed to show how the derivation engine, baseline recorder, audit log manager, and traceability manager are organized and interact. Proceeding to the next decomposition level will clarify these details and enable parallel development of sub-modules.",
+    "justification_detail": "The FR-DP-IM gates all pass, indicating that the current level is sound. However, the FR is explicitly non-atomic (is_atomic: false) with four sub-FRs. The DP introduces a validation loop that requires clear specification of the validation contract. The IM (NGHE Solution) is a large, top-level module that will benefit from internal decomposition. Proceeding to ZIGZAG_DOWN will: (1) decompose the four sub-FRs into separate design elements; (2) specify the derivation algorithm, validation rules, and data model; (3) define the internal architecture of NGHE Solution; (4) allocate sub-requirements to sub-modules or design elements. This is the appropriate next step.",
+    "next_level_sub_frs": [
+      "CR-NGHE-005.1: Derive performance targets from worksite mission context (terrain, payload, cycle time, energy budget, availability SLA) using a deterministic algorithm calibrated to historical mission data.",
+      "CR-NGHE-005.2: Record derived performance targets as a baseline with full context (timestamp, operator ID, mission ID, environmental conditions, derivation algorithm version, validation results).",
+      "CR-NGHE-005.3: Maintain a managed history of all performance requirement and calibration updates with audit trail (who, when, why, before/after values, approval status).",
+      "CR-NGHE-005.4: Ensure traceability from worksite inputs through derived requirements to recorded baselines and all downstream allocations via a queryable, auditable traceability matrix."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Worksite mission context is available via Tasking interface in a well-defined, machine-readable format (e.g., JSON schema with terrain type, payload mass, cycle count, energy budget, availability SLA, operator ID, mission timestamp).",
+        "Safety Services module has the capability and authority to validate safety margins and availability constraints; validation rules and thresholds are clearly defined.",
+        "Performance target derivation algorithm can be automated and calibrated to historical mission data; manual tuning is not required for every mission.",
+        "Audit log can be implemented as a centralized, transactional service with acceptable performance and availability characteristics.",
+        "Operators and Site Managers will accept the baseline approval workflow and validation gate; no significant operational disruption is expected."
+      ],
+      "open_risks": [
+        "RISK: If Safety Services validation is slow or frequently rejects baselines, operator workflow may be disrupted. Mitigation: define SLA for validation response time (e.g., <5 seconds) and provide clear feedback on rejection reasons.",
+        "RISK: If derivation algorithm is incorrect or incomplete, all downstream baselines will be wrong. Mitigation: algorithm must be formally specified, tested against historical mission data, and subject to periodic calibration audits.",
+        "RISK: Audit log may grow unbounded over time, impacting query performance. Mitigation: implement log retention policy and archival strategy.",
+        "RISK: If worksite mission context is not available in a machine-readable format, the derivation engine cannot automate target computation. Mitigation: establish a formal schema for Tasking interface and validate all incoming mission context against it.",
+        "RISK: If the interface between NGHE Solution and Safety Services is poorly defined, validation logic may leak into the derivation engine or vice versa. Mitigation: enforce strict interface contracts and use formal specification (e.g., OpenAPI, Protocol Buffers) for SafetyAlert interface."
+      ],
+      "evidence_needed": [
+        "Formal specification of worksite mission context schema (Tasking interface): all required fields, data types, validation rules, and examples.",
+        "Formal specification of performance target derivation algorithm: mathematical model, input parameters, output targets, calibration procedure, and test cases.",
+        "Formal specification of safety validation rules and thresholds: what constitutes a valid safety margin, availability constraint, and other safety-critical parameters.",
+        "Data model for baselines and audit records: all fields, data types, relationships, and example records.",
+        "Interface contract between NGHE Solution and Safety Services: input schema (candidate targets), output schema (validation results + safety margin report), SLA for response time.",
+        "Historical mission data for algorithm calibration and validation: at least 100 representative missions with actual performance outcomes.",
+        "Operational workflow for baseline approval: who approves, when, under what conditions, and what happens if validation fails.",
+        "Performance and availability requirements for the audit log service: expected volume, query latency, retention period, and archival strategy."
+      ]
+    }
+  }
+}

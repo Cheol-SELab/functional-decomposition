@@ -1,0 +1,175 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current operational state (vehicle position, task progress, environmental changes, safety events) within p95 ≤ 1.0 s latency for all supported update scenarios (teleoperated commands, autonomous task execution, sensor data ingestion, safety alerts).",
+    "rationale": "CR-NGHE-007 is a non-functional requirement (latency constraint) that must be refined into a functional statement specifying what updates occur, from which sources, and under what conditions. The p95 ≤ 1.0 s acceptance criterion is a measurable performance target. High safety criticality demands explicit inclusion of safety event propagation in the update scope. Refinement clarifies that 'worksite model' encompasses vehicle state, task state, and safety state, and that latency applies across multiple update pathways (teleoperation, autonomy, sensors, alerts).",
+    "verification_idea": "Instrument the NGHE solution with end-to-end latency probes: measure time from update source (e.g., teleoperation command issued, sensor reading acquired, safety event detected) to worksite model state change visible to all stakeholders. Collect p95 latency across representative scenarios (remote command, local sensor update, safety alert propagation). Compare against p95 ≤ 1.0 s target and customer-defined acceptance criteria.",
+    "sub_frs": [
+      "FR-NGHE-007.1: The NGHE solution shall ingest teleoperation commands and reflect vehicle state changes in the worksite model within p95 ≤ 1.0 s.",
+      "FR-NGHE-007.2: The NGHE solution shall ingest vehicle sensor data (position, orientation, task progress) and update the worksite model within p95 ≤ 1.0 s.",
+      "FR-NGHE-007.3: The NGHE solution shall propagate safety alerts and safety state changes to the worksite model within p95 ≤ 1.0 s.",
+      "FR-NGHE-007.4: The NGHE solution shall ensure worksite model consistency across all stakeholder views (Site Manager, Operator, Tele-operator, Safety Manager) with bounded latency skew ≤ 100 ms."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized worksite model server with real-time event bus (Kafka/RabbitMQ) for asynchronous update propagation; all update sources (teleoperation, vehicle sensors, safety services) publish to event bus; model server subscribes and applies updates with sub-100 ms processing latency.",
+      "DP-B: Distributed worksite model replicas at each stakeholder endpoint (Site Manager console, Operator tablet, Tele-operator station, Safety Manager dashboard) with eventual consistency via gossip protocol; updates propagate peer-to-peer with bounded clock skew.",
+      "DP-C: Hybrid hierarchical model: primary model at NGHE Solution level with real-time event streaming to Teleoperation and Safety Services modules; each module maintains a local cache of relevant model state; cache invalidation and refresh triggered by event subscriptions with latency SLA enforcement.",
+      "DP-D: Direct synchronous update propagation: each update source (Vehicle telemetry, Teleoperation commands, Safety Services alerts) directly writes to a shared distributed ledger (blockchain-style consensus); all stakeholders query ledger with read-after-write consistency."
+    ],
+    "selected_dp": "DP-C: Hybrid hierarchical model with real-time event streaming and local caching. Primary worksite model maintained at NGHE Solution level (single source of truth). Teleoperation and Safety Services modules subscribe to model update events via event stream (Telemetry, SafetyAlert interfaces). Each module maintains a local cache of relevant state (vehicle position for teleoperation, safety state for safety services). Cache refresh triggered by event subscriptions with explicit latency SLA enforcement (p95 ≤ 1.0 s end-to-end from source to cache update). Event stream uses low-latency transport (e.g., gRPC, MQTT, or in-process event bus depending on deployment topology).",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between NGHE Solution (primary model) and Teleoperation (cache consumer): mitigated by event-driven subscription pattern; Teleoperation does not directly modify primary model, only consumes updates.",
+        "Coupling between NGHE Solution and Safety Services: mitigated by SafetyAlert interface; Safety Services publishes alerts, NGHE Solution consumes and updates model; no bidirectional dependency.",
+        "Coupling between Vehicle and NGHE Solution: Vehicle publishes Telemetry; NGHE Solution consumes; unidirectional, low coupling.",
+        "Potential latency coupling: if event stream processing is synchronous and blocking, updates to primary model could be delayed by slow subscribers. Mitigation: use asynchronous, non-blocking event propagation; decouple model update from subscriber notification."
+      ],
+      "notes": "DP-C avoids tight synchronous coupling of DP-D (ledger consensus overhead) and the consistency complexity of DP-B (eventual consistency with skew). DP-A (centralized event bus) is similar but DP-C explicitly introduces local caching at module level, which is architecturally clearer for reasoning about latency and ownership. Coupling is acceptable if event stream is non-blocking and SLA enforcement is explicit."
+    },
+    "assumptions_risks": [
+      "Assumption: Event stream transport (gRPC, MQTT, or in-process bus) can deliver updates with sub-100 ms latency under normal network conditions. Risk: if network is congested or transport is overprovisioned, latency SLA may be violated. Mitigation: network QoS configuration, latency monitoring, fallback to local-only mode if network fails.",
+      "Assumption: Local caching at Teleoperation and Safety Services modules is sufficient to serve stakeholder queries without requiring synchronous round-trip to primary model. Risk: if cache becomes stale due to missed events or slow refresh, stakeholders may see inconsistent state. Mitigation: cache invalidation strategy, heartbeat/refresh mechanism, explicit staleness indicators in UI.",
+      "Assumption: NGHE Solution can process and apply updates to primary model at sub-100 ms latency. Risk: if model is large or update logic is complex, processing latency may exceed budget. Mitigation: optimize model data structure, use incremental updates, profile and benchmark model update performance.",
+      "Assumption: Safety Services can propagate safety alerts via SafetyAlert interface with sub-100 ms latency. Risk: if safety alert generation or transmission is delayed, safety-critical updates may miss SLA. Mitigation: prioritize safety alert processing, use dedicated low-latency channel for safety alerts, separate safety alert path from general telemetry.",
+      "Risk: Distributed cache coherency: if multiple modules cache overlapping state and updates arrive out-of-order, caches may diverge. Mitigation: use versioned updates, implement cache coherency protocol (e.g., invalidation on update), or accept eventual consistency with bounded skew."
+    ],
+    "recommended_revision": "Refine DP-C to explicitly separate safety-critical updates (SafetyAlert) from general telemetry updates. Safety alerts should use a dedicated, higher-priority event channel with guaranteed delivery and lower latency SLA (e.g., p95 ≤ 500 ms). General telemetry (vehicle position, task progress) can use the standard event stream with p95 ≤ 1.0 s. This ensures safety criticality is reflected in the design and reduces latency coupling between safety and operational updates."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "Primary worksite model server, event stream broker, model update logic, and coordination of update propagation to Teleoperation and Safety Services modules. Owns the authoritative worksite state (vehicle position, task progress, environmental state, safety state). Responsible for ingesting updates from Vehicle (via Telemetry), Teleoperation (via Tasking), and Safety Services (via SafetyAlert), and publishing model updates to subscribers."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Vehicle publishes telemetry (position, orientation, sensor readings, task progress) to NGHE Solution. NGHE Solution ingests and applies to worksite model. Latency budget: sub-100 ms from Vehicle sensor to model update."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Teleoperation module sends tasking commands (e.g., move vehicle, execute task) to NGHE Solution. NGHE Solution applies command to model and propagates to Vehicle. Latency budget: sub-100 ms from Teleoperation command to model update."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "in",
+        "details": "Safety Services publishes safety alerts (e.g., collision risk, operator override, emergency stop) to NGHE Solution. NGHE Solution ingests and updates safety state in worksite model. Latency budget: sub-100 ms from Safety Services alert to model update (safety-critical, may require higher priority)."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "NGHE Solution publishes updated worksite model state (vehicle position, task progress, environmental state) to Teleoperation and Safety Services modules via event stream. Latency budget: sub-100 ms from model update to subscriber notification."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "NGHE Solution publishes safety state updates (derived from SafetyAlert inputs and model state) to Teleoperation and Safety Services modules. Latency budget: sub-100 ms (safety-critical)."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "NGHE Solution is the natural owner of the primary worksite model and event stream broker. All update ingestion and propagation logic is contained within this module. Diffusion risk is minimal: only external interfaces are Telemetry, Tasking, SafetyAlert (all defined). No logic is scattered across other modules."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 10,
+        "diffusion_score": 90,
+        "notes": "Vehicle is a data source (telemetry producer), not a model owner. Assigning model update logic to Vehicle would scatter the worksite model across multiple physical vehicles, violating single-source-of-truth principle. High diffusion risk."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Teleoperation is a consumer of worksite model state and a producer of tasking commands. Assigning primary model ownership to Teleoperation would couple the model to a specific stakeholder view, violating separation of concerns. Teleoperation should maintain a local cache (DP-C), not the primary model. High diffusion risk."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 15,
+        "diffusion_score": 85,
+        "notes": "Safety Services is a producer of safety alerts and a consumer of worksite model state. Assigning primary model ownership to Safety Services would couple the model to safety logic, violating separation of concerns. Safety Services should maintain a local cache of safety-relevant state, not the primary model. High diffusion risk."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "NGHE Solution is the appropriate owner of the primary worksite model and event stream broker because: (1) it is the system-level integration point that receives updates from all sources (Vehicle, Teleoperation, Safety Services); (2) it is responsible for maintaining a single, authoritative view of worksite state; (3) it can enforce latency SLAs and consistency guarantees across all update pathways; (4) it can coordinate event propagation to all subscribers without creating circular dependencies or diffusion. Teleoperation and Safety Services modules maintain local caches of relevant state, subscribed to NGHE Solution's event stream, reducing coupling and enabling independent scaling.",
+    "containment_risks": [
+      "Risk: NGHE Solution becomes a bottleneck if event stream processing is synchronous and blocking. Mitigation: use asynchronous, non-blocking event propagation; scale event stream broker independently if needed.",
+      "Risk: NGHE Solution's worksite model may grow large and complex, making update logic difficult to maintain. Mitigation: decompose model into logical domains (vehicle state, task state, safety state, environmental state); use event sourcing or CQRS pattern to separate model updates from queries.",
+      "Risk: If NGHE Solution fails, all subscribers lose access to model updates. Mitigation: implement high-availability event stream (e.g., Kafka replication), backup model state, implement graceful degradation (local caches continue to serve stale state).",
+      "Risk: Latency SLA enforcement requires monitoring and alerting at NGHE Solution level. If monitoring is not implemented, latency violations may go undetected. Mitigation: instrument event stream with latency probes, implement SLA monitoring dashboard, alert on p95 latency threshold violations."
+    ],
+    "recommended_revision": "Explicitly define the event stream transport and latency SLA enforcement mechanism within NGHE Solution. Specify: (1) event stream broker technology (e.g., Kafka, RabbitMQ, gRPC, in-process event bus); (2) latency measurement points (source timestamp, broker timestamp, subscriber timestamp); (3) SLA enforcement logic (e.g., alert if p95 > 1.0 s, fallback to local-only mode if network fails); (4) cache coherency protocol for Teleoperation and Safety Services local caches (e.g., versioned updates, invalidation on update). This will clarify the IM boundary and reduce ambiguity in implementation."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid hierarchical model with event streaming and local caching) directly addresses the refined FR (update worksite model within p95 ≤ 1.0 s latency). The DP specifies a clear mechanism for ingesting updates from multiple sources (Telemetry, Tasking, SafetyAlert), applying them to a primary model, and propagating to subscribers with bounded latency. The DP is implementable and testable. Coupling is acceptable (event-driven, asynchronous). Assumptions and risks are identified and mitigable."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Diffusion risk: if event stream transport is not clearly specified, implementation may scatter latency-critical logic across multiple modules (Vehicle, Teleoperation, Safety Services). Mitigation: specify event stream technology and latency SLA enforcement at IM level.",
+        "Diffusion risk: if local caching logic at Teleoperation and Safety Services is not standardized, cache coherency may be inconsistent. Mitigation: define cache coherency protocol and versioning scheme at NGHE Solution level; provide cache update library for use by Teleoperation and Safety Services.",
+        "Diffusion risk: if safety alert processing is not prioritized, safety-critical updates may miss latency SLA. Mitigation: implement dedicated, higher-priority event channel for SafetyAlert; separate safety alert path from general telemetry at NGHE Solution level."
+      ],
+      "containment_notes": "NGHE Solution is the appropriate IM boundary for the primary worksite model and event stream broker. Teleoperation and Safety Services modules are consumers of model updates via event subscriptions; they maintain local caches but do not own the primary model. Vehicle is a data source (telemetry producer) but not a model owner. This containment is clear and reduces diffusion risk. External interfaces (Telemetry, Tasking, SafetyAlert) are well-defined and match the known interface set."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification of FR-NGHE-007 (worksite model update latency p95 ≤ 1.0 s) is feasible with NGHE Solution as the IM boundary. Instrumentation points are clear: (1) measure latency from update source (Vehicle telemetry, Teleoperation command, Safety Services alert) to NGHE Solution ingestion; (2) measure latency from NGHE Solution model update to event stream publication; (3) measure latency from event stream publication to subscriber notification (Teleoperation cache update, Safety Services cache update). Aggregate end-to-end latency can be computed and compared against p95 ≤ 1.0 s target. Verification can be automated via latency probes and SLA monitoring.",
+      "allocation_clarity": "Allocation of FR-NGHE-007 to NGHE Solution IM is clear. NGHE Solution owns the primary worksite model and is responsible for ensuring all update pathways (Telemetry, Tasking, SafetyAlert) meet the p95 ≤ 1.0 s latency SLA. Teleoperation and Safety Services modules are responsible for maintaining local caches and consuming model updates within their own latency budgets (sub-100 ms for cache refresh). Vehicle is responsible for publishing telemetry with low latency (sub-100 ms). Allocation is traceable and testable."
+    },
+    "recommended_revisions": [
+      "Refine DP-C to explicitly separate safety-critical updates (SafetyAlert) from general telemetry updates. Safety alerts should use a dedicated, higher-priority event channel with guaranteed delivery and lower latency SLA (e.g., p95 ≤ 500 ms). This ensures safety criticality is reflected in the design.",
+      "Define the event stream transport technology and latency SLA enforcement mechanism at NGHE Solution IM level. Specify: (1) event stream broker (e.g., Kafka, RabbitMQ, gRPC, in-process event bus); (2) latency measurement points and SLA monitoring; (3) fallback behavior if latency SLA is violated (e.g., alert, local-only mode, graceful degradation).",
+      "Define the cache coherency protocol for Teleoperation and Safety Services local caches. Specify: (1) versioning scheme for model updates; (2) cache invalidation strategy (e.g., time-based, event-based, explicit invalidation); (3) handling of out-of-order updates; (4) staleness indicators in UI.",
+      "Clarify the ownership and responsibility for latency SLA enforcement. NGHE Solution should own the primary model and event stream; Teleoperation and Safety Services should own their local caches and be responsible for cache refresh latency. System Engineer should own end-to-end latency monitoring and SLA verification."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-NGHE-007 has been refined into four sub-FRs (FR-NGHE-007.1 through FR-NGHE-007.4) that address specific update pathways (teleoperation, sensors, safety alerts, consistency). DP-C (hybrid hierarchical model with event streaming) is a sound design that addresses the refined FR and is implementable. NGHE Solution is the appropriate IM boundary with high containment score (95) and low diffusion risk. However, the design introduces complexity (event stream, local caching, cache coherency) that requires further decomposition to clarify implementation details and reduce risk. Specifically: (1) event stream transport and latency SLA enforcement mechanism need to be designed; (2) cache coherency protocol for Teleoperation and Safety Services needs to be specified; (3) safety alert prioritization and dedicated channel need to be designed. These are sub-system level design decisions that should be decomposed in the next level. Therefore, ZIGZAG_DOWN to decompose each sub-FR (FR-NGHE-007.1 through FR-NGHE-007.4) into its own FR-DP-IM cycle, with explicit focus on latency SLA enforcement, cache coherency, and safety alert handling.",
+    "justification_detail": "The refined FR is not atomic; it comprises four distinct update pathways with different latency requirements and safety criticality. Each sub-FR should be decomposed independently to ensure clarity, testability, and risk mitigation. For example, FR-NGHE-007.3 (safety alert propagation) has higher safety criticality and may require a different DP (dedicated, higher-priority event channel) than FR-NGHE-007.1 (teleoperation command propagation). Decomposing at the next level will allow for targeted design and verification of each pathway.",
+    "next_level_sub_frs": [
+      "FR-NGHE-007.1: The NGHE solution shall ingest teleoperation commands and reflect vehicle state changes in the worksite model within p95 ≤ 1.0 s.",
+      "FR-NGHE-007.2: The NGHE solution shall ingest vehicle sensor data (position, orientation, task progress) and update the worksite model within p95 ≤ 1.0 s.",
+      "FR-NGHE-007.3: The NGHE solution shall propagate safety alerts and safety state changes to the worksite model within p95 ≤ 1.0 s (safety-critical, may require higher priority).",
+      "FR-NGHE-007.4: The NGHE solution shall ensure worksite model consistency across all stakeholder views (Site Manager, Operator, Tele-operator, Safety Manager) with bounded latency skew ≤ 100 ms."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Event stream transport (gRPC, MQTT, or in-process bus) can deliver updates with sub-100 ms latency under normal network conditions.",
+        "Local caching at Teleoperation and Safety Services modules is sufficient to serve stakeholder queries without requiring synchronous round-trip to primary model.",
+        "NGHE Solution can process and apply updates to primary model at sub-100 ms latency.",
+        "Safety Services can propagate safety alerts via SafetyAlert interface with sub-100 ms latency.",
+        "Worksite model is not so large or complex that update logic becomes a bottleneck.",
+        "NGHE Solution has sufficient compute and network resources to handle event stream processing and propagation to all subscribers.",
+        "Stakeholders can tolerate eventual consistency with bounded skew (≤ 100 ms) in their local caches."
+      ],
+      "open_risks": [
+        "Event stream processing becomes a bottleneck if synchronous and blocking; requires asynchronous, non-blocking implementation.",
+        "Distributed cache coherency: if multiple modules cache overlapping state and updates arrive out-of-order, caches may diverge; requires cache coherency protocol.",
+        "Safety alert latency SLA may be violated if safety alert processing is not prioritized; requires dedicated, higher-priority event channel.",
+        "NGHE Solution failure causes loss of model updates to all subscribers; requires high-availability event stream and graceful degradation.",
+        "Latency SLA enforcement requires monitoring and alerting; if not implemented, violations may go undetected.",
+        "Network congestion or transport overprovisioning may cause latency SLA violations; requires network QoS configuration and fallback mechanisms."
+      ],
+      "evidence_needed": [
+        "Latency measurement data from representative update scenarios (teleoperation command, vehicle sensor update, safety alert propagation) showing p95 ≤ 1.0 s.",
+        "Event stream transport technology selection and justification (e.g., Kafka vs. RabbitMQ vs. gRPC vs. in-process event bus).",
+        "Cache coherency protocol specification and validation (e.g., versioning scheme, invalidation strategy, handling of out-of-order updates).",
+        "Safety alert prioritization and dedicated channel design specification.",
+        "High-availability and graceful degradation design for NGHE Solution event stream.",
+        "Latency SLA monitoring and alerting implementation and test results.",
+        "End-to-end latency verification test plan and results showing p95 ≤ 1.0 s across all update pathways."
+      ]
+    }
+  }
+}

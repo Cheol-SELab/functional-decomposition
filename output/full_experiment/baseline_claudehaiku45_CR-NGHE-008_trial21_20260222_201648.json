@@ -1,0 +1,174 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall establish and maintain teleoperation communication channels with end-to-end latency (sensor-to-actuator round-trip) not exceeding 150 ms at the 95th percentile under agreed network conditions, enabling safe and responsive remote equipment operation.",
+    "rationale": "The original FR is vague on measurement point (end-to-end vs. link-only), percentile definition, and network assumptions. Refinement clarifies that latency is measured from sensor acquisition through network transmission to actuator command execution, with explicit p95 acceptance criterion and conditional network scope. This precision is critical for safety-critical teleoperation where operator reaction time and equipment responsiveness directly impact worksite safety.",
+    "verification_idea": "Instrumented teleoperation test harness measuring timestamp deltas at sensor input and actuator output across representative network conditions (latency, jitter, packet loss profiles). Collect 1000+ round-trip samples; compute p95 latency distribution. Validate under both nominal and degraded network scenarios per agreed network conditions specification.",
+    "sub_frs": [
+      "FR-TELE-001: Acquire sensor data (position, orientation, load, proximity) with minimal capture-to-transmission latency.",
+      "FR-TELE-002: Transmit sensor telemetry to remote operator console with bounded network latency.",
+      "FR-TELE-003: Receive operator control commands at vehicle with bounded network latency.",
+      "FR-TELE-004: Execute received commands on vehicle actuators with minimal reception-to-actuation latency.",
+      "FR-TELE-005: Monitor and report teleoperation latency health; degrade or halt operation if latency exceeds safe thresholds."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Distributed real-time architecture with edge processing on vehicle (sensor buffering, predictive filtering) and operator console (command queuing, local echo); minimize serialization overhead; use low-latency network protocol (UDP-based custom or QUIC); implement adaptive bitrate telemetry to reduce transmission time under congestion.",
+      "DP-B: Centralized cloud-relay architecture with all telemetry and command routing through cloud gateway; rely on cloud provider SLA for latency guarantees; implement client-side caching and predictive models to mask network delays.",
+      "DP-C: Hybrid mesh architecture with vehicle-to-operator direct link (primary) and cloud relay (fallback); implement link selection logic based on real-time latency measurement; use redundant network paths (cellular, satellite, private network) with automatic failover.",
+      "DP-D: Simplified point-to-point UDP streaming with minimal protocol overhead; no buffering or filtering; raw sensor data streamed continuously; operator console handles all latency compensation via local prediction models."
+    ],
+    "selected_dp": "DP-C: Hybrid mesh architecture with vehicle-to-operator direct link (primary) and cloud relay (fallback); implement link selection logic based on real-time latency measurement; use redundant network paths (cellular, satellite, private network) with automatic failover.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Link selection logic couples to network monitoring subsystem (must detect link quality in real-time).",
+        "Failover mechanism couples to command/telemetry buffering (must preserve state during switchover).",
+        "Redundant paths couple to vehicle network interface hardware (must support multiple simultaneous connections).",
+        "Latency measurement couples to time synchronization across vehicle and operator console (clock drift can invalidate measurements)."
+      ],
+      "notes": "Couplings are manageable via well-defined interfaces (Network Link status, Telemetry stream, Tasking commands). DP-C avoids tight coupling to cloud infrastructure (unlike DP-B) and provides safety margin via fallback path. Complexity is higher than DP-A or DP-D but justified by safety criticality and operational resilience requirements."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Vehicle and operator console can maintain synchronized clocks to within ±10 ms for accurate latency measurement.",
+      "ASSUMPTION: At least one of the three network paths (cellular, satellite, private) is available at any given time during operation.",
+      "ASSUMPTION: Operator console and vehicle can detect link degradation and execute failover within 50 ms.",
+      "RISK: Satellite link introduces inherent 250+ ms latency; failover to satellite may violate p95 ≤ 150 ms criterion. Mitigation: Satellite reserved for telemetry-only fallback, not command path.",
+      "RISK: Clock synchronization drift over extended operations could cause false latency alarms. Mitigation: Periodic NTP sync or GPS-based time correction.",
+      "RISK: Mesh complexity increases software defect surface; failover logic bugs could cause command loss or duplication. Mitigation: Formal verification of state machine; extensive integration testing."
+    ],
+    "recommended_revision": "Refine DP-C to explicitly exclude satellite from command path (telemetry-only fallback). Add requirement for clock synchronization mechanism (NTP or GPS). Specify failover detection threshold (e.g., link latency > 120 ms for 2 consecutive samples triggers evaluation of alternate path). Document network path priority order and conditions for each path selection."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Encapsulates all teleoperation-specific logic: sensor data acquisition and buffering, telemetry encoding/transmission, command reception/decoding, actuator command execution, link selection and failover, latency monitoring and health reporting. Owns the hybrid mesh network architecture, redundant path management, and real-time scheduling for latency-critical operations."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Teleoperation module outputs sensor telemetry (position, orientation, load, proximity, latency metrics) to operator console and safety monitoring systems. Encoded as low-latency serialized format (e.g., Protocol Buffers, MessagePack). Frequency: 50 Hz nominal (20 ms per sample)."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Teleoperation module receives operator control commands (movement, tool actuation, mode changes) from remote operator console. Decoded and queued for vehicle actuator execution. Frequency: variable, up to 50 Hz during active operation."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Teleoperation module manages three redundant network paths (cellular, satellite, private network). Monitors link quality (latency, packet loss, jitter) and selects primary path. Handles failover logic and state synchronization across path switches."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Teleoperation module reports latency health status and alerts to Safety Services. Triggers SafetyAlert if p95 latency exceeds 150 ms or if link quality degrades below safe thresholds. Enables Safety Services to enforce operational constraints (e.g., reduced speed, operator override, emergency stop)."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "Teleoperation module is the natural home for all latency-critical teleoperation logic. Sensor acquisition, network transmission, command execution, and link management are core teleoperation responsibilities. Minimal diffusion: only external interfaces are Telemetry (out), Tasking (in), Network Link (inout), and SafetyAlert (out). High cohesion within module."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 40,
+        "diffusion_score": 60,
+        "notes": "Vehicle module owns physical actuators and sensors, but teleoperation-specific logic (link selection, failover, latency monitoring) should not be embedded in Vehicle. Assigning DP-C to Vehicle would scatter teleoperation concerns across vehicle control logic, reducing modularity and testability. Vehicle should expose clean sensor/actuator interfaces to Teleoperation module."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Safety Services owns safety policy enforcement and alerts, but not the teleoperation mechanism itself. Latency monitoring and failover logic are operational concerns, not safety policy. Safety Services should consume SafetyAlert from Teleoperation and enforce constraints (e.g., halt if latency unsafe), but should not own the teleoperation architecture."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 10,
+        "diffusion_score": 90,
+        "notes": "NGHE Solution is the top-level system container. Assigning DP-C here would leave implementation unowned and scattered across sub-modules. Not appropriate for detailed design parameter realization."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the correct architectural home for DP-C (hybrid mesh teleoperation architecture). It owns sensor-to-actuator latency optimization, network path management, and failover logic. External interfaces (Telemetry, Tasking, Network Link, SafetyAlert) are clean and well-defined, enabling integration with Vehicle, Safety Services, and network infrastructure without diffusion.",
+    "containment_risks": [
+      "RISK: Teleoperation module may become large and complex if it also owns low-level network protocol implementation (TCP/IP stack, UDP handling). Mitigation: Delegate network I/O to a lower-level Network Link abstraction; Teleoperation owns only link selection and failover logic.",
+      "RISK: Sensor acquisition latency depends on Vehicle module's sensor driver implementation. If Vehicle drivers are slow, Teleoperation cannot meet latency targets. Mitigation: Define sensor interface SLA (e.g., sensor data available within 5 ms of physical event); Vehicle module responsible for meeting SLA.",
+      "RISK: Actuator command execution latency depends on Vehicle module's actuator control loop. Teleoperation cannot guarantee end-to-end latency if Vehicle actuators are slow to respond. Mitigation: Define actuator interface SLA (e.g., command executed within 10 ms of reception); Vehicle module responsible for meeting SLA.",
+      "RISK: Clock synchronization between vehicle and operator console is a cross-module concern. If not properly owned, synchronization logic may be duplicated or neglected. Mitigation: Assign clock synchronization to Teleoperation module; provide NTP/GPS interface to external time source."
+    ],
+    "recommended_revision": "Clarify the boundary between Teleoperation and Vehicle modules: Teleoperation owns link selection, failover, and latency monitoring; Vehicle owns sensor drivers and actuator control loops. Define explicit SLAs for sensor data availability (≤5 ms) and actuator command execution (≤10 ms) to ensure Vehicle module contributions to end-to-end latency are predictable. Add clock synchronization mechanism (NTP or GPS) as a sub-component of Teleoperation module."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid mesh architecture with direct link primary, cloud relay fallback, redundant paths, and link selection logic) directly addresses the refined FR requirement for p95 ≤ 150 ms teleoperation latency. DP-C provides multiple paths to minimize latency (direct link avoids cloud hop), redundancy for resilience, and adaptive failover to maintain safety under network degradation. Assumptions (clock sync, path availability, failover speed) are explicit and testable. No decoupling or independence violations detected."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Sensor acquisition latency is partially owned by Vehicle module (sensor drivers); Teleoperation module cannot fully control this. Mitigation: Define and enforce sensor SLA.",
+        "Actuator execution latency is partially owned by Vehicle module (control loop); Teleoperation module cannot fully control this. Mitigation: Define and enforce actuator SLA.",
+        "Network path management requires coordination with network infrastructure (cellular, satellite, private network providers). Teleoperation module owns link selection logic but depends on external network availability. Mitigation: Assume network paths are available per agreed network conditions; Safety Services enforces operational constraints if paths degrade."
+      ],
+      "containment_notes": "Teleoperation module is the clear owner of DP-C. Containment score 95/100 indicates high cohesion and minimal diffusion. External interfaces (Telemetry, Tasking, Network Link, SafetyAlert) are well-defined and enable clean integration with Vehicle, Safety Services, and network infrastructure. No competing module has higher containment score. Ownership is unambiguous."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification of refined FR (p95 ≤ 150 ms latency) is feasible via instrumented teleoperation test harness. Measure end-to-end latency (sensor timestamp to actuator execution timestamp) across 1000+ samples under representative network conditions. Compute p95 percentile. Validate under nominal and degraded network scenarios. Teleoperation module provides latency telemetry (via Telemetry interface) to support measurement.",
+      "allocation_clarity": "Allocation of latency budget is clear: Teleoperation module owns network latency (target: ≤100 ms for p95 direct link, ≤150 ms for p95 with failover). Vehicle module owns sensor acquisition (target: ≤5 ms) and actuator execution (target: ≤10 ms). Safety Services owns latency monitoring and enforcement (halt if latency unsafe). Allocation is traceable from FR to DP to IM."
+    },
+    "recommended_revisions": [
+      "Refine DP-C to explicitly document network path priority order: (1) Private network (lowest latency, highest cost), (2) Cellular (moderate latency, ubiquitous), (3) Satellite (high latency, fallback only for telemetry). Specify failover triggers and thresholds.",
+      "Define sensor and actuator SLAs in Vehicle module interface specification: sensor data available within 5 ms, actuator command executed within 10 ms. Make these contractual obligations to ensure Teleoperation module can meet end-to-end latency target.",
+      "Add clock synchronization mechanism to Teleoperation module specification. Specify NTP or GPS-based time correction to maintain clock accuracy within ±10 ms.",
+      "Document latency monitoring and health reporting in Teleoperation module. Specify SafetyAlert triggers (e.g., p95 latency > 150 ms for 10 consecutive samples) and alert payload (latency metrics, affected path, recommended action)."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The refined FR is well-defined and the selected DP (hybrid mesh architecture) is sound and addresses the latency requirement. The assigned IM (Teleoperation module) is the correct architectural home with high containment score (95/100) and minimal diffusion. All gates pass. However, the FR is not atomic; it decomposes into five sub-FRs (sensor acquisition, telemetry transmission, command reception, actuator execution, latency monitoring). To ensure complete and traceable design, we must decompose to the next level and refine each sub-FR with corresponding DPs and IMs. This is a normal and necessary step in hierarchical functional decomposition.",
+    "justification_detail": "The refined FR explicitly lists five sub-FRs that must be addressed at the next decomposition level. Each sub-FR requires its own DP selection and IM assignment to ensure complete coverage and traceability. For example, FR-TELE-001 (sensor acquisition) must be decomposed into DPs for sensor buffering, timestamp capture, and serialization; FR-TELE-002 (telemetry transmission) must address network encoding, path selection, and transmission scheduling. Proceeding to the next level ensures that latency targets are allocated across all sub-components and that ownership boundaries are clear.",
+    "next_level_sub_frs": [
+      "FR-TELE-001: Acquire sensor data (position, orientation, load, proximity) with minimal capture-to-transmission latency (target: ≤5 ms).",
+      "FR-TELE-002: Transmit sensor telemetry to remote operator console with bounded network latency (target: ≤100 ms p95 direct link, ≤150 ms p95 with failover).",
+      "FR-TELE-003: Receive operator control commands at vehicle with bounded network latency (target: ≤100 ms p95 direct link, ≤150 ms p95 with failover).",
+      "FR-TELE-004: Execute received commands on vehicle actuators with minimal reception-to-actuation latency (target: ≤10 ms).",
+      "FR-TELE-005: Monitor and report teleoperation latency health; degrade or halt operation if latency exceeds safe thresholds (target: detect latency violation within 100 ms, alert Safety Services within 50 ms)."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Vehicle and operator console can maintain synchronized clocks to within ±10 ms for accurate latency measurement.",
+        "At least one of the three network paths (cellular, satellite, private network) is available at any given time during operation.",
+        "Operator console and vehicle can detect link degradation and execute failover within 50 ms.",
+        "Sensor drivers in Vehicle module can provide sensor data within 5 ms of physical event.",
+        "Actuator control loops in Vehicle module can execute commands within 10 ms of reception.",
+        "Network paths (cellular, satellite, private) are available and meet agreed network conditions (latency, jitter, packet loss profiles).",
+        "Safety Services module can enforce operational constraints (e.g., reduced speed, operator override, emergency stop) based on latency health alerts from Teleoperation module."
+      ],
+      "open_risks": [
+        "Clock synchronization drift over extended operations could cause false latency alarms. Mitigation: Periodic NTP sync or GPS-based time correction.",
+        "Satellite link introduces inherent 250+ ms latency; failover to satellite may violate p95 ≤ 150 ms criterion. Mitigation: Satellite reserved for telemetry-only fallback, not command path.",
+        "Mesh complexity increases software defect surface; failover logic bugs could cause command loss or duplication. Mitigation: Formal verification of state machine; extensive integration testing.",
+        "Sensor acquisition latency is partially owned by Vehicle module; Teleoperation module cannot fully control this. Mitigation: Define and enforce sensor SLA.",
+        "Actuator execution latency is partially owned by Vehicle module; Teleoperation module cannot fully control this. Mitigation: Define and enforce actuator SLA.",
+        "Network path management requires coordination with external network providers. Teleoperation module depends on network availability. Mitigation: Assume network paths are available per agreed network conditions; Safety Services enforces operational constraints if paths degrade."
+      ],
+      "evidence_needed": [
+        "Network latency measurements under agreed network conditions (cellular, satellite, private network) to validate DP-C path selection logic.",
+        "Sensor driver latency measurements from Vehicle module to validate ≤5 ms SLA.",
+        "Actuator control loop latency measurements from Vehicle module to validate ≤10 ms SLA.",
+        "Clock synchronization accuracy measurements (NTP or GPS) to validate ±10 ms synchronization target.",
+        "Failover detection and execution time measurements to validate ≤50 ms failover speed.",
+        "End-to-end teleoperation latency measurements (sensor-to-actuator round-trip) across 1000+ samples to validate p95 ≤ 150 ms acceptance criterion.",
+        "Formal verification or extensive testing of failover state machine to validate correctness and absence of command loss/duplication bugs.",
+        "Integration testing of Teleoperation module with Vehicle, Safety Services, and network infrastructure to validate end-to-end latency and failover behavior."
+      ]
+    }
+  }
+}

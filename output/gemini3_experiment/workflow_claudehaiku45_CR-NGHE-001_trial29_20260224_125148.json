@@ -1,0 +1,165 @@
+{
+  "refined_fr": {
+    "refined_fr": "Enable measurement and reporting of material throughput in volumetric or mass units per unit time.",
+    "rationale": "The original FR conflates two distinct obligations: (1) the system's capability to measure/report throughput metrics, and (2) the achievement of a customer-defined target. The latter is a success criterion dependent on operational execution, not a system requirement. The refined FR isolates the system's functional obligation—providing visibility into throughput—which is solution-neutral and testable independent of whether a specific productivity target is met. The target itself belongs in acceptance criteria or KPI definitions, not in the FR.",
+    "verification_idea": "Demonstrate that the NGHE solution captures and reports material throughput (m³/h or ton/h) during representative operations. Verify data accuracy against independent measurement. Confirm reporting is accessible to Site Manager and relevant stakeholders in real time or near-real time.",
+    "sub_frs": [
+      "Acquire material throughput data (volume or mass per time interval) during active operations.",
+      "Calculate and aggregate throughput metrics (m³/h or ton/h) from acquired data.",
+      "Report throughput metrics to authorized stakeholders with sufficient frequency and fidelity for operational decision-making."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Continuous volumetric flow measurement via inline sensor with real-time signal conditioning and local data buffering",
+      "DP2: Periodic mass-based sampling with calibrated weighing and extrapolation to throughput rate over fixed intervals",
+      "DP3: Indirect throughput inference from operational parameters (e.g., motor speed, cycle time, material density) with lookup tables or empirical models",
+      "DP4: Hybrid dual-path measurement (volumetric + mass cross-check) with automated reconciliation logic to detect sensor drift or anomalies",
+      "DP5: Time-stamped event logging of material batches (count, mass, or volume per batch) with post-processing aggregation to compute throughput rates"
+    ],
+    "selected_dp": "DP4: Hybrid dual-path measurement (volumetric + mass cross-check) with automated reconciliation logic to detect sensor drift or anomalies",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Volumetric and mass measurement subsystems must share a common time reference and synchronization protocol to enable valid cross-checks; this introduces a weak temporal coupling that is acceptable if time-sync is treated as a shared utility.",
+        "Reconciliation logic depends on material density assumptions; if density varies significantly during operations, the cross-check may produce false anomaly flags. Mitigation: parameterize density or add density measurement as an optional input.",
+        "Data buffering and reporting subsystems must handle asynchronous arrival of volumetric and mass samples; this is a standard async-queue pattern and does not create problematic coupling if interfaces are well-defined."
+      ],
+      "notes": "DP4 is selected because it provides redundancy and self-validation, directly supporting the acceptance criterion (reported productivity ≥ target) by detecting and flagging measurement faults. The dual-path design decouples the volumetric and mass measurement mechanisms (each can fail independently) while the reconciliation layer is a thin, stateless logic module. This avoids single-point-of-failure risk inherent in DP1 or DP2 alone. DP3 is rejected as too indirect and sensitive to operational parameter drift. DP5 is viable but less suitable for continuous real-time reporting."
+    },
+    "assumptions_risks": [
+      "Assumption: Material density is either constant or can be reliably estimated/measured during operations. Risk: If density varies unpredictably, reconciliation logic may produce spurious anomaly alerts. Mitigation: Establish density measurement or accept a wider reconciliation tolerance band.",
+      "Assumption: Both volumetric and mass sensors have comparable accuracy and response time. Risk: If one sensor is significantly slower or noisier, the cross-check becomes asymmetric and less effective. Mitigation: Specify sensor performance requirements (accuracy class, response time) before IM selection.",
+      "Assumption: Worksite safety plan permits installation of inline measurement devices without disrupting material flow or creating pinch/entanglement hazards. Risk: Physical constraints may force relocation or redesign of sensor placement. Mitigation: Conduct site survey and hazard analysis early; involve safety officer in DP-to-IM transition.",
+      "Assumption: Reported productivity is defined as the arithmetic mean (or other agreed statistic) of throughput samples over the evaluation period. Risk: If acceptance criterion is ambiguous (e.g., peak vs. average vs. minimum), measurement system may pass DP validation but fail operational acceptance. Mitigation: Clarify and document the exact productivity metric and aggregation method in the acceptance criteria.",
+      "Assumption: Automated reconciliation logic can be validated and certified to operate reliably in the worksite environment (temperature, humidity, vibration, electromagnetic interference). Risk: Logic errors or environmental interference may cause false positives/negatives. Mitigation: Plan for independent verification testing and periodic calibration checks."
+    ],
+    "recommended_revision": "Refine FR to explicitly state: (1) the definition of 'productivity' (e.g., mean throughput over 1-hour windows, or cumulative total per shift), (2) the acceptable tolerance band for volumetric-to-mass reconciliation (e.g., ±5% or ±10%), (3) the response time requirement for anomaly detection (e.g., alert within 5 minutes of sensor fault), and (4) the frequency and method of calibration/verification (e.g., weekly manual spot-checks). These refinements will constrain the IM selection and reduce ambiguity in acceptance testing. Additionally, confirm with the worksite safety plan that inline measurement does not introduce new hazards; if it does, consider DP5 (batch-based logging) as a lower-risk alternative."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Safety Services",
+      "scope": "Centralized module responsible for sensor validation, anomaly detection, measurement reconciliation, and safety-critical data integrity checks across all vehicle telemetry streams."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Receives raw volumetric and mass measurement data from Vehicle sensors; dual-path inputs enable cross-validation logic."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Emits alerts when sensor drift, anomalies, or reconciliation failures are detected; triggers safety-critical responses."
+      },
+      {
+        "name": "Tasking",
+        "direction": "inout",
+        "details": "Receives measurement configuration/calibration commands; reports reconciliation status and sensor health state to mission planning."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Safety Services",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit: sensor validation, anomaly detection, and reconciliation are inherently safety-critical functions. Dual-path measurement logic and drift detection align with Safety Services' core responsibility for data integrity. Minimal diffusion: only telemetry ingestion and alert emission cross boundaries."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.65,
+        "diffusion_score": 0.35,
+        "notes": "Moderate fit: Vehicle owns sensor hardware and raw measurement streams, but reconciliation logic and anomaly detection are safety-critical concerns that should not reside in the vehicle control layer. High diffusion: logic would need to couple tightly with multiple sensor drivers and control loops."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor fit: Teleoperation is a command/control interface, not a data validation layer. Measurement reconciliation and sensor drift detection are orthogonal to remote operation concerns. High diffusion: would require teleoperation to depend on sensor internals and safety logic."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Poor fit: NGHE Solution is a top-level system orchestrator, not a sensor data processing module. Placing dual-path reconciliation here would blur the boundary between mission logic and safety-critical measurement validation. High diffusion: would couple mission planning to low-level sensor anomaly detection."
+      }
+    ],
+    "ownership_candidate": "Safety Services",
+    "containment_hypothesis": "DP4 (hybrid dual-path measurement with automated reconciliation and anomaly detection) is fundamentally a safety-critical data integrity function. Safety Services is the natural owner because: (1) sensor drift and anomalies directly threaten safe operation; (2) reconciliation logic must be independent of mission logic to avoid conflicts of interest; (3) SafetyAlert interface provides the required output channel for anomaly notifications; (4) Telemetry and Tasking interfaces supply measurement inputs and configuration commands without requiring Vehicle or Teleoperation to be aware of internal validation logic.",
+    "containment_risks": [
+      "Risk: If volumetric and mass sensors are tightly coupled to Vehicle control loops, extracting dual-path data streams for Safety Services may require Vehicle refactoring to expose sensor interfaces cleanly.",
+      "Risk: Reconciliation logic may require real-time performance guarantees; Safety Services must be architected with sufficient computational isolation to meet latency requirements without competing with other safety functions.",
+      "Risk: Calibration and sensor configuration (via Tasking) must be synchronized across both measurement paths; inconsistent calibration could defeat reconciliation logic. Requires clear ownership of calibration state.",
+      "Risk: If Vehicle already implements local sensor validation, duplication of logic could occur unless Vehicle delegates all validation to Safety Services and trusts the external reconciliation result."
+    ],
+    "recommended_revision": "No revision to DP4 is necessary. The selected DP is well-suited to Safety Services containment. However, recommend clarifying the DP to explicitly state: 'DP4: Hybrid dual-path measurement (volumetric + mass cross-check) with automated reconciliation logic, implemented as a centralized safety-critical validator that receives sensor streams from Vehicle, detects drift/anomalies, and emits SafetyAlerts independent of mission control.' This reinforces that reconciliation is a safety function, not a Vehicle control function, and ensures clean separation of concerns."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP4 (hybrid dual-path measurement with automated reconciliation and anomaly detection) directly addresses the FR requirement to enable measurement and reporting of material throughput in volumetric or mass units per unit time. The dual-path cross-check mechanism provides logical robustness against sensor drift and single-point failures, which is essential for reliable throughput reporting. The DP is solution-agnostic and does not over-constrain implementation."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Vehicle module owns raw sensor hardware and measurement streams; extracting dual-path data for Safety Services requires clean sensor interface exposure. Risk of tight coupling if Vehicle control loops depend on sensor data in ways that prevent independent streaming to Safety Services.",
+        "Reconciliation logic requires real-time performance guarantees; Safety Services must have sufficient computational isolation and latency budgets to execute dual-path validation without competing with other safety-critical functions. Verify scheduling and resource allocation.",
+        "Calibration state synchronization across volumetric and mass measurement paths is critical; inconsistent calibration defeats reconciliation logic. Ownership of calibration state and update sequencing must be explicitly defined to prevent divergence.",
+        "If Vehicle already implements local sensor validation, logic duplication risk exists. Recommend Vehicle delegates all validation to Safety Services and trusts external reconciliation result to avoid conflicting validation decisions."
+      ],
+      "containment_notes": "Safety Services is the optimal owner (containment score 0.92, diffusion score 0.08). Sensor drift detection and measurement reconciliation are inherently safety-critical data integrity functions, independent of mission control. The module boundary cleanly separates concerns: Telemetry ingestion (in), SafetyAlert emission (out), and Tasking configuration (inout) provide necessary interfaces without requiring Vehicle or Teleoperation awareness of internal validation logic. Minimal diffusion across module boundaries."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Acceptance criteria (reported productivity ≥ productivity_target over evaluation period) is verifiable through Safety Services' measurement reporting output. Dual-path reconciliation enables detection of sensor anomalies that would otherwise corrupt throughput calculations. Recommend instrumenting Safety Services to log reconciliation outcomes, drift detections, and alert emissions during representative operations to validate that measurement integrity is maintained and productivity reporting is reliable.",
+      "allocation_clarity": "Allocation is clear: Safety Services owns DP4 implementation. However, recommend explicit clarification of data flow: (1) Vehicle exposes volumetric and mass sensor streams via Telemetry interface without internal validation; (2) Safety Services receives dual-path inputs, executes reconciliation logic, and emits SafetyAlerts on anomaly detection; (3) Tasking interface carries calibration commands and sensor health state reports. Worksite safety plan and operational policies should specify acceptable reconciliation thresholds, alert response procedures, and sensor maintenance schedules to ensure DP4 effectiveness in practice."
+    },
+    "recommended_revisions": [
+      "Clarify DP4 statement to explicitly designate Safety Services as the implementation owner: 'DP4: Hybrid dual-path measurement (volumetric + mass cross-check) with automated reconciliation logic, implemented as a centralized safety-critical validator in Safety Services that receives sensor streams from Vehicle, detects drift/anomalies via cross-validation, and emits SafetyAlerts independent of mission control.'",
+      "Define sensor interface contract between Vehicle and Safety Services: specify that Vehicle exposes raw volumetric and mass measurement streams without local validation, and that Safety Services is the authoritative validator. Document any Vehicle-side sensor filtering or preprocessing that must be disabled or bypassed.",
+      "Establish calibration state ownership and synchronization protocol: specify whether calibration updates are applied atomically to both measurement paths, and define the mechanism for detecting calibration divergence.",
+      "Specify real-time performance requirements for Safety Services reconciliation logic (e.g., maximum latency from sensor reading to reconciliation decision) and verify computational isolation and scheduling guarantees.",
+      "Document alert response procedures in worksite safety plan: define actions triggered by SafetyAlert emissions (e.g., measurement suspension, operator notification, automatic shutdown) and verification that these procedures are compatible with productivity targets."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass with high confidence. However, the gate analysis reveals critical implementation dependencies and real-time performance constraints that cannot be resolved at the current level of abstraction. The recommended revisions identify five concrete areas requiring sub-level decomposition: (1) sensor interface contract and data flow between Vehicle and Safety Services, (2) calibration state ownership and synchronization, (3) real-time performance budgeting for reconciliation logic, (4) computational isolation and scheduling guarantees, and (5) alert response procedures and their compatibility with productivity targets. These are not minor clarifications—they are architectural decisions that affect module boundaries, interface contracts, and operational safety. Decomposing DP4 into sub-FRs will expose these dependencies explicitly and enable verification at lower levels of detail. High safety criticality reinforces the need for rigorous decomposition rather than accepting ambiguity at the current level.",
+    "next_level_sub_frs": [
+      "FR4.1: Establish and maintain a clean sensor data interface between Vehicle and Safety Services such that volumetric and mass measurement streams are exposed without local validation, enabling Safety Services to receive authoritative raw sensor inputs for independent reconciliation.",
+      "FR4.2: Detect and reconcile divergence between volumetric and mass measurement paths in real time, identifying sensor drift, calibration inconsistency, and anomalies with latency and accuracy sufficient to support safety-critical alert emission.",
+      "FR4.3: Synchronize calibration state atomically across volumetric and mass measurement paths, preventing calibration divergence that would defeat reconciliation logic and ensuring both paths remain aligned to the same reference standard.",
+      "FR4.4: Execute reconciliation logic with deterministic real-time performance (bounded latency, resource isolation) such that Safety Services can emit SafetyAlerts independent of Vehicle control loop timing and without competing for computational resources with other safety-critical functions.",
+      "FR4.5: Translate reconciliation outcomes (drift detection, anomaly alerts) into worksite-level safety actions (measurement suspension, operator notification, shutdown procedures) that are compatible with productivity targets and documented in the worksite safety plan."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "DP4 statement should be revised to explicitly designate Safety Services as the implementation owner and clarify the role of the sensor interface contract. Recommended revision: 'DP4: Hybrid dual-path measurement (volumetric + mass cross-check) with automated reconciliation logic, implemented as a centralized safety-critical validator in Safety Services that receives raw sensor streams from Vehicle (without local Vehicle-side validation), detects drift and anomalies via cross-validation, and emits SafetyAlerts independent of mission control. Calibration state is synchronized atomically across both paths; reconciliation outcomes are translated into worksite safety actions per the safety plan.' This revision makes the architectural packaging and interface contract explicit, reducing ambiguity for sub-level decomposition."
+    },
+    "record": {
+      "assumptions": [
+        "Vehicle module is capable of exposing raw volumetric and mass sensor streams without internal validation filtering.",
+        "Safety Services has sufficient computational isolation and real-time scheduling guarantees to execute reconciliation logic with bounded latency.",
+        "Calibration updates can be applied atomically to both measurement paths, or divergence can be detected and flagged.",
+        "Worksite safety plan and operational procedures can be updated to define alert response actions and their compatibility with productivity targets.",
+        "Sensor maintenance schedules and acceptable reconciliation thresholds are defined by worksite operations and are compatible with DP4 effectiveness."
+      ],
+      "open_risks": [
+        "Sensor interface contract risk: Vehicle may have internal validation or filtering that prevents Safety Services from receiving raw dual-path data. Requires explicit interface design and potential Vehicle module refactoring.",
+        "Real-time performance risk: Safety Services reconciliation logic may not meet latency budgets if computational isolation is insufficient or if other safety-critical functions compete for resources. Requires scheduling analysis and resource allocation verification.",
+        "Calibration divergence risk: If calibration updates are not applied atomically or if divergence is not detected, reconciliation logic will fail silently. Requires explicit synchronization protocol and monitoring.",
+        "Alert response compatibility risk: Worksite safety procedures triggered by SafetyAlerts may conflict with productivity targets (e.g., measurement suspension may halt operations). Requires explicit trade-off analysis and procedure design.",
+        "Logic duplication risk: If Vehicle already implements local sensor validation, conflicting validation decisions may arise. Requires explicit delegation of validation authority to Safety Services."
+      ],
+      "evidence_needed": [
+        "Sensor interface specification document defining data flow between Vehicle and Safety Services, including raw stream exposure, filtering/preprocessing requirements, and latency guarantees.",
+        "Calibration state ownership and synchronization protocol, including atomic update mechanism, divergence detection logic, and monitoring instrumentation.",
+        "Real-time performance budget for Safety Services reconciliation logic, including maximum latency from sensor reading to reconciliation decision, computational resource allocation, and scheduling guarantees.",
+        "Worksite safety plan excerpt defining alert response procedures, acceptable reconciliation thresholds, sensor maintenance schedules, and compatibility analysis with productivity targets.",
+        "Instrumentation and logging plan for Safety Services, including reconciliation outcome logging, drift detection events, alert emissions, and verification data collection during representative operations.",
+        "Verification test plan demonstrating that dual-path reconciliation detects sensor anomalies and that measurement integrity is maintained under representative operational conditions."
+      ]
+    }
+  }
+}

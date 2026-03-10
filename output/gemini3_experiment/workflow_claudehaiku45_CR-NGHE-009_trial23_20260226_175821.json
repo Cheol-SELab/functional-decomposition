@@ -1,0 +1,172 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation communication integrity within customer-defined packet loss limits during agreed network conditions.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting teleoperation as a capability, and (2) meeting a specific quality metric (packet loss). The refined FR isolates the quality/performance obligation while remaining solution-neutral. It avoids prescribing 'how' (e.g., redundancy, error correction, protocol selection) and focuses on the outcome: communication integrity under defined conditions. The phrase 'customer-defined packet loss limits' and 'agreed network conditions' preserves the acceptance criteria without embedding them as design constraints.",
+    "verification_idea": "Conduct teleoperation trials under agreed network conditions (latency, bandwidth, interference profile) and measure end-to-end packet loss across representative mission scenarios. Confirm measured packet loss does not exceed the customer-defined threshold (e.g., ≤1%). Document network conditions and acceptance criteria in the test plan.",
+    "sub_frs": [
+      "FR-NGHE-009.1: The NGHE solution shall enable remote operation of heavy equipment from a tele-operator station.",
+      "FR-NGHE-009.2: The NGHE solution shall maintain teleoperation command and feedback data transmission with packet loss not exceeding the customer-defined limit under agreed network conditions."
+    ],
+    "is_atomic": false,
+    "note": "The refined FR is more atomic than the original, but the two sub-FRs represent a natural functional decomposition: one addresses capability (teleoperation enablement), the other addresses quality (communication integrity). Both are solution-neutral and testable."
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Implement adaptive packet redundancy and selective retransmission based on real-time network quality metrics (loss rate, latency variance) to maintain command/feedback integrity within customer-defined thresholds.",
+      "DP2: Establish a dual-channel communication architecture with independent network paths and automatic failover logic to ensure continuous teleoperation control availability.",
+      "DP3: Deploy application-level forward error correction (FEC) encoding with configurable redundancy ratios, tuned to customer network conditions during commissioning, to absorb packet loss without requiring retransmission.",
+      "DP4: Implement a prioritized message queue with differentiated QoS handling (critical control commands prioritized over telemetry) and congestion-aware throttling to preserve command integrity under packet loss.",
+      "DP5: Establish a network condition monitoring and reporting subsystem that continuously measures packet loss, latency, and jitter; triggers alerts when thresholds are exceeded; and provides data for operator decision-making and system reconfiguration."
+    ],
+    "selected_dp": "DP1 + DP5 (integrated): Implement adaptive packet redundancy and selective retransmission based on real-time network quality metrics (loss rate, latency variance), coupled with continuous network condition monitoring and reporting, to maintain command/feedback integrity within customer-defined thresholds. This approach is solution-neutral, supports independent tuning per customer network, and provides visibility for operational safety decisions.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "DP1 and DP5 are tightly coupled by design (monitoring informs adaptation), but this is intentional and reduces overall system complexity compared to independent channels (DP2) or static FEC (DP3).",
+        "Risk: Coupling between network measurement accuracy and adaptation responsiveness—if monitoring is delayed or inaccurate, redundancy tuning may lag behind actual network degradation. Mitigation: Define measurement sampling rate and adaptation latency budgets during design.",
+        "Risk: DP1 assumes bidirectional communication for feedback-driven adaptation; asymmetric loss (uplink vs. downlink) requires separate measurement and tuning per direction. Mitigation: Explicitly model uplink/downlink loss independently in monitoring subsystem.",
+        "DP5 introduces a new functional dependency (monitoring infrastructure must be reliable); if monitoring fails, adaptation becomes blind. Mitigation: Design monitoring with graceful degradation (fall back to conservative redundancy if measurement fails)."
+      ],
+      "notes": "DP1+DP5 avoids the independence loss of DP2 (dual channels require synchronized state) and the inflexibility of DP3 (static FEC cannot adapt to customer-specific or time-varying conditions). The selected combination is loosely coupled to the physical network layer (solution-neutral) and tightly coupled only where necessary (measurement→adaptation feedback loop)."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Customer network conditions are measurable and stable enough to support real-time adaptation. RISK: If network exhibits rapid, unpredictable loss spikes, adaptation may not respond fast enough. MITIGATION: Define acceptable adaptation latency and validate against customer network profile during commissioning.",
+      "ASSUMPTION: Bidirectional communication is available for feedback-driven redundancy tuning. RISK: If uplink and downlink loss are asymmetric, separate adaptation logic is required. MITIGATION: Explicitly design monitoring and adaptation for directional loss asymmetry.",
+      "ASSUMPTION: Packet loss is the primary failure mode; other network faults (reordering, corruption, extreme latency) are out of scope or handled by lower-layer protocols. RISK: If reordering or corruption occurs, application-level redundancy may not be sufficient. MITIGATION: Clarify scope with customer; consider adding sequence numbering and checksum validation if needed.",
+      "ASSUMPTION: Operator can tolerate variable latency introduced by retransmission and redundancy. RISK: If latency becomes excessive (e.g., >500 ms), teleoperation may become unsafe or unusable. MITIGATION: Define latency budget and ensure redundancy strategy respects it (e.g., limit retransmission attempts).",
+      "ASSUMPTION: Network monitoring infrastructure (packet counters, loss detection) is available and accurate. RISK: If monitoring is unreliable, adaptation decisions are based on incorrect data. MITIGATION: Validate monitoring accuracy during commissioning; implement sanity checks and fallback thresholds.",
+      "ASSUMPTION: Customer-defined packet loss target (≤1% or custom) is achievable with the selected DP. RISK: If customer network is fundamentally unable to meet the target, no DP can compensate. MITIGATION: Conduct pre-deployment network assessment and establish realistic acceptance criteria with customer."
+    ],
+    "recommended_revision": "Refine FR to explicitly state: (1) Acceptable latency budget for teleoperation control loop (e.g., end-to-end latency ≤ X ms); (2) Directionality of packet loss measurement (uplink, downlink, or both); (3) Definition of 'agreed network conditions' (e.g., specific ISP, bandwidth, topology, or test profile); (4) Fallback behavior if packet loss exceeds target despite adaptation (e.g., operator alert, reduced autonomy, safe shutdown). This will enable DP selection to be validated against realistic operational constraints and reduce risk of over-engineering or under-specification."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Encapsulates adaptive packet redundancy, selective retransmission logic, real-time network quality monitoring, and condition reporting. Owns the decision logic for redundancy levels and retransmission strategies based on observed network metrics. Interfaces with Vehicle for command delivery and Safety Services for threshold-based alerts."
+    },
+    "external_interfaces": [
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Bidirectional interface for raw packet transmission/reception and access to real-time network quality metrics (loss rate, latency variance). Teleoperation module queries this interface to obtain current network conditions and executes retransmission/redundancy decisions."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives operator commands and customer-defined network quality thresholds. Teleoperation uses threshold parameters to tune adaptive redundancy and retransmission behavior per customer network profile."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Exports network condition reports and integrity status to Safety Services. Enables operational safety decisions when network quality degrades beyond acceptable thresholds."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Reports adaptive redundancy state, retransmission counts, and network quality metrics for visibility and diagnostics."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit. Teleoperation is the natural owner of command/feedback integrity mechanisms. Adaptive redundancy and selective retransmission are core to reliable teleoperated control. Network monitoring is essential for real-time operator awareness. Minimal diffusion: only SafetyAlert export (threshold violations) and Telemetry reporting leak out; core logic remains contained."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.45,
+        "diffusion_score": 0.55,
+        "notes": "Poor fit. Safety Services should consume network condition reports and make safety decisions, not own the adaptive redundancy/retransmission logic itself. Placing DP here would require Safety Services to directly manage packet-level operations, violating separation of concerns. High diffusion: would need tight coupling to Network Link and Tasking for real-time tuning."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Very poor fit. Vehicle module is responsible for vehicle state and actuation, not network protocol management. Placing adaptive redundancy logic in Vehicle creates inappropriate coupling between vehicle dynamics and network transport. High diffusion: Vehicle would need to manage packet-level decisions unrelated to its core function."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.5,
+        "diffusion_score": 0.5,
+        "notes": "Moderate fit but overly broad. NGHE Solution is a top-level system container. While it could technically host this logic, it lacks the specificity and operational context of Teleoperation. Placing DP here bypasses the natural functional hierarchy and reduces cohesion. Diffusion: would require NGHE Solution to manage low-level network transport details better owned by Teleoperation."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the optimal boundary because: (1) it owns the operator-to-vehicle command/feedback loop and is responsible for maintaining integrity of that loop; (2) adaptive redundancy and selective retransmission are direct mechanisms to preserve command/feedback fidelity under variable network conditions; (3) real-time network monitoring is essential for operator situational awareness and safety decisions; (4) customer-defined thresholds naturally parameterize Teleoperation behavior; (5) coupling to Network Link (for metrics) and SafetyAlert (for threshold violations) is minimal and well-defined; (6) core algorithm logic remains cohesive within a single module boundary.",
+    "containment_risks": [
+      "Risk: If network quality metrics (loss rate, latency variance) are not reliably exposed by Network Link interface, Teleoperation cannot make informed redundancy decisions. Mitigation: Ensure Network Link provides real-time, accurate metrics with defined update frequency.",
+      "Risk: Customer-defined thresholds may be inconsistent or conflict with vehicle safety constraints. Mitigation: Establish validation rules in Tasking interface to reject invalid threshold combinations before they reach Teleoperation.",
+      "Risk: Adaptive redundancy may increase packet volume significantly on poor networks, potentially worsening congestion. Mitigation: Implement backpressure logic in Teleoperation to cap redundancy levels and coordinate with Safety Services for graceful degradation.",
+      "Risk: SafetyAlert interface may become a bottleneck if Teleoperation reports too frequently. Mitigation: Batch network condition reports and only alert on threshold crossings, not every metric update."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The FR specifies a measurable acceptance criterion (packet loss ≤ 1% or customer-defined target under agreed network conditions). The IM boundary (Teleoperation module) owns the adaptive redundancy and selective retransmission logic, making it the natural point of instrumentation for verifying packet loss rates. Network Link interface provides real-time loss rate metrics; Telemetry interface exports redundancy state and retransmission counts for post-hoc analysis. Verification can be conducted via: (1) live network testing under controlled loss conditions, (2) simulation with synthetic packet loss injection, (3) operational telemetry analysis during field deployment. Acceptance criteria are directly measurable against IM outputs.",
+      "allocation_clarity": "Excellent. The FR requirement is clearly allocated to the Teleoperation IM boundary. The allocation is unambiguous: Teleoperation owns the decision logic for redundancy levels and retransmission strategies; Network Link provides the metrics input; Tasking provides customer-defined thresholds; SafetyAlert and Telemetry provide observability. No competing ownership claims exist. The functional responsibility (maintain teleoperation communication integrity) maps directly to the module responsibility (adaptive packet redundancy and selective retransmission based on network quality metrics)."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "The DP (adaptive packet redundancy + selective retransmission + real-time network quality monitoring + condition reporting) is a logically sound and complete solution to the FR. The DP is solution-neutral (does not prescribe specific algorithms, only the adaptive principle), supports independent tuning per customer network (via Tasking interface thresholds), and provides visibility for operational safety decisions (via SafetyAlert export). The DP directly addresses the FR's core requirement: maintaining command/feedback integrity within customer-defined packet loss limits by dynamically adjusting redundancy and retransmission based on observed network conditions. The coupling of DP1 (adaptive redundancy/retransmission) and DP5 (network monitoring/reporting) is justified and necessary—monitoring informs adaptation, and adaptation effectiveness requires reporting for validation."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Risk: Network quality metrics (loss rate, latency variance) must be reliably exposed by Network Link interface with defined update frequency and accuracy. If metrics are stale, delayed, or inaccurate, Teleoperation cannot make timely redundancy decisions. Mitigation: Establish SLA for Network Link metric freshness (e.g., ≤100ms update latency) and accuracy bounds in interface specification.",
+        "Risk: Customer-defined thresholds received via Tasking interface may be inconsistent with vehicle safety constraints or physically infeasible (e.g., demanding <0.1% loss on a network with inherent 5% loss). Invalid thresholds could cause Teleoperation to enter unachievable states or trigger excessive redundancy. Mitigation: Implement threshold validation logic in Tasking interface handler; reject or clamp invalid thresholds with explicit operator notification.",
+        "Risk: Adaptive redundancy may increase packet volume significantly on degraded networks, potentially exacerbating congestion and worsening loss rates (positive feedback loop). Mitigation: Implement backpressure and saturation logic in Teleoperation to cap maximum redundancy multiplier and coordinate graceful degradation with Safety Services.",
+        "Risk: SafetyAlert interface may become a bottleneck or create alert fatigue if Teleoperation reports every network metric update. Mitigation: Batch network condition reports; only alert on threshold crossings or sustained degradation, not transient metric fluctuations.",
+        "Risk: Telemetry export of redundancy state and retransmission counts may leak implementation details that are not relevant to external consumers, creating tight coupling. Mitigation: Define Telemetry schema to export only high-level network health indicators (e.g., 'network_quality: good|degraded|critical') and aggregate statistics, not per-packet retransmission logs."
+      ],
+      "containment_notes": "Excellent containment (0.92 score). The Teleoperation module is the optimal IM boundary for this DP. Core logic (adaptive redundancy decision-making, selective retransmission scheduling, network quality monitoring) is cohesively owned by Teleoperation. Minimal diffusion: only SafetyAlert (threshold violation reporting) and Telemetry (diagnostic export) leak out, both of which are appropriate external interfaces for a communication integrity module. No competing ownership claims from Safety Services, Vehicle, or NGHE Solution. The module boundary respects separation of concerns: Teleoperation manages transport-layer reliability; Safety Services consumes network condition reports and makes safety decisions; Vehicle remains decoupled from network protocol details. Interface design is clean: Network Link (inout for metrics and packet operations), Tasking (in for thresholds), SafetyAlert (out for alerts), Telemetry (out for diagnostics). No evidence of scattered responsibilities or algorithm duplication across module boundaries."
+    },
+    "recommended_revisions": [
+      "Revision 1: Formalize Network Link interface specification to include: (a) metric types (loss_rate, latency_variance, jitter), (b) update frequency SLA (e.g., ≤100ms), (c) accuracy bounds (e.g., ±0.1% loss rate), (d) query/subscription mechanism (pull vs. push). This ensures Teleoperation can rely on timely, accurate metrics for adaptive decisions.",
+      "Revision 2: Add threshold validation logic to Tasking interface handler. Define validation rules: (a) loss_target must be ≥ 0% and ≤ 100%, (b) loss_target must be achievable given baseline network conditions (require Network Link baseline assessment), (c) latency_target must be ≥ 0ms, (d) reject or clamp invalid thresholds with explicit error reporting to operator. This prevents Teleoperation from entering unachievable states.",
+      "Revision 3: Specify backpressure and saturation logic in Teleoperation DP: (a) define maximum redundancy multiplier (e.g., 3x), (b) implement congestion detection (monitor outbound queue depth), (c) coordinate with Safety Services to trigger graceful degradation (reduce command frequency, increase safety margins) if redundancy approaches saturation. This prevents positive feedback loops that worsen network conditions.",
+      "Revision 4: Refine SafetyAlert interface to batch reports and threshold-based alerting: (a) only alert on threshold crossings (loss_rate exceeds target), not every metric update, (b) include hysteresis (e.g., alert on crossing, clear only after sustained improvement), (c) define alert severity levels (warning, critical) based on how far loss_rate exceeds target. This reduces alert fatigue and improves operator situational awareness.",
+      "Revision 5: Define Telemetry schema to export high-level network health indicators (e.g., 'network_quality: good|degraded|critical', 'redundancy_level: 1x|2x|3x', 'retransmission_rate: <1%|1-5%|>5%') rather than per-packet details. This maintains observability while reducing coupling and implementation detail leakage.",
+      "Revision 6: Add acceptance test plan to FR/DP/IM mapping: (a) test packet loss under controlled network conditions (0%, 1%, 5%, 10% synthetic loss), (b) verify Teleoperation achieves ≤1% effective loss via redundancy/retransmission, (c) verify SafetyAlert triggers when loss exceeds customer-defined threshold, (d) verify Telemetry exports correct redundancy state and network quality metrics. This operationalizes the FR acceptance criterion (packet loss ≤ 1%) at the IM level."
+    ]
+  },
+  "decision": {
+    "decision": "REVISE_CURRENT_LEVEL",
+    "justification": "All three gates (FR-IM, FR-DP, DP-IM) pass with high confidence, and containment is excellent (0.92). However, the recommended revisions are substantive and address critical safety and operational concerns that must be resolved before proceeding to decomposition. Specifically: (1) Network Link interface SLA formalization is essential for Teleoperation to make reliable adaptive decisions; (2) threshold validation logic prevents unachievable states that could compromise safety; (3) backpressure/saturation logic prevents positive feedback loops that degrade network conditions under stress; (4) SafetyAlert batching and hysteresis reduce alert fatigue while maintaining situational awareness; (5) Telemetry schema refinement reduces coupling and implementation detail leakage. These revisions strengthen the DP-IM mapping and reduce diffusion risks from 'High' to 'Manageable'. Once revisions are incorporated, the FR-DP-IM triad will be sufficiently mature and risk-mitigated to support next-level decomposition without rework. Stopping now would leave interface contracts and safety-critical logic underspecified; proceeding without revision would propagate ambiguity and risk into sub-level FRs.",
+    "next_level_sub_frs": [],
+    "revise": {
+      "target": "DP",
+      "why": "The DP logic is sound, but its realization (IM) depends on interface contracts and safety-critical decision logic that must be explicitly specified in the DP before decomposition. Revisions 1-6 should be incorporated into the DP narrative and interface specifications: (1) Network Link interface SLA (metric freshness, accuracy); (2) Tasking interface threshold validation rules; (3) Teleoperation backpressure and saturation logic with Safety Services coordination; (4) SafetyAlert batching, hysteresis, and severity levels; (5) Telemetry schema for high-level health indicators; (6) acceptance test plan operationalizing the FR criterion at IM level. These revisions do not change the DP concept (adaptive redundancy + selective retransmission + monitoring + reporting) but make it sufficiently concrete and safety-aware to guide IM design and sub-level decomposition without ambiguity."
+    },
+    "record": {
+      "assumptions": [
+        "Network Link interface can reliably expose packet loss rate, latency variance, and jitter with ≤100ms update latency and ±0.1% accuracy.",
+        "Tasking interface can receive and validate customer-defined loss targets and latency targets without blocking Teleoperation operation.",
+        "Safety Services can consume SafetyAlert reports and make graceful degradation decisions (reduce command frequency, increase safety margins) within 200ms of alert.",
+        "Telemetry infrastructure can export network health indicators and redundancy state without creating bottlenecks or alert fatigue.",
+        "Adaptive redundancy multiplier can be capped at 3x without violating packet loss target under typical network conditions (0-5% baseline loss).",
+        "Backpressure logic can detect outbound queue saturation and trigger Safety Services coordination without introducing deadlock or livelock."
+      ],
+      "open_risks": [
+        "Risk: Network Link metric freshness SLA not yet formalized. If metrics are stale (>100ms latency), Teleoperation may make redundancy decisions based on outdated network conditions, reducing effectiveness. Mitigation: Formalize SLA in Revision 1; validate via integration testing with Network Link module.",
+        "Risk: Threshold validation logic may reject valid customer thresholds if baseline network assessment is inaccurate or changes over time. Mitigation: Implement dynamic baseline learning in Teleoperation; allow operator override with explicit acknowledgment of risk.",
+        "Risk: Backpressure and saturation logic may introduce latency spikes if Teleoperation throttles packet transmission during congestion. Mitigation: Implement smooth backpressure (gradual redundancy reduction) rather than hard cutoff; coordinate with Safety Services to adjust command frequency in parallel.",
+        "Risk: SafetyAlert batching may delay critical alerts if network condition degrades rapidly. Mitigation: Define alert priority levels; send critical alerts immediately, batch non-critical alerts.",
+        "Risk: Telemetry schema abstraction (high-level health indicators) may hide important diagnostic information needed for field troubleshooting. Mitigation: Provide optional detailed telemetry export (per-packet retransmission logs) for diagnostic mode, disabled by default to reduce coupling.",
+        "Risk: Acceptance test plan may not cover all failure modes (e.g., bursty loss, correlated loss, asymmetric loss). Mitigation: Expand test plan to include synthetic loss patterns (bursty, correlated, asymmetric) in addition to uniform loss."
+      ],
+      "evidence_needed": [
+        "Network Link interface specification document with metric types, update frequency SLA, accuracy bounds, and query/subscription mechanism.",
+        "Threshold validation logic specification with validation rules, error handling, and operator notification protocol.",
+        "Backpressure and saturation logic specification with maximum redundancy multiplier, congestion detection algorithm, and Safety Services coordination protocol.",
+        "SafetyAlert interface specification with batching rules, hysteresis logic, and alert severity levels.",
+        "Telemetry schema specification with high-level health indicators and optional detailed export for diagnostic mode.",
+        "Acceptance test plan with test cases for uniform loss (0%, 1%, 5%, 10%), bursty loss, correlated loss, asymmetric loss, and threshold crossing scenarios.",
+        "Integration test results validating Network Link metric freshness and accuracy under various network conditions.",
+        "Safety analysis (FMEA or similar) identifying failure modes of adaptive redundancy logic and mitigation strategies."
+      ]
+    }
+  }
+}

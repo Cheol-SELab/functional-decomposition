@@ -1,0 +1,162 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current operational state (vehicle position, task progress, environmental hazards, safety status) within p95 ≤ 1.0 s latency for all supported update scenarios (teleoperated commands, autonomous task execution, sensor data ingestion, safety event propagation).",
+    "rationale": "CR-NGHE-007 is a system-level quality attribute requirement that spans multiple functional domains (teleoperation, autonomy, safety, sensing). Refinement clarifies the scope of 'worksite model' (what state elements), the measurement basis (p95 latency percentile), and the triggering scenarios. High safety criticality demands explicit inclusion of safety event propagation as a critical path.",
+    "verification_idea": "Instrument end-to-end latency measurement across representative update scenarios in integration test environment; capture p95 latency distribution; correlate with network conditions, model complexity, and safety event frequency.",
+    "sub_frs": [
+      "FR-NGHE-007.1: Teleoperation command shall be transmitted from tele-operator interface to vehicle within p95 ≤ 0.3 s.",
+      "FR-NGHE-007.2: Vehicle state (position, orientation, task status) shall be acquired and transmitted to worksite model within p95 ≤ 0.4 s.",
+      "FR-NGHE-007.3: Safety alert shall be detected, classified, and propagated to all stakeholders within p95 ≤ 0.2 s.",
+      "FR-NGHE-007.4: Worksite model shall integrate received updates and render updated state to Site Manager and Tele-operator within p95 ≤ 0.1 s."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized worksite model server with real-time event bus; all updates routed through single model instance; synchronous acknowledgment on write.",
+      "DP-B: Distributed worksite model replicas with eventual consistency; local caches at teleoperation and vehicle; asynchronous gossip protocol for state reconciliation.",
+      "DP-C: Hybrid architecture: authoritative model server for safety-critical state (hazards, alerts); local caches for non-critical state (vehicle position); dual-path update: fast local cache for UI responsiveness, slow authoritative write for durability.",
+      "DP-D: Edge-local model instances at vehicle and teleoperation client; server acts as log/audit trail only; all latency-critical updates resolved locally with eventual server sync."
+    ],
+    "selected_dp": "DP-C: Hybrid architecture with authoritative safety-critical model server and local caches for operational state; dual-path updates (fast local cache for UI, slow authoritative write for durability); network-aware fallback to local-only mode if connectivity degrades.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "DP-C couples worksite model update latency to network reliability (Telemetry/Network Link interface quality); degradation in network latency directly impacts p95 percentile.",
+        "DP-C couples safety alert propagation to dual-path consistency; risk of stale safety state in local cache if server update delayed.",
+        "DP-C couples teleoperation responsiveness to local cache freshness; if cache invalidation delayed, tele-operator may issue commands based on stale model."
+      ],
+      "notes": "Couplings are acceptable because they are explicit and manageable via network SLA, cache invalidation policy, and fallback logic. DP-C avoids the tighter coupling of DP-A (single point of failure) and the consistency complexity of DP-B (eventual consistency in safety-critical domain)."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Network latency (Telemetry interface) is predictable and bounded; p95 network RTT ≤ 0.2 s under normal conditions.",
+      "ASSUMPTION: Vehicle and teleoperation client have sufficient local compute to maintain model cache and perform local state updates.",
+      "ASSUMPTION: Safety-critical state (hazards, alerts) can be cleanly separated from operational state (position, task progress) for dual-path handling.",
+      "RISK: If network latency exceeds 0.2 s p95, overall system p95 will exceed 1.0 s target; mitigation requires network upgrade or relaxed latency target.",
+      "RISK: Cache invalidation logic may introduce race conditions if safety alert arrives while local cache is being updated; mitigation requires explicit versioning and conflict resolution.",
+      "RISK: Tele-operator may perceive stale model if local cache update delayed; mitigation requires visual staleness indicator and cache refresh on user interaction."
+    ],
+    "recommended_revision": "Refine DP-C to explicitly specify: (1) cache invalidation policy (TTL vs. event-driven); (2) conflict resolution strategy for safety state (server-authoritative with client rollback); (3) fallback behavior if server unreachable (local-only mode with warnings); (4) network SLA assumptions (p95 RTT ≤ 0.2 s)."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "System-level integration point; owns end-to-end latency budget allocation, network SLA enforcement, and fallback orchestration. Coordinates between Teleoperation (client-side cache), Vehicle (sensor/state acquisition), and Safety Services (alert propagation)."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "inout",
+        "details": "Bidirectional telemetry stream carrying vehicle state (position, orientation, task status) from Vehicle to NGHE Solution, and worksite model updates from NGHE Solution to Teleoperation and Vehicle. Critical for latency budget; p95 RTT ≤ 0.2 s required."
+      },
+      {
+        "name": "Tasking",
+        "direction": "inout",
+        "details": "Tele-operator commands (movement, task execution) transmitted from Teleoperation to Vehicle via NGHE Solution. Latency-critical for teleoperation responsiveness; p95 ≤ 0.3 s end-to-end."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Safety alerts (hazard detection, emergency stop, policy violation) propagated from Safety Services to NGHE Solution, then to Teleoperation and Site Manager. Latency-critical for safety; p95 ≤ 0.2 s required."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Underlying network transport (5G, LTE, WiFi, or hybrid) connecting Vehicle, Teleoperation, and NGHE Solution. Latency and reliability of Network Link directly impact overall system latency budget."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "NGHE Solution is the natural system-level integration point for worksite model update orchestration. Owns latency budget allocation, network SLA enforcement, and fallback logic. Minimal diffusion: only Telemetry, Tasking, SafetyAlert, and Network Link interfaces cross boundary."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 40,
+        "diffusion_score": 60,
+        "notes": "Vehicle could own local state acquisition and caching, but worksite model update latency is a system-level concern that spans Vehicle, Teleoperation, and Safety Services. Assigning to Vehicle alone would diffuse responsibility for end-to-end latency and create tight coupling between vehicle firmware and model update logic."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 35,
+        "diffusion_score": 65,
+        "notes": "Teleoperation owns client-side cache and UI rendering, but not the authoritative model server or safety alert propagation. Assigning latency requirement to Teleoperation alone would obscure dependencies on Vehicle state acquisition and Safety Services alert latency."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 50,
+        "diffusion_score": 50,
+        "notes": "Safety Services owns alert detection and classification, but not the overall worksite model update latency. Safety alert propagation is one component of the latency budget, not the entire requirement. Assigning to Safety Services would create false ownership of non-safety-critical state updates (position, task progress)."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "NGHE Solution is the appropriate IM boundary because: (1) it is the system-level integration point that coordinates all update paths (teleoperation, vehicle state, safety alerts); (2) it owns the latency budget allocation and network SLA enforcement; (3) it can implement the hybrid architecture (authoritative server + local caches) with clear ownership of fallback logic; (4) it minimizes diffusion by centralizing latency-critical orchestration logic.",
+    "containment_risks": [
+      "RISK: If NGHE Solution is too coarse-grained, latency optimization may be blocked by unrelated system changes (e.g., adding new vehicle types). Mitigation: decompose NGHE Solution into sub-modules (Worksite Model Server, Network Orchestrator, Cache Manager) in next level.",
+      "RISK: If network latency exceeds SLA, NGHE Solution may not be able to meet p95 ≤ 1.0 s target without hardware upgrade. Mitigation: establish network SLA as a hard constraint; escalate to project management if not achievable.",
+      "RISK: If Safety Services alert latency is not optimized, safety alert propagation may dominate the latency budget. Mitigation: allocate p95 ≤ 0.2 s to Safety Services in next level; verify with integration testing."
+    ],
+    "recommended_revision": "Refine IM assignment to explicitly allocate latency budget across sub-modules: (1) Vehicle state acquisition: p95 ≤ 0.4 s; (2) Teleoperation command transmission: p95 ≤ 0.3 s; (3) Safety alert propagation: p95 ≤ 0.2 s; (4) Worksite model integration and rendering: p95 ≤ 0.1 s. Establish network SLA (p95 RTT ≤ 0.2 s) as a hard constraint with escalation path if not achievable."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid architecture with authoritative server and local caches) directly addresses the refined FR (worksite model update within p95 ≤ 1.0 s for all scenarios). DP-C enables fast local updates for UI responsiveness while maintaining safety-critical consistency via authoritative server. Dual-path approach is well-suited to the latency and safety requirements."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "DP-C implementation spans multiple modules (Vehicle, Teleoperation, Safety Services, NGHE Solution); risk of diffused ownership if responsibilities not clearly allocated. Mitigation: NGHE Solution owns orchestration and latency budget; Vehicle, Teleoperation, Safety Services own their respective sub-components.",
+        "Network Link quality is a critical dependency; if network SLA not met, DP-C cannot achieve latency target. Mitigation: establish network SLA as a hard constraint; escalate if not achievable."
+      ],
+      "containment_notes": "NGHE Solution is the appropriate IM boundary for DP-C because it owns the system-level orchestration, latency budget allocation, and fallback logic. Vehicle, Teleoperation, and Safety Services are sub-modules that implement their respective components of DP-C. Clear interface contracts (Telemetry, Tasking, SafetyAlert, Network Link) minimize diffusion."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Latency requirement is measurable and verifiable via instrumentation of end-to-end update paths in integration test environment. p95 latency distribution can be captured across representative scenarios (teleoperated commands, autonomous task execution, sensor data ingestion, safety event propagation). Verification is feasible with standard tools (network analyzers, application profilers, test harnesses).",
+      "allocation_clarity": "Latency budget is clearly allocated across sub-components: Vehicle state acquisition (0.4 s), Teleoperation command transmission (0.3 s), Safety alert propagation (0.2 s), Worksite model integration (0.1 s). Total budget: 1.0 s. Allocation is traceable to refined FR sub-requirements and can be verified at each level of decomposition."
+    },
+    "recommended_revisions": [
+      "Establish network SLA (p95 RTT ≤ 0.2 s) as a hard constraint with escalation path if not achievable. Document assumptions about network quality in design specification.",
+      "Refine DP-C to explicitly specify cache invalidation policy, conflict resolution strategy, and fallback behavior. Document these design decisions in architecture specification.",
+      "Allocate latency budget across sub-modules in next decomposition level. Establish acceptance criteria for each sub-module (e.g., Vehicle state acquisition p95 ≤ 0.4 s).",
+      "Plan integration testing to verify end-to-end latency across representative scenarios. Include network degradation scenarios (high latency, packet loss) to validate fallback behavior."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "CR-NGHE-007 is a system-level quality attribute requirement that spans multiple functional domains (teleoperation, vehicle autonomy, safety, sensing). The refined FR and selected DP are sound, but the requirement is not atomic and requires further decomposition to allocate latency budget across sub-modules (Vehicle, Teleoperation, Safety Services) and establish clear ownership boundaries. ZIGZAG_DOWN to decompose NGHE Solution into sub-modules and refine latency allocation.",
+    "next_level_sub_frs": [
+      "FR-NGHE-007.1: Vehicle shall acquire and transmit state (position, orientation, task status) to worksite model within p95 ≤ 0.4 s.",
+      "FR-NGHE-007.2: Teleoperation shall transmit tele-operator commands to vehicle and receive worksite model updates within p95 ≤ 0.3 s end-to-end.",
+      "FR-NGHE-007.3: Safety Services shall detect, classify, and propagate safety alerts to all stakeholders within p95 ≤ 0.2 s.",
+      "FR-NGHE-007.4: Worksite Model Server (sub-module of NGHE Solution) shall integrate received updates and render updated state to Site Manager and Tele-operator within p95 ≤ 0.1 s.",
+      "FR-NGHE-007.5: Network Orchestrator (sub-module of NGHE Solution) shall enforce network SLA (p95 RTT ≤ 0.2 s) and implement fallback to local-only mode if connectivity degrades."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Network latency (Telemetry interface) is predictable and bounded; p95 network RTT ≤ 0.2 s under normal conditions.",
+        "Vehicle and teleoperation client have sufficient local compute to maintain model cache and perform local state updates.",
+        "Safety-critical state (hazards, alerts) can be cleanly separated from operational state (position, task progress) for dual-path handling.",
+        "Worksite model update latency is measured as p95 percentile across representative scenarios; not worst-case latency.",
+        "Customer-required timeliness is p95 ≤ 1.0 s; if customer specifies different target, latency budget must be re-allocated."
+      ],
+      "open_risks": [
+        "RISK: Network latency may exceed SLA (p95 RTT > 0.2 s) in field conditions; mitigation requires network upgrade or relaxed latency target.",
+        "RISK: Cache invalidation logic may introduce race conditions if safety alert arrives while local cache is being updated; mitigation requires explicit versioning and conflict resolution.",
+        "RISK: Tele-operator may perceive stale model if local cache update delayed; mitigation requires visual staleness indicator and cache refresh on user interaction.",
+        "RISK: Safety Services alert latency may dominate the latency budget if not optimized; mitigation requires dedicated optimization effort in next level."
+      ],
+      "evidence_needed": [
+        "Network latency measurements in field conditions (5G, LTE, WiFi, hybrid); confirm p95 RTT ≤ 0.2 s achievable.",
+        "Vehicle and teleoperation client compute capacity analysis; confirm sufficient resources for local caching and state updates.",
+        "Safety Services alert detection and classification latency measurements; confirm p95 ≤ 0.2 s achievable.",
+        "Integration test results for end-to-end latency across representative scenarios; confirm p95 ≤ 1.0 s achievable.",
+        "Customer acceptance criteria for worksite model update latency; confirm p95 ≤ 1.0 s is the correct target."
+      ]
+    }
+  }
+}

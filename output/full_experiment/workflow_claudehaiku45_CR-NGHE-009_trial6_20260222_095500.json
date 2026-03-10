@@ -1,0 +1,171 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation communication packet loss within customer-defined acceptance criteria during agreed network conditions.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting teleoperation capability, and (2) meeting a specific quality metric (packet loss). The refined FR isolates the quality obligation as a single, measurable constraint on the teleoperation communication channel. This remains solution-neutral by specifying the problem (packet loss must stay within limits) without prescribing how (redundancy, QoS, protocol selection, etc.). The phrase 'customer-defined acceptance criteria' and 'agreed network conditions' are retained to acknowledge that the threshold and operating context are negotiated inputs, not design decisions.",
+    "verification_idea": "Conduct teleoperation communication testing under agreed network conditions (latency, bandwidth, interference profile). Measure packet loss rate across representative mission scenarios. Confirm measured packet loss ≤ customer-defined threshold (e.g., ≤1%). Document network conditions, test duration, payload types, and loss statistics.",
+    "sub_frs": [
+      "FR-NGHE-009.1: The NGHE solution shall enable remote operation of heavy equipment from a tele-operator station.",
+      "FR-NGHE-009.2: The NGHE solution shall maintain teleoperation command and feedback communication within customer-defined packet loss limits during agreed network conditions."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Implement adaptive packet retransmission with exponential backoff and acknowledgment-based flow control to detect and recover from lost packets within latency budget",
+      "DP2: Employ forward error correction (FEC) encoding on teleoperation command and feedback streams to enable packet loss recovery without retransmission",
+      "DP3: Implement redundant communication channels (dual-path routing or multi-link aggregation) with automatic failover to maintain packet delivery below threshold",
+      "DP4: Design command/feedback message prioritization and selective transmission to gracefully degrade non-critical teleoperation data under congestion, preserving safety-critical packets",
+      "DP5: Implement network condition monitoring and dynamic codec/compression adjustment to reduce payload size and transmission frequency under detected packet loss conditions",
+      "DP6: Combine lightweight retransmission (DP1) with FEC (DP2) in a hybrid scheme: FEC for predictable loss patterns, retransmission for sporadic loss, with customer-configurable thresholds"
+    ],
+    "selected_dp": "DP6: Hybrid adaptive packet loss mitigation combining forward error correction for sustained loss conditions with selective retransmission for sporadic loss, gated by real-time network condition monitoring and customer-configurable acceptance thresholds",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "DP6 couples network monitoring (condition detection) with FEC/retransmission selection logic—mitigated by clear state machine boundaries between monitor and mitigation modules",
+        "DP6 introduces dependency on latency budget (must not exceed teleoperation control loop cycle time)—requires explicit constraint propagation to IM layer",
+        "Customer configurability of thresholds creates coupling between acceptance criteria definition and runtime behavior—mitigated by parameterized configuration interface"
+      ],
+      "notes": "DP6 avoids hard coupling to specific network technologies by remaining agnostic to underlying link types (WiFi, cellular, wired). Modularity preserved by separating (a) network condition sensing, (b) FEC encoding/decoding, (c) retransmission logic, and (d) threshold decision-making into distinct logical components with well-defined interfaces."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Customer-defined acceptance criteria (≤1% packet loss) is measurable and stable during agreed network conditions; RISK: If criteria are ambiguous or change mid-operation, DP6 may not adapt without reconfiguration.",
+      "ASSUMPTION: Latency budget for teleoperation control loop is known and communicated; RISK: If latency budget is not explicitly defined, FEC/retransmission overhead may violate control stability requirements.",
+      "ASSUMPTION: Network conditions remain within 'agreed' bounds (e.g., no sudden topology changes, no adversarial interference); RISK: Extreme or unanticipated network degradation may exceed DP6 recovery capacity.",
+      "ASSUMPTION: Customer has capability to define and validate acceptance criteria in their operational context; RISK: Mismatch between lab-validated thresholds and field conditions could lead to acceptance failures.",
+      "ASSUMPTION: Hybrid approach (FEC + retransmission) does not introduce unacceptable computational overhead on edge devices; RISK: Resource-constrained teleoperation hardware may not support both mechanisms simultaneously."
+    ],
+    "recommended_revision": "FR (refined): The NGHE solution shall maintain teleoperation communication packet loss within customer-defined acceptance criteria (target: ≤1%, measurable under agreed network conditions with defined latency budget ≤[X]ms per control cycle) through adaptive hybrid packet loss mitigation, with runtime configurability of thresholds and graceful degradation behavior documented in the operational safety plan."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Encapsulates real-time network condition monitoring, adaptive packet loss mitigation logic (FEC vs. retransmission selection), and customer-configurable thresholds for teleoperated vehicle control streams"
+    },
+    "external_interfaces": [
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Receives raw network metrics (latency, jitter, packet loss rate); outputs mitigated/encoded packets and retransmission requests based on adaptive strategy"
+      },
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Ingests real-time network condition telemetry (loss patterns, link quality indicators) to inform FEC vs. retransmission gating decisions"
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives customer-configurable acceptance thresholds and policy parameters (FEC aggressiveness, retransmission timeout, loss tolerance) for adaptive mitigation tuning"
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Signals critical network degradation events that exceed safety-relevant thresholds, triggering failsafe or operator intervention"
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit: DP6 is fundamentally a real-time network adaptation layer for teleoperated control. FEC/retransmission logic, network monitoring, and threshold gating are core to maintaining low-latency, reliable command/feedback channels. Minor diffusion: safety escalation (SafetyAlert) and policy ingestion (Tasking) are external dependencies, but both are well-defined interfaces."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor fit: Vehicle module owns actuators, sensors, and onboard control logic, not network protocol adaptation. Placing DP6 here would scatter network mitigation logic across vehicle firmware, creating tight coupling to vehicle-specific hardware and complicating updates to network strategies independent of vehicle releases."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Weak fit: Safety Services owns hazard detection and failsafe logic, not adaptive network protocols. While DP6 must inform safety decisions (via SafetyAlert), the core FEC/retransmission machinery is not a safety function itself—it is a network resilience enabler. Placing it here conflates network engineering with safety assurance."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.5,
+        "diffusion_score": 0.5,
+        "notes": "Moderate fit: NGHE Solution is a top-level system container. DP6 could reside here as a cross-cutting network resilience service, but this is overly broad and obscures ownership. Better to nest DP6 within Teleoperation (a child of NGHE) to maintain clear responsibility and interface contracts."
+      }
+    ],
+    "ownership_candidate": "Teleoperation module owner",
+    "containment_hypothesis": "DP6 (hybrid adaptive packet loss mitigation) is best contained within the Teleoperation module because: (1) teleoperated control is the primary consumer of low-latency, reliable network channels; (2) FEC and selective retransmission are network-layer adaptation strategies, not vehicle or safety logic; (3) real-time network monitoring and customer-configurable thresholds align with teleoperation's operational domain; (4) external interfaces (Network Link, Telemetry, Tasking, SafetyAlert) are all natural dependencies of a teleoperation subsystem.",
+    "containment_risks": [
+      "Risk: If Vehicle module also requires adaptive packet loss mitigation for sensor telemetry or firmware updates, DP6 logic may need to be duplicated or refactored into a shared network service. Mitigation: Define a clear boundary between teleoperation-specific and vehicle-generic network resilience; consider a future 'Network Resilience' utility module if diffusion increases.",
+      "Risk: Safety Services may need to override or bypass DP6 thresholds in critical scenarios (e.g., force immediate retransmission for safety-critical commands). Mitigation: Establish a priority interface from SafetyAlert back into Teleoperation to allow safety-driven policy overrides.",
+      "Risk: Customer-configurable thresholds (via Tasking) may conflict with safety constraints. Mitigation: Validate all threshold configurations against safety-approved ranges before applying; log all threshold changes for audit.",
+      "Risk: Network Link interface may expose low-level packet details that couple Teleoperation tightly to specific network technologies (e.g., 4G vs. 5G). Mitigation: Abstract Network Link as a generic 'link quality' interface; encapsulate technology-specific encoding/decoding in a separate Network Adaptation layer if needed."
+    ],
+    "recommended_revision": "DP6 is well-scoped and logically sound. No revision needed. Confirm that Teleoperation module owner has authority over network protocol adaptation and that Network Link interface is abstracted sufficiently to support multiple underlying technologies (cellular, satellite, mesh). If future analysis reveals that Vehicle or Safety Services also need adaptive packet loss mitigation, consider extracting a shared 'Network Resilience Service' module and having both Teleoperation and Vehicle depend on it, rather than duplicating DP6 logic."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP6 (hybrid adaptive packet loss mitigation combining FEC for sustained loss and selective retransmission for sporadic loss, gated by real-time network monitoring and customer-configurable thresholds) directly and sufficiently addresses FR requirement to maintain packet loss within customer-defined acceptance criteria (≤1% or equivalent). The dual-strategy approach (FEC vs. retransmission selection) is logically sound for handling both sustained and transient loss patterns. Real-time gating and customer configurability align with 'agreed network conditions' and acceptance criteria flexibility."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Moderate diffusion risk: Vehicle module (containment_score 0.35, diffusion_score 0.65) may require overlapping packet loss mitigation for sensor telemetry or firmware updates, creating duplication of FEC/retransmission logic if not carefully scoped. Mitigation: Establish explicit boundary—DP6 owns teleoperation command/feedback channels; Vehicle owns only onboard sensor/actuator protocols. If Vehicle telemetry also requires adaptive loss mitigation, extract shared 'Network Resilience Service' rather than duplicate.",
+        "Minor diffusion risk: SafetyAlert interface creates bidirectional dependency—DP6 signals safety events, but Safety Services may need to override DP6 thresholds in critical scenarios. Mitigation: Define priority escalation protocol from SafetyAlert back into Teleoperation to allow safety-driven policy overrides without breaking encapsulation.",
+        "Configuration conflict risk: Customer-configurable thresholds (via Tasking interface) may conflict with safety-approved ranges. Mitigation: Implement validation gate—all threshold configurations must be validated against safety-approved ranges before application; log all changes for audit trail.",
+        "Technology coupling risk: Network Link interface exposes low-level packet details (latency, jitter, loss rate) that may couple Teleoperation tightly to specific network technologies (4G, 5G, satellite). Mitigation: Abstract Network Link as generic 'link quality metrics' interface; encapsulate technology-specific encoding/decoding in separate Network Adaptation layer if multi-technology support required."
+      ],
+      "containment_notes": "Teleoperation module is the correct IM boundary (containment_score 0.92, diffusion_score 0.08). DP6 is fundamentally a real-time network adaptation layer for teleoperated control—FEC/retransmission logic, network monitoring, and threshold gating are core to maintaining low-latency, reliable command/feedback channels. All four external interfaces (Network Link, Telemetry, Tasking, SafetyAlert) are natural dependencies of a teleoperation subsystem and are well-defined. No alternative module (Vehicle, Safety Services, NGHE Solution) provides better fit without introducing significant diffusion or responsibility conflation. Teleoperation module owner has clear authority and accountability for network protocol adaptation."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. Acceptance criterion (packet loss ≤1% under agreed network conditions) is measurable and testable. DP6 implementation within Teleoperation module can be validated through: (1) network simulation/emulation testing with controlled loss injection (sustained and sporadic patterns); (2) field trials under agreed network conditions (cellular, satellite, mesh); (3) telemetry logging of FEC vs. retransmission selection decisions and resulting packet loss rates; (4) customer-configurable threshold validation against safety-approved ranges. Real-time network monitoring interface provides observability for verification.",
+      "allocation_clarity": "Clear. FR is allocated to DP6 (hybrid adaptive mitigation), which is owned by Teleoperation module. Ownership boundary, interfaces, and responsibilities are explicitly defined. Customer-configurable thresholds (Tasking interface) and safety escalation (SafetyAlert interface) establish clear decision gates. Worksite safety plan and operational policies are referenced as constraints but require explicit mapping to threshold validation logic (recommend adding safety-approved threshold range specification to Tasking interface contract)."
+    },
+    "recommended_revisions": [
+      "Confirm Teleoperation module owner has explicit authority over network protocol adaptation and FEC/retransmission strategy selection. Document this authority in module charter.",
+      "Refine Network Link interface specification to abstract technology-specific details (e.g., define 'link quality metrics' as generic tuple of {latency_ms, jitter_ms, loss_rate_pct} rather than exposing 4G/5G-specific parameters). This reduces coupling and enables multi-technology support.",
+      "Add explicit safety-approved threshold range specification to Tasking interface contract. Require all customer-configurable thresholds to be validated against safety-approved ranges before application. Log all threshold changes for audit.",
+      "Establish priority escalation protocol from SafetyAlert back into Teleoperation to allow safety-driven policy overrides (e.g., force immediate retransmission for safety-critical commands) without breaking module encapsulation.",
+      "If future analysis reveals that Vehicle module also requires adaptive packet loss mitigation for sensor telemetry or firmware updates, extract a shared 'Network Resilience Service' module and have both Teleoperation and Vehicle depend on it, rather than duplicating DP6 logic. Document this decision point in architecture roadmap.",
+      "Add telemetry logging requirement to DP6 implementation: log FEC vs. retransmission selection decisions, resulting packet loss rates, and threshold override events for post-mission analysis and continuous improvement."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass with high confidence. However, the gate results expose critical safety-driven and architectural dependencies that require explicit decomposition at the next level to ensure: (1) safety-approved threshold validation is not treated as a post-hoc constraint but as a first-class functional requirement; (2) the priority escalation protocol from SafetyAlert is formalized as a sub-FR with clear ownership; (3) network technology abstraction is enforced through explicit sub-FRs rather than relying on implementation discipline alone; (4) the potential for future diffusion (Vehicle module needing adaptive loss mitigation) is addressed proactively. Given high safety criticality, decomposing DP6 into sub-FRs now prevents architectural debt and ensures safety requirements are traceable to implementation.",
+    "next_level_sub_frs": [
+      "FR6.1: Validate customer-configurable packet loss thresholds against safety-approved ranges before application to ensure no configuration can violate worksite safety plan constraints.",
+      "FR6.2: Implement priority escalation protocol that allows SafetyAlert signals to override or force immediate retransmission of safety-critical teleoperation commands without breaking Teleoperation module encapsulation.",
+      "FR6.3: Abstract network link quality metrics (latency, jitter, loss rate) as technology-agnostic interface to decouple FEC/retransmission logic from 4G/5G/satellite-specific parameters and enable multi-technology support.",
+      "FR6.4: Log and audit all packet loss mitigation decisions (FEC vs. retransmission selection, threshold overrides, safety escalations) in real-time telemetry for post-mission analysis and continuous improvement.",
+      "FR6.5: Establish explicit module boundary between Teleoperation (owns command/feedback channels) and Vehicle (owns onboard sensor/actuator protocols) to prevent duplication of adaptive loss mitigation logic; define decision point for extracting shared 'Network Resilience Service' if Vehicle telemetry also requires adaptive loss mitigation in future."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "DP6 as currently stated ('hybrid adaptive packet loss mitigation combining FEC for sustained loss and selective retransmission for sporadic loss, gated by real-time network monitoring and customer-configurable thresholds') does not explicitly address safety-driven threshold validation, priority escalation from SafetyAlert, or technology abstraction. These are not implementation details—they are design decisions that affect system safety and architectural coupling. Revise DP6 to explicitly include: (1) threshold validation against safety-approved ranges as a gating mechanism; (2) priority escalation protocol as a core design element; (3) technology-agnostic link quality metrics abstraction. This ensures the design domain captures safety and architectural concerns, not just the functional mitigation strategy."
+    },
+    "record": {
+      "assumptions": [
+        "Teleoperation module owner has explicit authority and accountability for network protocol adaptation and FEC/retransmission strategy selection (to be confirmed in module charter).",
+        "Safety-approved threshold ranges are defined and maintained by Safety Services or equivalent authority; Teleoperation module can query these ranges at runtime.",
+        "SafetyAlert interface can signal priority levels (e.g., 'critical', 'warning') that Teleoperation can use to escalate retransmission urgency without requiring bidirectional control flow.",
+        "Network Link interface can be abstracted to expose only generic link quality metrics {latency_ms, jitter_ms, loss_rate_pct} without loss of fidelity for FEC/retransmission decision logic.",
+        "Vehicle module's future need for adaptive loss mitigation is anticipated but not yet confirmed; decision point for extracting shared 'Network Resilience Service' is deferred to architecture roadmap review."
+      ],
+      "open_risks": [
+        "Safety-approved threshold range specification is not yet formalized in Tasking interface contract; risk of configuration conflicts if thresholds are applied without validation. Mitigation: Add explicit validation gate and audit logging (addressed in FR6.1).",
+        "Priority escalation protocol from SafetyAlert may introduce latency or complexity if not carefully designed; risk of safety-critical commands being delayed by FEC/retransmission logic. Mitigation: Define escalation protocol with explicit latency bounds and priority queue semantics (addressed in FR6.2).",
+        "Network Link interface abstraction may hide technology-specific optimization opportunities (e.g., 5G-specific error correction codes); risk of suboptimal performance if abstraction is too coarse. Mitigation: Design abstraction to allow technology-specific plugins while maintaining core interface contract (addressed in FR6.3).",
+        "Telemetry logging of all mitigation decisions may create performance overhead or storage burden in high-frequency teleoperation scenarios. Mitigation: Implement configurable logging levels and asynchronous buffering (addressed in FR6.4).",
+        "Diffusion risk if Vehicle module later requires adaptive loss mitigation: risk of duplicating FEC/retransmission logic across modules. Mitigation: Establish explicit boundary now and document decision point for shared service extraction (addressed in FR6.5)."
+      ],
+      "evidence_needed": [
+        "Confirmation from Teleoperation module owner that they have authority over network protocol adaptation and FEC/retransmission strategy selection.",
+        "Specification of safety-approved threshold ranges (e.g., minimum retransmission timeout, maximum FEC overhead) from Safety Services or equivalent authority.",
+        "Definition of SafetyAlert priority levels and escalation semantics (e.g., how 'critical' signals map to retransmission urgency).",
+        "Network Link interface specification showing abstraction of technology-specific details to generic link quality metrics.",
+        "Field trial data or simulation results validating that threshold validation, priority escalation, and technology abstraction do not introduce unacceptable latency or performance degradation.",
+        "Architecture roadmap decision point for extracting shared 'Network Resilience Service' if Vehicle module requires adaptive loss mitigation."
+      ]
+    }
+  }
+}

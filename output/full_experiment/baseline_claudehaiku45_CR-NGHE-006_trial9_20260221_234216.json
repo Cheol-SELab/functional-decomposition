@@ -1,0 +1,162 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and work-zone boundaries, with sufficient fidelity to support autonomous path planning and operator situational awareness.",
+    "rationale": "The original FR was vague on fidelity requirements, update frequency, and data sources. Refinement clarifies that the model must support both planning (path generation) and execution (real-time awareness), distinguishes static from dynamic content, and anchors acceptance to the stated constraint that the model be 'available to planning/execution functions.' High safety criticality demands explicit hazard representation.",
+    "verification_idea": "Acceptance test: (1) Terrain model accuracy within ±0.5 m vertical over mapped area; (2) obstacle detection latency <2 s for static features, <1 s for dynamic hazards; (3) model accessible via documented API to planning and execution subsystems; (4) coverage of agreed site features per worksite safety plan.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire terrain and obstacle data from onboard sensors and external sources.",
+      "CR-NGHE-006.2: Fuse multi-source sensor data into a unified spatial model.",
+      "CR-NGHE-006.3: Detect and classify static obstacles (terrain, structures, vegetation).",
+      "CR-NGHE-006.4: Detect and track dynamic hazards (personnel, equipment) in real-time.",
+      "CR-NGHE-006.5: Represent work-zone boundaries and operational constraints in the model.",
+      "CR-NGHE-006.6: Expose worksite model via standardized interface to planning and execution functions.",
+      "CR-NGHE-006.7: Validate model completeness and consistency against worksite safety plan."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Onboard LiDAR + camera fusion with local occupancy grid; periodic upload to cloud for long-term mapping.",
+      "DP-B: Hybrid edge-cloud: onboard lightweight sensor fusion (LiDAR + IMU) for real-time local model; cloud-based SLAM for global registration and persistent map.",
+      "DP-C: Tele-operator-assisted mapping: operator manually annotates terrain and obstacles via teleoperation interface; system stores annotations in structured database.",
+      "DP-D: Multi-sensor federation: onboard LiDAR + camera + RTK-GNSS; real-time local model on vehicle; model streamed to Safety Services for hazard detection and to planning subsystem."
+    ],
+    "selected_dp": "DP-D: Multi-sensor federation with real-time local model on vehicle, streamed to Safety Services for hazard detection and to planning subsystem via Telemetry interface.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Sensor fusion algorithm couples to specific hardware (LiDAR, camera, RTK-GNSS); mitigation: abstract sensor interface.",
+        "Real-time streaming to Safety Services couples to network latency and bandwidth; mitigation: prioritize dynamic hazards, compress static model updates.",
+        "Planning subsystem dependency on model freshness; mitigation: define acceptable staleness per feature type (static vs. dynamic)."
+      ],
+      "notes": "DP-D decouples onboard model generation from cloud persistence, reducing latency-critical path. Streaming to Safety Services enables independent hazard detection logic. Coupling to planning subsystem is intentional and required by FR."
+    },
+    "assumptions_risks": [
+      "Assumption: RTK-GNSS is available at worksite; Risk: GPS denial in urban canyons or underground—mitigation: fallback to visual odometry + IMU.",
+      "Assumption: Network bandwidth sufficient for real-time model streaming; Risk: congestion or dropout—mitigation: adaptive compression, local buffering, graceful degradation.",
+      "Assumption: Sensor calibration and synchronization achievable; Risk: temporal misalignment causes artifacts—mitigation: hardware triggering, post-hoc alignment validation.",
+      "Assumption: Safety Services can consume model stream and detect hazards independently; Risk: Safety Services not ready or incompatible—mitigation: define Telemetry schema early, prototype integration."
+    ],
+    "recommended_revision": "Clarify model update frequency (e.g., 10 Hz for dynamic hazards, 1 Hz for static terrain) and define fallback behavior if Safety Services is unavailable. Specify compression strategy for Telemetry stream to avoid network saturation."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "Onboard sensor suite (LiDAR, camera, RTK-GNSS, IMU), real-time sensor fusion engine, local occupancy grid and feature map, model streaming interface. Responsible for data acquisition, fusion, and local model generation; does not own hazard detection or planning logic."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle streams worksite model (terrain grid, obstacle features, dynamic hazard positions) to Safety Services and planning subsystem. Schema: occupancy grid (resolution, bounds), feature list (type, position, confidence), timestamp, sensor health status."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives model configuration requests (e.g., region of interest, feature types to prioritize, update frequency) from planning or operator. Allows dynamic adjustment of mapping behavior."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "in",
+        "details": "Vehicle receives alerts from Safety Services (e.g., 'hazard detected at [x,y]') to inform onboard safety logic and operator display. Enables closed-loop safety response."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "NGHE Solution is the system-level container; worksite mapping is a subsystem function. Assigning IM to NGHE Solution would diffuse responsibility across multiple physical/software components without clear ownership. Not recommended as primary IM."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.95,
+        "diffusion_score": 0.05,
+        "notes": "Vehicle owns sensors, fusion engine, and local model generation. All data acquisition and real-time processing are onboard. Interfaces (Telemetry out, Tasking in, SafetyAlert in) are well-defined and localized. High containment, minimal diffusion. Recommended."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Teleoperation is for remote operator control and situational awareness. While operator may view the worksite model, the model generation logic (sensor fusion, real-time processing) is not a teleoperation function. Assigning IM here would scatter sensor fusion across teleoperation and vehicle modules. Not recommended."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Safety Services consumes the worksite model to detect hazards and generate alerts. It does not generate the model itself. Assigning IM here would require Safety Services to own sensors and fusion logic, violating separation of concerns. Not recommended."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module is the natural owner of worksite mapping because it hosts the sensor hardware, performs real-time fusion, and generates the local model. Hazard detection (Safety Services) and path planning (planning subsystem) are downstream consumers. This assignment maintains clear separation of concerns and minimizes interface complexity.",
+    "containment_risks": [
+      "Risk: Vehicle module becomes overloaded with sensor fusion, localization, and mapping logic; mitigation: decompose into sub-modules (sensor driver layer, fusion engine, map representation) within Vehicle boundary.",
+      "Risk: Real-time model generation on vehicle may exceed compute budget; mitigation: profile early, consider offloading non-critical features to cloud, implement adaptive fidelity.",
+      "Risk: Telemetry stream bandwidth may saturate network; mitigation: implement compression, prioritization, and adaptive update rates based on network health."
+    ],
+    "recommended_revision": "Define Vehicle sub-module structure: (1) Sensor Acquisition (drivers, calibration), (2) Fusion Engine (SLAM, occupancy grid), (3) Model API (exposes model to Telemetry interface). Specify Telemetry schema and compression algorithm. Establish SLA for model latency and availability."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-D (multi-sensor federation with real-time local model and streaming) directly addresses the refined FR requirement to generate and maintain a worksite model available to planning/execution functions. Sensor fusion on vehicle ensures real-time fidelity; streaming to Safety Services and planning subsystem satisfies availability constraint. No logical gaps identified."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Sensor fusion algorithm may be duplicated if not carefully modularized within Vehicle; mitigation: establish single fusion engine module with clear API.",
+        "Telemetry interface may be implemented inconsistently if not standardized; mitigation: define schema and versioning early, validate in prototype."
+      ],
+      "containment_notes": "Vehicle module cleanly contains sensor acquisition and fusion logic. Interfaces (Telemetry out, Tasking in, SafetyAlert in) are well-scoped and do not leak implementation details. Containment score 0.95 supports this assignment."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible: (1) sensor accuracy can be measured in lab and field; (2) fusion algorithm can be validated against ground truth; (3) Telemetry interface can be tested with mock consumers (Safety Services, planning); (4) end-to-end latency can be profiled.",
+      "allocation_clarity": "Allocation is clear: Vehicle owns model generation; Safety Services owns hazard detection; planning subsystem owns path generation. Each module has distinct responsibility and well-defined interfaces."
+    },
+    "recommended_revisions": [
+      "Establish detailed Telemetry schema (occupancy grid format, feature list structure, timestamp convention) before detailed design.",
+      "Define model update frequency and latency SLAs (e.g., dynamic hazards <1 s, static terrain <5 s).",
+      "Prototype sensor fusion algorithm and validate against worksite safety plan requirements.",
+      "Conduct network bandwidth analysis to confirm Telemetry stream is feasible; implement adaptive compression if needed."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The refined FR is well-scoped and the selected DP is sound, but the FR is not atomic—it decomposes into 7 sub-FRs spanning sensor acquisition, fusion, hazard detection, and model exposure. Proceeding to the next decomposition level is necessary to allocate these sub-FRs to specific design parameters and implementation modules. The Vehicle IM assignment is solid and will serve as the container for the next level of detail.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire terrain and obstacle data from onboard sensors and external sources.",
+      "CR-NGHE-006.2: Fuse multi-source sensor data into a unified spatial model.",
+      "CR-NGHE-006.3: Detect and classify static obstacles (terrain, structures, vegetation).",
+      "CR-NGHE-006.4: Detect and track dynamic hazards (personnel, equipment) in real-time.",
+      "CR-NGHE-006.5: Represent work-zone boundaries and operational constraints in the model.",
+      "CR-NGHE-006.6: Expose worksite model via standardized interface to planning and execution functions.",
+      "CR-NGHE-006.7: Validate model completeness and consistency against worksite safety plan."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "RTK-GNSS is available at worksite; fallback to visual odometry + IMU if GPS denied.",
+        "Network bandwidth is sufficient for real-time model streaming; adaptive compression will be implemented if needed.",
+        "Sensor calibration and synchronization are achievable via hardware triggering and post-hoc alignment.",
+        "Safety Services and planning subsystem are ready to consume Telemetry stream; schema will be defined collaboratively.",
+        "Worksite safety plan is available and specifies required feature types and coverage area."
+      ],
+      "open_risks": [
+        "Sensor fusion algorithm complexity may exceed onboard compute budget; early profiling and adaptive fidelity strategy required.",
+        "Network latency and dropout may degrade real-time hazard detection; fallback and graceful degradation logic needed.",
+        "Sensor calibration drift over time may reduce model accuracy; periodic recalibration and validation process required.",
+        "Integration with Safety Services and planning subsystem may reveal interface incompatibilities; prototype early."
+      ],
+      "evidence_needed": [
+        "Sensor specifications and accuracy datasheets (LiDAR, camera, RTK-GNSS, IMU).",
+        "Worksite safety plan and agreed feature list.",
+        "Network bandwidth and latency profile for Telemetry stream.",
+        "Prototype sensor fusion algorithm with ground truth validation.",
+        "Interface specification for Telemetry, Tasking, and SafetyAlert.",
+        "Compute budget and performance profile for Vehicle onboard system.",
+        "Integration test plan with Safety Services and planning subsystem."
+      ]
+    }
+  }
+}

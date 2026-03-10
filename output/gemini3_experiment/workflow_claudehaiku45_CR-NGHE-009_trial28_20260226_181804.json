@@ -1,0 +1,176 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation communication reliability within the customer-defined packet loss acceptance criterion.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting teleoperation as a capability, and (2) meeting a specific quality metric (packet loss limit). The refined FR isolates the quality/reliability obligation in the problem domain without prescribing how (e.g., protocol selection, redundancy, buffering). The phrase 'customer-defined' remains because the acceptance threshold is a stakeholder-negotiated constraint, not a design choice. This formulation is solution-neutral and atomic.",
+    "verification_idea": "Conduct teleoperation trials under agreed network conditions (e.g., 4G/5G coverage, latency profile, interference scenarios). Measure end-to-end packet loss across representative mission durations and workload patterns. Confirm measured packet loss ≤ customer-defined target (e.g., ≤1%). Document network conditions and acceptance sign-off by Safety Manager and Site Manager.",
+    "sub_frs": [
+      "FR-NGHE-009.1: The NGHE solution shall enable remote operation of heavy equipment from a tele-operator station.",
+      "FR-NGHE-009.2: The NGHE solution shall maintain teleoperation command and feedback data integrity within the customer-defined packet loss acceptance criterion under agreed network conditions."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Implement adaptive packet redundancy and selective retransmission based on real-time loss detection and network condition feedback",
+      "DP2: Establish a dual-path communication architecture with automatic failover to maintain continuous connectivity across independent network routes",
+      "DP3: Deploy quality-of-service (QoS) prioritization and traffic shaping to reserve bandwidth for critical teleoperation commands and reduce contention-induced loss",
+      "DP4: Integrate forward error correction (FEC) encoding with configurable redundancy levels tuned to measured packet loss rates",
+      "DP5: Implement a hybrid approach combining loss detection, adaptive buffering, and selective retransmission with QoS enforcement"
+    ],
+    "selected_dp": "DP5: Implement a hybrid approach combining loss detection, adaptive buffering, and selective retransmission with QoS enforcement",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Loss detection mechanism must be decoupled from retransmission logic to allow independent tuning of detection sensitivity and retry strategies",
+        "QoS enforcement depends on network infrastructure capabilities; if unavailable, fallback to application-level buffering and FEC must be pre-defined",
+        "Adaptive buffering parameters (buffer size, timeout thresholds) must not be tightly coupled to specific network latency assumptions; parameterization required",
+        "Retransmission strategy must remain independent of the underlying transport protocol to support multiple network conditions"
+      ],
+      "notes": "DP5 avoids single-point-of-failure reliance on any one mechanism (e.g., FEC alone or retransmission alone). Hybrid design allows graceful degradation: if QoS is unavailable, loss detection + adaptive buffering + FEC can still meet criterion. Coupling risk is moderate if clear interface contracts are defined between loss detection, buffering, and retransmission modules."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Network conditions remain stable or change gradually enough for adaptive mechanisms to respond within acceptable latency bounds (typically <100 ms for teleoperation)",
+      "ASSUMPTION: Customer-defined acceptance criterion (≤1% packet loss) is achievable given the agreed network infrastructure; if baseline loss exceeds 1%, FEC/redundancy overhead may become prohibitive",
+      "RISK: Adaptive buffering may introduce additional latency; if teleoperation commands are time-critical (e.g., emergency stop), buffering delays could compromise safety—requires explicit latency budget allocation",
+      "RISK: Retransmission logic assumes bidirectional communication; if network is asymmetric (high loss in one direction), detection and feedback mechanisms may fail to converge",
+      "RISK: QoS enforcement depends on network operator cooperation; in shared/public networks, QoS guarantees may not be enforceable, reducing DP5 effectiveness",
+      "RISK: Parameterization of adaptive thresholds (buffer size, FEC redundancy level, retransmission timeout) requires field tuning; incorrect tuning can degrade performance or violate latency constraints"
+    ],
+    "recommended_revision": "FR (refined): The NGHE solution shall maintain teleoperation communication reliability by detecting and mitigating packet loss to achieve ≤1% loss rate under agreed network conditions, while ensuring that all mitigation mechanisms (buffering, retransmission, FEC) do not introduce latency exceeding [X] ms for critical control commands. DP5 should be decomposed into three sub-DPs with explicit interface contracts: (1) Loss Detection & Feedback DP: measure and report packet loss in real-time; (2) Adaptive Buffering & FEC DP: apply configurable redundancy and buffering independent of network type; (3) Selective Retransmission DP: retry lost packets with timeout and backoff logic decoupled from detection. Each sub-DP maps to a distinct IM (module) to enable independent testing, tuning, and fallback strategies. Add explicit constraint: latency budget for critical commands must be defined and validated against buffering + retransmission overhead."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Encapsulates all remote operation control logic, including network communication resilience, command/feedback synchronization, and QoS-aware data handling for teleoperated vehicle functions."
+    },
+    "external_interfaces": [
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Bidirectional interface for transmitting teleoperation commands to vehicle and receiving telemetry feedback; DP5 loss detection and retransmission logic operates at this boundary."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives high-level mission directives and QoS constraints (latency, reliability thresholds) that inform adaptive buffering and selective retransmission policies."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Signals safety-critical events when network degradation or loss detection triggers failsafe conditions; enforces QoS floor for safety-sensitive operations."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Receives vehicle state and sensor data; DP5 adaptive buffering prioritizes critical telemetry based on QoS requirements."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.85,
+        "diffusion_score": 0.15,
+        "notes": "Strong fit: loss detection, adaptive buffering, and selective retransmission are core teleoperation concerns. QoS enforcement for command/feedback loops is native to this module. Minor diffusion: SafetyAlert coupling for failsafe triggers and Tasking coupling for QoS policy input are acceptable and necessary."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor fit: DP5 is a network-layer resilience mechanism, not a vehicle control function. Vehicle module owns actuator/sensor logic, not communication protocol. High diffusion: loss detection and retransmission logic would leak into vehicle firmware, violating separation of concerns."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Weak fit: Safety Services owns safety policy enforcement and monitoring, not network resilience. DP5 is a communication reliability mechanism with safety implications, not a safety service itself. Diffusion: adaptive buffering and retransmission are not safety-specific; they support safety indirectly."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.5,
+        "diffusion_score": 0.5,
+        "notes": "Moderate fit: NGHE Solution is a top-level system container. DP5 could reside here, but this is overly broad and lacks cohesion. Teleoperation is a more specific and focused boundary within NGHE Solution."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "DP5 (hybrid loss detection, adaptive buffering, selective retransmission, QoS enforcement) is fundamentally a teleoperation communication resilience mechanism. It operates on the Network Link interface to ensure reliable, low-latency command/feedback exchange during remote operation. Adaptive buffering prioritizes telemetry based on QoS constraints from Tasking, and loss detection triggers SafetyAlert signals when network conditions degrade. This logic is cohesive within Teleoperation and minimizes diffusion to other modules.",
+    "containment_risks": [
+      "QoS policy definition may require tight coupling with Safety Services if safety-critical QoS floors are not clearly specified in Tasking interface; recommend explicit QoS contract in Tasking input.",
+      "Loss detection thresholds and retransmission timeouts must be tuned per network conditions; if Vehicle module has network-specific knowledge (e.g., latency profiles), coordination may be needed to avoid duplication.",
+      "Adaptive buffering strategy may conflict with Vehicle module's data consumption rate if Vehicle does not expose backpressure signals; recommend explicit flow-control interface on Telemetry.",
+      "SafetyAlert coupling is necessary but must be unidirectional (Teleoperation → Safety Services) to avoid circular dependencies; Safety Services must not dictate retransmission policy."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP5 (hybrid loss detection, adaptive buffering, selective retransmission, QoS enforcement) directly addresses the FR requirement to maintain teleoperation communication reliability within customer-defined packet loss acceptance criterion (≤1%). The DP is logically sound: loss detection identifies degradation, adaptive buffering prioritizes critical data, selective retransmission recovers lost packets, and QoS enforcement ensures thresholds are met. The approach is implementable and measurable against the stated acceptance criterion."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "QoS policy definition boundary: Tasking interface must explicitly specify QoS constraints (latency, reliability floors) to avoid ambiguity. If Safety Services defines safety-critical QoS floors independently, coordination risk exists. Recommend explicit QoS contract document linked to Tasking input.",
+        "Network-specific tuning diffusion: Loss detection thresholds and retransmission timeouts are network-condition dependent. If Vehicle module possesses latency/jitter profiles or network-specific knowledge, duplication risk exists. Recommend Vehicle expose network characterization data via Telemetry interface rather than Vehicle owning threshold logic.",
+        "Backpressure/flow-control gap: Adaptive buffering in Teleoperation assumes Vehicle can consume telemetry at variable rates. If Vehicle module does not expose backpressure signals, Teleoperation cannot optimize buffer depth. Recommend explicit flow-control handshake on Telemetry interface (e.g., buffer occupancy feedback).",
+        "SafetyAlert coupling direction: SafetyAlert is unidirectional (Teleoperation → Safety Services), which is correct. However, if Safety Services later attempts to dictate retransmission policy or buffer thresholds, circular dependency risk emerges. Recommend explicit interface contract: Safety Services consumes alerts only; does not prescribe DP5 implementation details."
+      ],
+      "containment_notes": "Teleoperation module achieves 0.85 containment score with 0.15 diffusion. This is acceptable. Loss detection, adaptive buffering, and selective retransmission are cohesive teleoperation concerns operating on the Network Link interface. QoS enforcement for command/feedback loops is native to teleoperation. The module boundary is well-defined and minimizes leakage to Vehicle, Safety Services, or NGHE Solution top-level. External interface couplings (Tasking, SafetyAlert, Telemetry) are necessary and justified. No alternative module (Vehicle, Safety Services, NGHE Solution) provides better containment. Recommend formalizing interface contracts to eliminate residual diffusion risks."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. Acceptance criterion (packet loss ≤1% under agreed network conditions) is measurable. Teleoperation module can be instrumented to log packet loss rate, retransmission counts, buffer occupancy, and QoS metric compliance. Test harness can simulate network degradation (packet loss, latency, jitter) and verify DP5 maintains loss ≤1%. Verification requires: (1) network simulation environment, (2) telemetry instrumentation in Teleoperation module, (3) acceptance test suite covering nominal and degraded network conditions. Worksite safety plan and operational policies are external constraints; verification must confirm DP5 does not violate safety policies (e.g., failsafe triggers via SafetyAlert are timely and correct).",
+      "allocation_clarity": "Clear. Teleoperation module owns DP5 implementation. Ownership boundaries are explicit: Teleoperation encapsulates loss detection, adaptive buffering, selective retransmission, and QoS enforcement logic. External modules (Vehicle, Safety Services, Tasking) provide inputs (QoS constraints, telemetry, mission directives) and consume outputs (SafetyAlert signals, retransmitted commands). Allocation is unambiguous and traceable from FR → DP → IM. Recommend documenting interface contracts (Tasking QoS specification, Telemetry flow-control, SafetyAlert semantics) to eliminate residual ambiguity."
+    },
+    "recommended_revisions": [
+      "Formalize QoS contract in Tasking interface: Define explicit QoS parameters (latency bounds, reliability targets, priority levels) that Teleoperation uses to configure adaptive buffering and retransmission policies. Include safety-critical QoS floors and their rationale.",
+      "Add flow-control interface to Telemetry: Extend Telemetry interface to include backpressure signals (e.g., buffer occupancy, consumption rate) so Teleoperation can optimize adaptive buffering depth and avoid overflow/underflow.",
+      "Document SafetyAlert contract: Specify SafetyAlert signal semantics (trigger conditions, latency requirements, failsafe actions). Confirm unidirectional coupling: Teleoperation → Safety Services only. Safety Services must not dictate DP5 implementation.",
+      "Establish network characterization baseline: Define 'agreed network conditions' (latency, jitter, baseline loss rate) in acceptance criteria. Recommend Vehicle module expose network telemetry (latency, packet loss observations) via Telemetry interface to inform Teleoperation adaptive thresholds.",
+      "Create DP5 implementation specification: Document loss detection algorithm (e.g., sequence number tracking, timeout logic), adaptive buffering strategy (e.g., priority queue, buffer depth heuristics), selective retransmission policy (e.g., exponential backoff, max retries), and QoS enforcement rules. Link to Teleoperation module design document.",
+      "Plan verification test suite: Design tests covering nominal network conditions (packet loss <1%), degraded conditions (packet loss 5-10%, latency spikes), and failsafe scenarios (network outage). Verify acceptance criterion is met and SafetyAlert triggers correctly."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass with high confidence. The DP5 (hybrid loss detection, adaptive buffering, selective retransmission, QoS enforcement) is logically sound, implementable, and measurable. However, the DP-IM gate identifies five material diffusion risks that require explicit sub-level decomposition to eliminate ambiguity and prevent architectural coupling failures. Given high safety criticality, these risks must be resolved through next-level functional decomposition rather than deferred to implementation. The recommended revisions (QoS contract formalization, flow-control interface, SafetyAlert semantics, network characterization, DP5 specification) are best addressed by deriving sub-FRs that allocate responsibility for interface contracts, network characterization, and failsafe coordination. Proceeding to sub-level decomposition ensures safety-critical coupling points are explicitly designed and verified before detailed implementation.",
+    "next_level_sub_frs": [
+      "FR5.1: Detect packet loss and network degradation in real-time using sequence number tracking and timeout logic, and expose loss metrics via Telemetry interface to enable Vehicle and external systems to observe network health.",
+      "FR5.2: Implement adaptive buffering with priority-based queue management to preserve critical teleoperation commands and feedback, and expose buffer occupancy and consumption rate via Telemetry interface to enable backpressure-driven flow control.",
+      "FR5.3: Execute selective retransmission of lost packets using exponential backoff and configurable retry limits, respecting QoS latency bounds to avoid stale command/feedback recovery.",
+      "FR5.4: Enforce QoS constraints (latency, reliability, priority levels) derived from Tasking interface inputs and Safety Services safety-critical floors, with explicit contract documentation to prevent circular coupling with Safety Services.",
+      "FR5.5: Generate SafetyAlert signals when network degradation exceeds safety-critical thresholds (e.g., packet loss >5%, latency >500ms), with unidirectional coupling to Safety Services and explicit failsafe semantics.",
+      "FR5.6: Characterize and adapt to network conditions (latency, jitter, baseline loss rate) using telemetry from Vehicle module, and expose network characterization data via Telemetry interface to inform adaptive thresholds and acceptance criteria baseline."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "DP5 is logically correct but insufficiently detailed to eliminate diffusion risks. Recommend decomposing DP5 into six sub-DPs corresponding to the sub-FRs above, each with explicit interface contracts and ownership boundaries. This ensures: (1) QoS policy definition is formalized in Tasking interface contract, not left ambiguous; (2) flow-control handshake is explicit in Telemetry interface, preventing backpressure/buffer overflow gaps; (3) SafetyAlert semantics and unidirectional coupling are documented, preventing Safety Services from dictating DP5 implementation; (4) network-specific tuning is centralized in Vehicle telemetry exposure, not duplicated across modules; (5) failsafe coordination is explicit and verifiable. Sub-DP specifications should include algorithm pseudocode, interface schemas, and acceptance criteria for each sub-FR."
+    },
+    "record": {
+      "assumptions": [
+        "Vehicle module can expose network characterization data (latency, jitter, packet loss observations) via Telemetry interface without significant performance overhead.",
+        "Tasking interface can be extended to include explicit QoS constraints (latency bounds, reliability targets, priority levels) without breaking existing mission directive semantics.",
+        "Safety Services will accept unidirectional SafetyAlert coupling and will not attempt to prescribe Teleoperation DP5 implementation details.",
+        "Network conditions during operation are bounded and can be characterized a priori (e.g., latency 50-200ms, jitter <50ms, baseline loss <2%).",
+        "Teleoperation module has sufficient computational and memory resources to implement loss detection, adaptive buffering, selective retransmission, and QoS enforcement without degrading command/feedback latency.",
+        "Acceptance criterion (packet loss ≤1%) is achievable under agreed network conditions with DP5 implementation; if not, criterion may require revision or network infrastructure upgrade."
+      ],
+      "open_risks": [
+        "QoS policy definition boundary: If Tasking interface does not explicitly specify QoS constraints, or if Safety Services independently defines conflicting safety-critical QoS floors, coordination risk emerges. Mitigation: Formalize QoS contract document linked to Tasking input before detailed design.",
+        "Network-specific tuning diffusion: If Vehicle module possesses latency/jitter profiles or network-specific knowledge but does not expose them via Telemetry interface, Teleoperation may duplicate threshold logic or use stale assumptions. Mitigation: Establish explicit network characterization baseline and require Vehicle to expose telemetry.",
+        "Backpressure/flow-control gap: If Vehicle module does not expose backpressure signals (buffer occupancy, consumption rate), Teleoperation cannot optimize adaptive buffer depth, risking overflow/underflow. Mitigation: Add flow-control handshake to Telemetry interface.",
+        "SafetyAlert coupling direction: If Safety Services later attempts to dictate retransmission policy or buffer thresholds, circular dependency risk emerges. Mitigation: Document explicit interface contract: Safety Services consumes alerts only; does not prescribe DP5 implementation.",
+        "Failsafe semantics ambiguity: If SafetyAlert trigger conditions, latency requirements, and failsafe actions are not explicitly documented, Safety Services may misinterpret alerts or fail to execute correct failsafe behavior. Mitigation: Create detailed SafetyAlert contract specification.",
+        "Verification test coverage: Acceptance criterion (packet loss ≤1%) must be verified under agreed network conditions. If test environment does not accurately simulate real network degradation, verification may be invalid. Mitigation: Plan comprehensive test suite covering nominal and degraded conditions."
+      ],
+      "evidence_needed": [
+        "Formalized QoS contract document specifying latency bounds, reliability targets, priority levels, and safety-critical QoS floors, with rationale and traceability to Tasking interface.",
+        "Extended Telemetry interface schema including flow-control signals (buffer occupancy, consumption rate, backpressure indicators).",
+        "SafetyAlert interface contract specifying trigger conditions, latency requirements, failsafe actions, and unidirectional coupling semantics.",
+        "Network characterization baseline document defining agreed network conditions (latency, jitter, baseline loss rate) and acceptance criteria justification.",
+        "DP5 implementation specification including loss detection algorithm (sequence number tracking, timeout logic), adaptive buffering strategy (priority queue, buffer depth heuristics), selective retransmission policy (exponential backoff, max retries), and QoS enforcement rules.",
+        "Verification test plan covering nominal network conditions (packet loss <1%), degraded conditions (packet loss 5-10%, latency spikes), and failsafe scenarios (network outage), with acceptance test suite and pass/fail criteria.",
+        "Sub-FR and sub-DP decomposition documents (FR5.1-FR5.6, corresponding DPs) with interface contracts and ownership boundaries explicitly defined."
+      ]
+    }
+  }
+}

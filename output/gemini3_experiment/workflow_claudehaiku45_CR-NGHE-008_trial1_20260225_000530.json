@@ -1,0 +1,169 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall enable end-to-end teleoperation communication with latency that permits safe remote operation by a tele-operator.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting teleoperation capability, and (2) ensuring latency is compatible with safety. The refined version separates the functional intent (enable teleoperation communication) from the performance constraint (latency compatible with safety). The acceptance criterion (p95 ≤ 150 ms) is a quantified design parameter, not part of the FR itself. The FR now resides purely in the problem domain—what capability must exist—without prescribing how latency will be achieved or what specific threshold defines 'safe.'",
+    "verification_idea": "Measure end-to-end latency (sensor input to actuator command output) under agreed network conditions. Confirm that measured latency permits tele-operator to execute representative safe remote operations (e.g., controlled movement, emergency stop response) without safety incidents or operator-reported inability to control the equipment safely.",
+    "sub_frs": [
+      "FR-NGHE-008.1: The NGHE solution shall transmit tele-operator control inputs from the remote station to the equipment with measurable latency.",
+      "FR-NGHE-008.2: The NGHE solution shall transmit equipment state feedback (sensor data, status) from the equipment to the remote station with measurable latency.",
+      "FR-NGHE-008.3: The NGHE solution shall support tele-operator perception and decision-making for safe remote operation of the equipment."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Implement a deterministic, low-latency communication pipeline with end-to-end latency budgeting across acquisition, encoding, transmission, decoding, and actuation stages, with per-stage latency targets that sum to ≤150 ms p95.",
+      "DP2: Establish a dual-channel architecture (primary high-bandwidth channel for video/sensor streams; secondary low-latency control channel for operator commands) with independent buffering and prioritization strategies.",
+      "DP3: Deploy adaptive quality-of-service (QoS) management that dynamically adjusts encoding parameters, frame rates, and transmission redundancy based on real-time network condition monitoring to maintain latency bounds.",
+      "DP4: Implement a predictive state synchronization mechanism where the remote system maintains a local model of operator intent, reducing dependency on round-trip acknowledgment for safety-critical commands.",
+      "DP5: Use a hybrid push-pull communication model: operator commands pushed with minimal queuing; sensor/video streams pulled on-demand with configurable buffering to trade freshness for stability."
+    ],
+    "selected_dp": "DP2 (Dual-Channel Architecture with Independent Buffering and Prioritization) combined with DP1 (Deterministic Latency Budgeting) as the primary design strategy, with DP3 (Adaptive QoS) as a secondary mechanism to handle network variability.",
+    "coupling_check": {
+      "assessment": "Fail",
+      "potential_sources": [
+        "DP2 and DP1 are tightly coupled: the dual-channel design must respect the per-stage latency budget; failure to isolate buffering strategies between channels risks cross-channel latency diffusion.",
+        "DP3 (Adaptive QoS) introduces feedback coupling: network monitoring and parameter adjustment loops may introduce jitter if not carefully decoupled from the primary control path.",
+        "Implicit coupling to FR via safety policy: the 150 ms p95 target is network-condition-dependent; if network conditions degrade beyond design assumptions, the DP may not satisfy FR without fallback policies (e.g., operator override, safe shutdown)."
+      ],
+      "notes": "The dual-channel approach reduces functional coupling by separating concerns (control vs. observation), but introduces architectural coupling through shared network infrastructure. Mitigation: explicit per-channel latency budgets, independent queue management, and network condition monitoring with graceful degradation."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Network conditions remain within agreed bounds (bandwidth, jitter, packet loss rates). RISK: If actual network conditions exceed design assumptions, p95 latency target may be unachievable without reducing operator capability (e.g., lower video quality, reduced command frequency).",
+      "ASSUMPTION: Operator cognitive latency (reaction time) is not included in the 150 ms budget. RISK: If total system latency (network + operator perception + actuation) exceeds safe thresholds for the worksite task, safety incidents may occur despite meeting the technical latency target.",
+      "ASSUMPTION: The remote system can reliably execute commands received within the latency window without additional safety validation. RISK: If safety-critical commands require server-side validation or policy checks, additional latency may be introduced, violating the p95 target.",
+      "ASSUMPTION: Encoding/decoding and transmission technologies can be selected to meet per-stage latency targets without vendor lock-in. RISK: Specific codec or protocol choices may be forced by network constraints, limiting design flexibility.",
+      "ASSUMPTION: Worksite safety plan and operational policies are compatible with 150 ms latency. RISK: If policies require human-in-the-loop approval for certain commands, the DP may not satisfy operational requirements."
+    ],
+    "recommended_revision": "Refine FR to explicitly state: (1) the network conditions under which p95 ≤ 150 ms must be maintained (bandwidth, jitter, packet loss); (2) whether the 150 ms budget includes operator reaction time or is purely system latency; (3) the safety-critical command set and any server-side validation requirements; (4) fallback behavior if network conditions degrade. Revise DP2 to include explicit per-channel latency budgets and a network condition monitoring strategy that triggers graceful degradation (e.g., reduced video quality, operator alert) before p95 target is violated. Add IM layer to specify module boundaries: (a) Acquisition Module (sensor/video capture), (b) Encoding Module (compression/serialization), (c) Transmission Module (network stack), (d) Decoding Module (deserialization/decompression), (e) Actuation Module (command execution), with clear ownership and latency instrumentation at each boundary."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Encapsulates dual-channel buffering, independent prioritization logic, deterministic latency budgeting, and adaptive QoS mechanisms for remote vehicle control and telemetry streaming."
+    },
+    "external_interfaces": [
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Bidirectional communication with dual independent channels; carries both command and telemetry streams with QoS tagging."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives operator commands and mission directives; input to prioritization and latency budgeting logic."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Outputs vehicle state, sensor data, and QoS metrics; buffered and prioritized before transmission."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "Receives safety constraints from Safety Services; feeds safety-critical alerts into dual-channel prioritization; may trigger adaptive QoS downgrade."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit. Dual-channel buffering, independent prioritization, and latency budgeting are core teleoperation concerns. Adaptive QoS is naturally housed here to manage network variability in remote control loops. Minor diffusion: safety constraints originate in Safety Services but are consumed here; latency budgets may be set by Vehicle performance specs."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor fit. Vehicle module owns actuators and sensors, not communication architecture. Dual-channel buffering and network prioritization are not vehicle-internal concerns. High diffusion: DP logic would leak into network stack, violating separation of concerns. Latency budgeting touches Vehicle only at the boundary (command execution time)."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Weak fit. Safety Services owns safety policies and alert generation, not communication buffering or QoS adaptation. Dual-channel architecture and prioritization are not safety-specific; they are teleoperation infrastructure. Diffusion: safety constraints would be embedded in communication logic rather than cleanly separated."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.25,
+        "diffusion_score": 0.75,
+        "notes": "Very poor fit. NGHE Solution is a top-level system container, not an implementation module. Placing DP2+DP1+DP3 here would blur architectural boundaries and prevent clear ownership. Extreme diffusion: logic would scatter across Vehicle, Teleoperation, and Safety Services without coherent packaging."
+      }
+    ],
+    "ownership_candidate": "Teleoperation module (owned by teleoperation subsystem architect or network/communication team lead).",
+    "containment_hypothesis": "The Teleoperation module is the natural home for dual-channel architecture, independent buffering, and prioritization because it owns the operator-to-vehicle communication loop. Deterministic latency budgeting is a teleoperation concern (end-to-end command-response timing). Adaptive QoS is a network variability mitigation strategy that belongs in the communication path, not in Vehicle or Safety Services. Safety constraints flow in via SafetyAlert interface; Vehicle performance specs inform latency budgets via Tasking/Telemetry feedback loops.",
+    "containment_risks": [
+      "Latency budget parameters may need to be tuned based on Vehicle actuator response times; this creates a dependency on Vehicle module specs that must be managed via interface contracts (e.g., Tasking carries latency SLA metadata).",
+      "Safety-critical prioritization rules (e.g., emergency stop always highest priority) must be synchronized with Safety Services; SafetyAlert interface must carry priority tags to avoid logic duplication.",
+      "Adaptive QoS thresholds and fallback policies may conflict with safety requirements; requires explicit coordination protocol between Teleoperation and Safety Services (e.g., SafetyAlert can override QoS adaptation).",
+      "Network Link interface must support dual-channel abstraction; if underlying network hardware does not natively support dual channels, Teleoperation module must implement logical channel separation, increasing internal complexity."
+    ],
+    "recommended_revision": "No revision to DP choice is necessary. DP2+DP1+DP3 is well-contained in Teleoperation. However, clarify the interface contract for SafetyAlert to explicitly define how safety constraints influence prioritization and QoS adaptation, and ensure Tasking interface carries latency budget metadata so Vehicle can be designed to meet those budgets. This prevents diffusion of latency logic into Vehicle module."
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The Teleoperation module boundary is well-defined with clear external interfaces (Network Link, Tasking, Telemetry, SafetyAlert). Latency acceptance criterion (p95 ≤ 150 ms) is measurable end-to-end across the dual-channel architecture. Buffering, prioritization, and QoS adaptation mechanisms are instrumentable for latency telemetry. However, verification requires explicit latency budget allocation across sub-components (dual-channel overhead, buffering delay, prioritization logic, adaptive QoS decision time) to ensure p95 target is achievable.",
+      "allocation_clarity": "Good, with caveats. The Teleoperation module owns the communication path and is the natural home for DP2+DP1+DP3. However, allocation clarity depends on three critical interface contracts: (1) Tasking interface must carry latency SLA metadata and Vehicle actuator response time specs so deterministic budgeting can be validated; (2) SafetyAlert interface must explicitly define how safety constraints map to prioritization rules and whether safety alerts can override QoS adaptation; (3) Network Link interface must specify dual-channel abstraction semantics (logical vs. physical channels, failover behavior, bandwidth allocation per channel). Without these contracts, latency budgeting logic may diffuse into Vehicle or Safety Services modules."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Latency budget parameters (e.g., max buffering delay, prioritization decision time) are set in Teleoperation but depend on Vehicle actuator response times and network propagation delays. If Vehicle specs are not formally captured in Tasking interface metadata, latency budgeting logic may leak into Vehicle module or become ad-hoc tuning, violating separation of concerns.",
+        "Safety-critical prioritization rules (e.g., emergency stop always highest priority) must be synchronized between Teleoperation and Safety Services. If SafetyAlert interface does not carry explicit priority tags and override semantics, prioritization logic will diffuse across both modules, creating maintenance risk and potential inconsistency.",
+        "Adaptive QoS thresholds (e.g., when to downgrade video quality, reduce telemetry frequency) may conflict with safety requirements. If coordination protocol between Teleoperation and Safety Services is not formalized (e.g., SafetyAlert can veto QoS downgrade), adaptive QoS logic may scatter across modules or become reactive rather than proactive.",
+        "Dual-channel abstraction assumes underlying network hardware supports logical or physical channel separation. If network infrastructure does not natively support this, Teleoperation module must implement channel separation logic internally, increasing complexity and potentially creating hidden dependencies on network stack implementation details."
+      ],
+      "containment_notes": "Excellent containment (0.92 score). Dual-channel buffering, independent prioritization, deterministic latency budgeting, and adaptive QoS are cohesive teleoperation concerns and belong in the Teleoperation module. The module boundary is well-scoped and interfaces are clearly defined. Minor diffusion risks are manageable via explicit interface contracts (Tasking, SafetyAlert, Network Link) that formalize dependencies on Vehicle specs, Safety Services policies, and network capabilities. No architectural restructuring is required; focus on interface specification and contract clarity."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP2 (Dual-Channel Architecture with Independent Buffering and Prioritization) directly addresses the FR requirement for safe remote operation by providing redundancy and prioritization of safety-critical commands. DP1 (Deterministic Latency Budgeting) directly maps to the latency acceptance criterion (p95 ≤ 150 ms) by enabling predictable end-to-end timing. DP3 (Adaptive QoS) handles network variability to maintain latency compliance under adverse conditions. The combination is logically sound and well-justified. However, verification of the FR requires that latency budgets are allocated across sub-components (dual-channel overhead, buffering, prioritization, QoS decision time) and that the sum does not exceed 150 ms under agreed network conditions. This allocation must be captured in design documentation and validated through simulation or testing."
+    },
+    "recommended_revisions": [
+      "Formalize Tasking interface contract to include: (a) latency SLA metadata (max acceptable command-to-execution time), (b) Vehicle actuator response time specs, (c) priority classification scheme for operator commands. This prevents latency budgeting logic from diffusing into Vehicle module.",
+      "Formalize SafetyAlert interface contract to include: (a) explicit priority tags for safety-critical alerts, (b) override semantics (e.g., emergency stop always preempts other commands), (c) coordination protocol for how safety constraints influence QoS adaptation (e.g., can adaptive QoS downgrade be vetoed by safety alert?). This prevents prioritization logic from scattering across Safety Services and Teleoperation.",
+      "Formalize Network Link interface contract to specify: (a) dual-channel abstraction semantics (logical vs. physical separation, failover behavior), (b) bandwidth allocation per channel, (c) QoS tagging format and interpretation. This clarifies whether Teleoperation module must implement channel separation internally or can rely on network infrastructure.",
+      "Allocate latency budget across Teleoperation sub-components: (a) dual-channel overhead (e.g., redundancy check, channel selection), (b) buffering delay (max queue depth per priority level), (c) prioritization decision time, (d) adaptive QoS decision time. Ensure sum ≤ 150 ms minus network propagation and Vehicle execution time. Document allocation in design specification.",
+      "Define fallback policy for adaptive QoS when network conditions degrade: (a) which telemetry streams can be reduced (e.g., video quality, sensor frequency), (b) which streams are safety-critical and cannot be reduced, (c) threshold for triggering fallback (e.g., packet loss > 5%, latency > 100 ms). Coordinate with Safety Services to ensure fallback does not compromise safety.",
+      "Specify dual-channel failover behavior: (a) detection latency for channel failure, (b) switchover time to backup channel, (c) command/telemetry buffering during switchover, (d) operator notification of channel status. Ensure failover latency is accounted for in latency budget."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The FR-DP-IM gate passes with high containment (0.92) and logically sound mapping, but the gate results explicitly identify critical interface contract gaps that must be resolved before decomposition proceeds. The recommended revisions are not minor tuning—they are architectural dependencies that directly affect latency budgeting allocation, safety prioritization logic, and module boundary clarity. Proceeding to sub-FR decomposition without formalizing these contracts risks diffusion of latency budgeting logic into Vehicle module, scattering of prioritization rules across Safety Services, and uncontrolled adaptive QoS behavior. Given high safety criticality, the cost of rework post-decomposition is prohibitive. ZIGZAG_DOWN to revise interface contracts at the current level before deriving sub-FRs.",
+    "next_level_sub_frs": [],
+    "revise": {
+      "target": "DP",
+      "why": "DP2 (Dual-Channel Architecture), DP1 (Deterministic Latency Budgeting), and DP3 (Adaptive QoS) are logically sound but depend on three formalized interface contracts that are currently implicit: (1) Tasking interface must carry latency SLA metadata and Vehicle actuator response time specs to enable deterministic latency budget allocation; (2) SafetyAlert interface must define priority tags, override semantics, and coordination protocol for QoS adaptation veto; (3) Network Link interface must specify dual-channel abstraction semantics, failover behavior, and bandwidth allocation. Without these contracts, the DP cannot be fully realized without diffusion risk. Revise DP specification to explicitly include interface contract requirements and latency budget allocation across sub-components (dual-channel overhead, buffering delay, prioritization decision time, adaptive QoS decision time). This revision is a DP-level concern (how to solve the latency and safety requirement) and must be completed before sub-FR decomposition."
+    },
+    "record": {
+      "assumptions": [
+        "Tasking interface will be extended to carry latency SLA metadata and Vehicle actuator response time specs.",
+        "SafetyAlert interface will be extended to carry explicit priority tags and override semantics.",
+        "Network Link interface will be extended to specify dual-channel abstraction semantics and failover behavior.",
+        "Latency budget allocation across Teleoperation sub-components (dual-channel overhead, buffering, prioritization, adaptive QoS) will sum to ≤ 150 ms minus network propagation and Vehicle execution time.",
+        "Adaptive QoS fallback policy will be coordinated with Safety Services to prevent safety-critical telemetry reduction.",
+        "Dual-channel failover detection and switchover latency will be accounted for in overall latency budget.",
+        "Network infrastructure supports logical or physical channel separation, or Teleoperation module will implement channel separation internally with documented complexity trade-offs."
+      ],
+      "open_risks": [
+        "Latency budget allocation may be infeasible if Vehicle actuator response times are not formally specified in Tasking interface. Risk: latency budgeting logic leaks into Vehicle module or becomes ad-hoc tuning.",
+        "Safety-critical prioritization rules may scatter across Teleoperation and Safety Services if SafetyAlert interface does not formalize priority tags and override semantics. Risk: inconsistent prioritization behavior and maintenance burden.",
+        "Adaptive QoS thresholds may conflict with safety requirements if coordination protocol is not formalized. Risk: reactive QoS adaptation compromises safety or latency compliance.",
+        "Dual-channel abstraction may require internal implementation in Teleoperation if network infrastructure does not natively support channel separation. Risk: hidden complexity and dependency on network stack implementation details.",
+        "Failover latency (detection + switchover) may exceed latency budget if not explicitly allocated. Risk: p95 latency target becomes unachievable under channel failure scenarios.",
+        "Adaptive QoS fallback policy may reduce safety-critical telemetry streams under network stress. Risk: operator situational awareness degraded at critical moments."
+      ],
+      "evidence_needed": [
+        "Formalized Tasking interface contract specifying: (a) latency SLA metadata schema, (b) Vehicle actuator response time specs, (c) priority classification scheme for operator commands.",
+        "Formalized SafetyAlert interface contract specifying: (a) priority tag enumeration, (b) override semantics and preemption rules, (c) coordination protocol for QoS adaptation veto.",
+        "Formalized Network Link interface contract specifying: (a) dual-channel abstraction semantics (logical vs. physical), (b) failover behavior and detection latency, (c) bandwidth allocation per channel, (d) QoS tagging format.",
+        "Latency budget allocation table: dual-channel overhead (ms), buffering delay per priority level (ms), prioritization decision time (ms), adaptive QoS decision time (ms), dual-channel failover latency (ms). Sum must be ≤ 150 ms minus network propagation and Vehicle execution time.",
+        "Adaptive QoS fallback policy document: (a) telemetry streams eligible for reduction, (b) safety-critical streams that cannot be reduced, (c) degradation thresholds (packet loss %, latency threshold), (d) coordination with Safety Services.",
+        "Network infrastructure assessment: does underlying network support logical/physical channel separation natively, or must Teleoperation implement internally? Document complexity and dependency implications.",
+        "Dual-channel failover specification: detection latency, switchover time, command/telemetry buffering during switchover, operator notification mechanism. Validate failover latency is within budget."
+      ]
+    }
+  }
+}

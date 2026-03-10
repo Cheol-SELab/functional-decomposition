@@ -1,0 +1,173 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and designated work zones with sufficient fidelity to support autonomous path planning, collision avoidance, and operator situational awareness.",
+    "rationale": "The original FR was vague on scope (what constitutes 'area analysis') and lacked explicit linkage to downstream functional consumers (planning, execution, safety). Refinement adds: (1) real-time update cadence to support dynamic safety; (2) explicit feature taxonomy (terrain, static obstacles, dynamic hazards, work zones); (3) fidelity requirement tied to use cases (path planning, collision avoidance, situational awareness); (4) availability requirement for planning/execution functions.",
+    "verification_idea": "Acceptance test: Worksite model is generated within 5 minutes of site entry, updated at ≥2 Hz during operations, contains all terrain features within ±0.5 m horizontal and ±0.1 m vertical accuracy, all static obstacles within ±0.2 m, and all dynamic hazards within ±0.3 m. Model is accessible via standardized query interface to planning and execution subsystems.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire worksite sensor data (LiDAR, camera, GNSS, IMU) with sufficient coverage and refresh rate.",
+      "CR-NGHE-006.2: Process sensor data into a unified 3D terrain and obstacle map with real-time update.",
+      "CR-NGHE-006.3: Classify and label map features (terrain type, obstacle type, hazard type, work zone boundary).",
+      "CR-NGHE-006.4: Provide worksite model query and subscription interface to planning and execution functions.",
+      "CR-NGHE-006.5: Validate worksite model consistency and alert Safety Services if model confidence falls below threshold."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized perception pipeline (sensor fusion → SLAM/mapping → feature classification) running on vehicle compute, publishing map updates via standardized message bus to planning/execution subscribers.",
+      "DP-B: Distributed perception (vehicle-mounted sensors feed to cloud-based mapping service; cloud returns map tiles to vehicle and tele-operator; local caching for latency-critical functions).",
+      "DP-C: Hybrid perception (vehicle runs lightweight local SLAM for immediate collision avoidance; cloud service runs full feature classification and long-term map persistence; periodic sync)."
+    ],
+    "selected_dp": "DP-C: Hybrid perception architecture with vehicle-local real-time SLAM for immediate safety-critical collision avoidance and cloud-based feature classification/persistence for planning and operator situational awareness, synchronized via Network Link at configurable cadence (default 1 Hz for map updates, 10 Hz for dynamic hazard alerts).",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between vehicle compute (SLAM) and cloud service (classification) via Network Link introduces latency and availability risk; mitigated by local caching and fallback to coarse map.",
+        "Coupling between worksite model and Safety Services (hazard alerting) is intentional and required; managed via SafetyAlert interface.",
+        "Coupling between worksite model and planning/execution functions is intentional; managed via Tasking interface (query/subscribe)."
+      ],
+      "notes": "DP-C decouples real-time safety (local SLAM) from planning fidelity (cloud classification), reducing coupling compared to DP-A (single point of failure) and DP-B (cloud dependency for immediate safety). Acceptable coupling remains via Network Link; contingency is local-only operation with degraded planning capability."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Vehicle compute has sufficient capacity (GPU/CPU) for real-time SLAM at target sensor frame rate (30 Hz LiDAR, 60 Hz camera).",
+      "ASSUMPTION: Network Link provides ≥95% availability and ≤500 ms latency for map update sync.",
+      "RISK: If Network Link fails, cloud-based feature classification is unavailable; planning functions degrade to local SLAM map only (coarse obstacle detection, no semantic labeling).",
+      "RISK: Sensor fusion (LiDAR + camera + GNSS + IMU) introduces calibration and synchronization complexity; misalignment can cause map artifacts.",
+      "RISK: Real-time SLAM in GPS-denied or GPS-degraded environments (underground, dense vegetation) may accumulate drift; requires loop-closure detection and periodic re-localization."
+    ],
+    "recommended_revision": "Specify fallback behavior explicitly: (1) If Network Link unavailable, vehicle operates in local-SLAM-only mode with SafetyAlert triggered to operator and Safety Manager; (2) Define map update cadence as function of vehicle speed and terrain change rate (adaptive sync); (3) Require sensor fusion validation test before deployment to each new site type (underground, dense forest, urban canyon)."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "The Vehicle module owns the real-time worksite mapping capability, including on-board sensor suite (LiDAR, camera, GNSS, IMU), local SLAM compute, and map caching. Vehicle publishes map updates and dynamic hazard alerts via Network Link to cloud and tele-operator. Vehicle subscribes to Tasking interface for planning directives and receives SafetyAlert notifications from Safety Services."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle publishes sensor telemetry (raw LiDAR point clouds, camera frames, GNSS/IMU state) and local SLAM map state (pose, occupancy grid, feature landmarks) at 10 Hz to cloud perception service and tele-operator display."
+      },
+      {
+        "name": "Tasking",
+        "direction": "inout",
+        "details": "Vehicle receives planning tasks (waypoint sequences, work-zone definitions) and queries worksite model (map tiles, feature list, hazard status). Vehicle publishes map updates and model state changes via Tasking interface to planning/execution subscribers."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "in",
+        "details": "Vehicle receives safety alerts from Safety Services (e.g., 'personnel detected in work zone', 'map confidence low') and triggers operator notification and autonomous safety actions (e.g., speed reduction, zone avoidance)."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Vehicle communicates with cloud mapping service and tele-operator via Network Link: uploads Telemetry, receives cloud-classified map updates and SafetyAlert notifications, publishes map state for planning functions."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Vehicle is the natural owner of on-board sensor acquisition, local SLAM, and real-time collision avoidance logic. Diffusion risk: map caching and query interface logic may leak into planning/execution modules if not cleanly abstracted. Mitigation: define strict API contract for map query (e.g., REST or ROS service interface)."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.45,
+        "diffusion_score": 0.55,
+        "notes": "Teleoperation could own tele-operator-side map rendering and query logic, but sensor acquisition and SLAM must remain on Vehicle for real-time safety. Diffusion risk: splitting map logic between Vehicle and Teleoperation creates synchronization burden and latency. Not recommended as primary owner."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Safety Services owns hazard detection and alerting logic (e.g., personnel in work zone), but not the underlying map generation. Assigning map generation to Safety Services would couple safety logic to perception, violating separation of concerns. Not recommended."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.15,
+        "diffusion_score": 0.85,
+        "notes": "NGHE Solution is the system-level container; assigning worksite mapping to it would diffuse ownership across all subsystems and prevent clear accountability. Not recommended as primary owner."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "Vehicle module owns worksite mapping because: (1) sensor acquisition is inherently vehicle-local; (2) real-time SLAM for collision avoidance is safety-critical and must execute on vehicle compute; (3) Vehicle has clear ownership boundary and interface contract (Telemetry, Tasking, SafetyAlert, Network Link). Cloud-based feature classification and long-term map persistence are services consumed by Vehicle, not owned by it.",
+    "containment_risks": [
+      "RISK: Vehicle module may become overloaded if map query logic is not cleanly separated from SLAM logic; recommend encapsulating map query in a dedicated sub-module (e.g., 'MapServer') within Vehicle.",
+      "RISK: If Vehicle compute capacity is insufficient for real-time SLAM + map caching + query serving, performance may degrade; requires capacity planning and load testing.",
+      "RISK: Sensor calibration and fusion logic is complex and error-prone; recommend centralizing in a dedicated 'SensorFusion' sub-module within Vehicle with clear test coverage.",
+      "RISK: Network Link failure isolates Vehicle from cloud and tele-operator; local-only operation is acceptable for safety but degrades planning capability; requires explicit fallback mode and operator notification."
+    ],
+    "recommended_revision": "Decompose Vehicle module into sub-modules: (1) 'SensorAcquisition' (LiDAR, camera, GNSS, IMU drivers); (2) 'SensorFusion' (calibration, synchronization, validation); (3) 'LocalSLAM' (real-time pose and occupancy estimation); (4) 'MapServer' (query/subscribe interface, caching, consistency validation); (5) 'PerceptionPipeline' (orchestration and error handling). Each sub-module has clear ownership and testable interface."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid perception) directly addresses refined FR requirements: (1) real-time worksite model generation via local SLAM; (2) feature taxonomy support via cloud classification; (3) fidelity targets achievable via sensor fusion; (4) availability to planning/execution via Tasking interface. DP-C is traceable to all sub-FRs (006.1–006.5). No functional gaps identified."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "DIFFUSION RISK: Cloud-based feature classification is not explicitly assigned to an IM; recommend creating a 'CloudPerception' service module (outside current IM candidates) or assigning to 'NGHE Solution' as a system-level service. Current assignment to Vehicle is incomplete without cloud service specification.",
+        "DIFFUSION RISK: Map query/subscribe logic may diffuse across planning and execution modules if API contract is not enforced; recommend defining formal interface specification (e.g., OpenAPI, ROS service definition) and version control.",
+        "DIFFUSION RISK: SafetyAlert integration with Vehicle may create tight coupling if safety logic is not cleanly separated; recommend Safety Services owns hazard detection, Vehicle owns hazard response (speed reduction, zone avoidance)."
+      ],
+      "containment_notes": "Vehicle module containment is strong for sensor acquisition and local SLAM (92% score). Cloud perception service is a dependency, not owned by Vehicle; this is acceptable if cloud service is treated as external infrastructure. Map query interface must be cleanly abstracted to prevent diffusion into planning/execution modules."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible via: (1) unit tests for SLAM algorithm (pose accuracy, loop closure); (2) integration tests for sensor fusion (calibration validation, synchronization); (3) system tests for map generation (accuracy, latency, update cadence); (4) acceptance tests for map availability to planning/execution (query latency, consistency). All tests can be automated in simulation and validated on test vehicle.",
+      "allocation_clarity": "Allocation is clear: Vehicle owns worksite mapping end-to-end (sensor to map query interface). Interfaces are well-defined (Telemetry, Tasking, SafetyAlert, Network Link). Ownership boundary is unambiguous. Fallback behavior (local-only operation if Network Link fails) is specified."
+    },
+    "recommended_revisions": [
+      "REVISION 1: Explicitly specify cloud perception service as a separate IM (e.g., 'CloudPerception' or assign to 'NGHE Solution' as system service). Current assignment to Vehicle is incomplete.",
+      "REVISION 2: Define formal API contract for map query interface (e.g., REST endpoint, ROS service, message schema). Recommend versioning and backward compatibility policy.",
+      "REVISION 3: Specify sensor fusion validation test plan (calibration, synchronization, accuracy) for each site type (underground, dense forest, urban canyon, open terrain).",
+      "REVISION 4: Define fallback behavior explicitly: (a) Network Link failure triggers local-SLAM-only mode; (b) SafetyAlert notifies operator and Safety Manager; (c) planning functions degrade to coarse obstacle detection; (d) recovery procedure when Network Link restored.",
+      "REVISION 5: Specify map update cadence as adaptive function of vehicle speed and terrain change rate (e.g., 1 Hz at low speed, 5 Hz at high speed). Current default 1 Hz may be insufficient for dynamic hazard detection."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "Refined FR-006 is well-scoped and DP-C is sound, but the requirement is not atomic and requires further decomposition. Sub-FRs 006.1–006.5 are distinct functional concerns (sensor acquisition, data processing, feature classification, interface provision, validation) that must be decomposed to DP and IM levels to ensure complete design coverage. Additionally, cloud perception service is a critical dependency not yet assigned to an IM; this must be resolved before proceeding to detailed design. Recommend decomposing each sub-FR in next level.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire worksite sensor data (LiDAR, camera, GNSS, IMU) with sufficient coverage and refresh rate.",
+      "CR-NGHE-006.2: Process sensor data into a unified 3D terrain and obstacle map with real-time update.",
+      "CR-NGHE-006.3: Classify and label map features (terrain type, obstacle type, hazard type, work zone boundary).",
+      "CR-NGHE-006.4: Provide worksite model query and subscription interface to planning and execution functions.",
+      "CR-NGHE-006.5: Validate worksite model consistency and alert Safety Services if model confidence falls below threshold."
+    ],
+    "revise": {
+      "target": "IM",
+      "why": "Cloud perception service (feature classification, long-term map persistence) is a critical component of DP-C but is not assigned to any available IM candidate. Recommend: (1) clarify whether cloud service is owned by 'NGHE Solution' (system-level service) or external infrastructure; (2) if owned by NGHE Solution, create explicit IM boundary for cloud perception; (3) if external, document interface contract and SLA requirements (latency, availability, accuracy)."
+    },
+    "record": {
+      "assumptions": [
+        "Vehicle compute has sufficient capacity (GPU/CPU) for real-time SLAM at 30 Hz LiDAR, 60 Hz camera.",
+        "Network Link provides ≥95% availability and ≤500 ms latency for map update sync.",
+        "Cloud perception service is available and provides feature classification with ≥90% accuracy for terrain, obstacles, hazards.",
+        "Sensor fusion (LiDAR + camera + GNSS + IMU) can be calibrated and synchronized to ±0.1 m accuracy.",
+        "Planning and execution functions can consume map updates via standardized query interface (REST, ROS, or equivalent).",
+        "Safety Services can detect and alert on dynamic hazards (personnel, other equipment) via map-based analysis."
+      ],
+      "open_risks": [
+        "RISK: Vehicle compute capacity insufficient for real-time SLAM + map caching + query serving; requires load testing and capacity planning.",
+        "RISK: Network Link failure isolates Vehicle from cloud and tele-operator; local-only operation acceptable for safety but degrades planning capability.",
+        "RISK: Sensor fusion calibration and synchronization errors cause map artifacts; requires validation test plan for each site type.",
+        "RISK: Cloud perception service latency (>500 ms) delays feature classification; planning functions may use stale map data.",
+        "RISK: Map query interface not cleanly abstracted; diffusion risk into planning/execution modules.",
+        "RISK: Real-time SLAM drift in GPS-denied environments; requires loop-closure detection and periodic re-localization."
+      ],
+      "evidence_needed": [
+        "Vehicle compute capacity analysis (CPU/GPU utilization, memory, thermal).",
+        "Network Link SLA specification (availability, latency, bandwidth).",
+        "Sensor fusion validation test results (calibration accuracy, synchronization error, map artifact analysis).",
+        "Cloud perception service specification (feature taxonomy, accuracy targets, latency SLA).",
+        "Map query interface specification (API contract, message schema, versioning policy).",
+        "Fallback behavior test plan (Network Link failure, local-only operation, recovery procedure).",
+        "Real-time SLAM algorithm selection and validation (pose accuracy, loop closure, drift analysis).",
+        "Site-specific sensor fusion validation (underground, dense forest, urban canyon, open terrain)."
+      ]
+    }
+  }
+}

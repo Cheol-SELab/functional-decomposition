@@ -1,0 +1,161 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and work-zone boundaries, with sufficient fidelity to support autonomous path planning and operator situational awareness.",
+    "rationale": "The original FR was vague on fidelity requirements, update frequency, and use-case binding. Refinement clarifies that the model must serve both planning (offline) and execution (real-time) functions, must distinguish static from dynamic features, and must be safety-critical (high criticality tailoring). This enables downstream DP selection to address sensing, fusion, and distribution architecture.",
+    "verification_idea": "Acceptance test: (1) Worksite model generated within 5 minutes of site entry; (2) Terrain elevation accuracy ±0.5 m over 95% of mapped area; (3) Obstacle detection sensitivity ≥95% for objects >0.3 m; (4) Model available to planning and execution subsystems via agreed interface; (5) Safety-critical features (hazard zones) marked with confidence metadata.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire worksite sensor data (LIDAR, camera, IMU, GNSS) from vehicle platform.",
+      "CR-NGHE-006.2: Fuse multi-modal sensor data into unified 3D terrain and obstacle representation.",
+      "CR-NGHE-006.3: Classify and label worksite features (terrain, static obstacles, dynamic hazards, work zones).",
+      "CR-NGHE-006.4: Distribute worksite model to planning, execution, and operator interfaces with real-time updates.",
+      "CR-NGHE-006.5: Validate model completeness and safety-critical feature confidence; flag gaps and low-confidence regions."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Onboard multi-sensor fusion (LIDAR + stereo camera + IMU) with local 3D occupancy grid and feature classification; periodic upload to cloud for archival and planning system access.",
+      "DP-B: Distributed sensing architecture with vehicle-mounted sensors feeding real-time data stream to edge compute node (on-vehicle or nearby gateway); edge node performs fusion and publishes model via standardized interface (e.g., ROS, OPC-UA).",
+      "DP-C: Hybrid approach: vehicle acquires raw sensor data; onboard lightweight feature extraction (obstacle detection, terrain slope); full fusion and classification performed on remote compute (cloud or site server); results streamed back to vehicle and planning systems.",
+      "DP-D: Tele-operator-assisted mapping: operator manually annotates video feed and LIDAR point clouds in real-time; system auto-registers annotations to vehicle pose; model built incrementally as operator surveys site."
+    ],
+    "selected_dp": "DP-B: Distributed sensing architecture with vehicle-mounted multi-sensor suite (LIDAR, stereo camera, IMU, GNSS) feeding real-time data stream to an edge compute node (co-located on vehicle or nearby gateway); edge node performs sensor fusion, terrain reconstruction, obstacle classification, and publishes unified worksite model via standardized interface (Telemetry) to planning, execution, and operator subsystems. Model includes confidence metadata for safety-critical features.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Sensor data acquisition (CR-NGHE-006.1) is decoupled from fusion logic (CR-NGHE-006.2) via standardized data stream; fusion is decoupled from distribution (CR-NGHE-006.4) via model interface.",
+        "Real-time constraint is satisfied by edge compute locality; no dependency on network latency for core fusion.",
+        "Safety criticality (high) is addressed by confidence metadata and validation layer (CR-NGHE-006.5); model can be used conservatively if confidence is low."
+      ],
+      "notes": "DP-B avoids tight coupling between sensor hardware and fusion algorithm (DP-A risk) and avoids latency/reliability risk of cloud-only fusion (DP-C risk). Tele-operator annotation (DP-D) is complementary, not primary, and introduces human-in-loop latency unsuitable for real-time execution."
+    },
+    "assumptions_risks": [
+      "Assumption: Edge compute node (vehicle or gateway) has sufficient processing power (GPU or multi-core CPU) to run real-time fusion at 10+ Hz.",
+      "Assumption: Vehicle sensor suite (LIDAR, stereo, IMU, GNSS) is calibrated and synchronized to <100 ms skew.",
+      "Risk: If edge compute is undersized, fusion latency may exceed real-time requirement; mitigation: prototype and benchmark early.",
+      "Risk: If network link to planning/execution is lossy or high-latency, model distribution may lag; mitigation: implement local caching and graceful degradation.",
+      "Risk: Confidence metadata may be insufficient to distinguish safe from unsafe regions; mitigation: integrate with Safety Services for hazard validation."
+    ],
+    "recommended_revision": "Clarify edge compute location (onboard vehicle vs. nearby gateway) and network topology (WiFi, cellular, proprietary) in DP refinement. Specify fusion algorithm (e.g., occupancy grid, voxel-based, graph-SLAM) and confidence metric (e.g., Bayesian posterior, ensemble voting). Bind DP-B to CR-NGHE-006.5 (validation) to ensure safety-critical features are flagged before use."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "The Vehicle module owns the worksite mapping/modeling capability, including onboard sensor acquisition (LIDAR, stereo camera, IMU, GNSS), edge compute fusion logic, and model publication. The Vehicle module is responsible for real-time sensor data collection, fusion, and initial model generation; it publishes the worksite model via the Telemetry interface for consumption by planning, execution, and operator subsystems."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle publishes worksite model (3D terrain, obstacle map, feature labels, confidence metadata) as structured telemetry message; consumed by planning and execution subsystems. Update frequency: 1–10 Hz depending on fusion latency."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "Vehicle receives safety-critical feature validation from Safety Services (e.g., hazard zone confirmation, confidence thresholds); Vehicle may query Safety Services to validate low-confidence regions before publishing model. Bidirectional to support real-time safety feedback."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Vehicle communicates with remote planning/execution systems and Safety Services via Network Link; model telemetry and safety alerts flow over this link. Vehicle may also receive tasking or re-planning requests that influence mapping priorities."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.95,
+        "diffusion_score": 0.05,
+        "notes": "Vehicle is the natural owner of sensor acquisition and onboard fusion. Sensor hardware is physically integrated into vehicle; edge compute (GPU/CPU) is co-located. Model publication via Telemetry is a clean external interface. Minimal diffusion: only external dependency is Safety Services for validation (SafetyAlert interface)."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.6,
+        "diffusion_score": 0.4,
+        "notes": "NGHE Solution is the system-level container, but assigning worksite mapping to NGHE Solution (rather than Vehicle) would blur the boundary between vehicle-level and system-level responsibilities. Mapping is fundamentally a vehicle capability; NGHE Solution should orchestrate and consume the model, not own fusion logic. High diffusion risk if mapping logic is split between Vehicle and NGHE Solution."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Teleoperation module is responsible for remote operator interface and command relay, not sensor fusion. Assigning worksite mapping to Teleoperation would create tight coupling between operator UI and fusion algorithm, violating separation of concerns. Tele-operator may consume the model (via Telemetry), but should not own its generation."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.25,
+        "diffusion_score": 0.75,
+        "notes": "Safety Services is responsible for safety policy enforcement and hazard validation, not sensor fusion. Assigning worksite mapping to Safety Services would conflate data acquisition with safety decision-making. Safety Services should validate and annotate the model (via SafetyAlert), not generate it."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "Vehicle module owns worksite mapping/modeling because: (1) sensor hardware is physically integrated into vehicle; (2) edge compute for fusion is co-located on vehicle; (3) real-time constraint requires low-latency local processing; (4) model publication via Telemetry is a clean, well-defined external interface; (5) Vehicle is the natural source of truth for vehicle-centric perception. Safety Services validates the model post-hoc; Teleoperation and planning systems consume it.",
+    "containment_risks": [
+      "Risk: If Vehicle module becomes overloaded with fusion logic, it may violate single-responsibility principle. Mitigation: encapsulate fusion as a sub-module within Vehicle (e.g., Vehicle::SensorFusion) with clear internal interfaces.",
+      "Risk: If edge compute is undersized or fails, worksite model generation stops; no fallback to cloud-based fusion. Mitigation: design graceful degradation (e.g., fall back to lower-fidelity model or tele-operator annotation).",
+      "Risk: If Vehicle module is owned by hardware team and Safety Services by software team, integration of SafetyAlert interface may be delayed. Mitigation: establish clear interface contract and ownership boundaries early."
+    ],
+    "recommended_revision": "Confirm that Vehicle module includes edge compute infrastructure (GPU/CPU, memory, storage) and that sensor fusion algorithm is budgeted within Vehicle's computational envelope. Define SafetyAlert interface contract (message schema, latency SLA, validation rules) in collaboration with Safety Services owner. Consider sub-module decomposition: Vehicle::SensorAcquisition, Vehicle::SensorFusion, Vehicle::ModelPublisher to manage complexity."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-B (distributed sensing with edge fusion) directly addresses all sub-FRs: (1) sensor acquisition via onboard multi-sensor suite; (2) fusion via edge compute; (3) classification via fusion algorithm; (4) distribution via Telemetry interface; (5) validation via confidence metadata and Safety Services integration. DP-B is feasible, avoids unnecessary coupling, and aligns with real-time and safety-criticality constraints."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Diffusion risk: If fusion algorithm is implemented in multiple places (e.g., Vehicle and cloud), model inconsistency may arise. Mitigation: Vehicle is single source of truth; cloud is archive only.",
+        "Diffusion risk: If SafetyAlert validation is not tightly integrated, safety-critical features may be published without validation. Mitigation: Vehicle must block publication of low-confidence hazard zones until Safety Services confirms."
+      ],
+      "containment_notes": "Vehicle module containment score is 0.95; diffusion is minimal (only SafetyAlert dependency). Vehicle is the clear owner. No competing modules have higher containment scores. IM assignment is sound."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible: (1) Acceptance test can measure model generation latency, terrain accuracy, obstacle detection sensitivity, and interface availability. (2) Safety-critical feature validation can be tested via Safety Services integration test. (3) Real-time performance can be benchmarked on target hardware.",
+      "allocation_clarity": "Allocation is clear: Vehicle owns worksite mapping; Safety Services validates; planning/execution systems consume via Telemetry. Interfaces (Telemetry, SafetyAlert, Network Link) are well-defined and traceable to sub-FRs."
+    },
+    "recommended_revisions": [
+      "Refine DP-B to specify fusion algorithm (e.g., occupancy grid, voxel-based, graph-SLAM) and confidence metric (e.g., Bayesian posterior, ensemble voting).",
+      "Define SafetyAlert interface contract (message schema, validation rules, latency SLA) in collaboration with Safety Services owner.",
+      "Establish edge compute requirements (CPU, GPU, memory, storage) and validate against Vehicle hardware budget.",
+      "Plan sub-module decomposition within Vehicle (SensorAcquisition, SensorFusion, ModelPublisher) to manage complexity and enable independent testing.",
+      "Define fallback strategy if edge compute fails or network link is unavailable (e.g., degrade to lower-fidelity model, enable tele-operator annotation)."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "CR-NGHE-006 is not atomic; it decomposes into five sub-FRs (sensor acquisition, fusion, classification, distribution, validation). Each sub-FR requires further refinement and DP selection. DP-B is sound and well-justified, and Vehicle is the clear IM owner. However, the sub-FRs must be decomposed to the next level to ensure completeness and traceability. Specifically, CR-NGHE-006.2 (sensor fusion) and CR-NGHE-006.5 (validation) require detailed DP selection and IM assignment.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire worksite sensor data (LIDAR, camera, IMU, GNSS) from vehicle platform.",
+      "CR-NGHE-006.2: Fuse multi-modal sensor data into unified 3D terrain and obstacle representation.",
+      "CR-NGHE-006.3: Classify and label worksite features (terrain, static obstacles, dynamic hazards, work zones).",
+      "CR-NGHE-006.4: Distribute worksite model to planning, execution, and operator interfaces with real-time updates.",
+      "CR-NGHE-006.5: Validate model completeness and safety-critical feature confidence; flag gaps and low-confidence regions."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Vehicle platform includes multi-sensor suite (LIDAR, stereo camera, IMU, GNSS) with sufficient resolution and field-of-view to map typical worksites.",
+        "Edge compute node (onboard or nearby gateway) has sufficient processing power (GPU or multi-core CPU) to run real-time fusion at 10+ Hz.",
+        "Vehicle sensors are calibrated and synchronized to <100 ms skew.",
+        "Network link (WiFi, cellular, or proprietary) is available for model distribution to planning/execution systems.",
+        "Safety Services module is available to validate safety-critical features via SafetyAlert interface.",
+        "Worksite model fidelity requirement is ±0.5 m terrain elevation accuracy and ≥95% obstacle detection sensitivity for objects >0.3 m."
+      ],
+      "open_risks": [
+        "Edge compute latency may exceed real-time requirement if fusion algorithm is too complex; prototype and benchmark early.",
+        "Network link may be lossy or high-latency, causing model distribution lag; implement local caching and graceful degradation.",
+        "Confidence metadata may be insufficient to distinguish safe from unsafe regions; integrate with Safety Services for hazard validation.",
+        "Sensor calibration and synchronization may drift over time; implement periodic re-calibration and health monitoring.",
+        "Worksite model may become stale if vehicle is stationary or moving slowly; implement update strategy based on vehicle motion and time-based triggers."
+      ],
+      "evidence_needed": [
+        "Prototype edge compute implementation with target fusion algorithm; measure latency and accuracy on representative sensor data.",
+        "Benchmark Vehicle hardware (CPU, GPU, memory) against fusion algorithm requirements; confirm sufficient margin for real-time operation.",
+        "Define SafetyAlert interface contract and validate integration with Safety Services module.",
+        "Establish worksite model fidelity requirements (terrain accuracy, obstacle detection sensitivity) and acceptance test criteria.",
+        "Plan sub-module decomposition within Vehicle and define internal interfaces (SensorAcquisition -> SensorFusion -> ModelPublisher).",
+        "Validate network link performance (latency, bandwidth, reliability) for model distribution; design fallback strategy if link is unavailable."
+      ]
+    }
+  }
+}

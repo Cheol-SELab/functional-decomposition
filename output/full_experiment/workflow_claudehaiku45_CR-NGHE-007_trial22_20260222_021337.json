@@ -1,0 +1,177 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current operational state within the customer-defined latency target.",
+    "rationale": "The original FR conflates two concerns: (1) the obligation to update the model, and (2) the obligation to meet a timeliness criterion. The refined FR isolates the functional requirement (what must be updated and when) from the acceptance criterion (p95 ≤ 1.0 s), which is a constraint on the DP/IM realization. The phrase 'operational use' is vague and solution-laden; 'current operational state' is more precise and domain-grounded. The FR now clearly states the problem (model staleness) without prescribing how (architecture, technology, communication protocol).",
+    "verification_idea": "Measure the time delta between a state change in the physical worksite (e.g., equipment position, sensor reading, task status) and its reflection in the worksite model. Confirm that 95th percentile latency meets the customer-defined target across all supported update scenarios (e.g., operator input, sensor telemetry, tele-operator command).",
+    "sub_frs": [
+      "FR-NGHE-007.1: The NGHE solution shall capture changes to worksite operational state (equipment position, sensor readings, task status, safety events).",
+      "FR-NGHE-007.2: The NGHE solution shall propagate captured state changes to the worksite model.",
+      "FR-NGHE-007.3: The NGHE solution shall ensure worksite model consistency across all authorized users and systems."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Synchronous state-push architecture – operational updates are captured at source, validated against safety policies, and pushed directly to the worksite model with blocking confirmation before returning to the operator.",
+      "DP2: Asynchronous event-stream architecture – operational updates are emitted as immutable events, validated and enriched through a policy-compliance pipeline, and applied to the worksite model via eventual consistency with bounded staleness guarantees.",
+      "DP3: Hybrid pull-push architecture – the worksite model maintains a subscription to high-frequency operational feeds (push) for critical state variables, while non-critical attributes are refreshed on-demand (pull) with cached results.",
+      "DP4: Centralized state-machine architecture – all operational state transitions are mediated through a single authoritative state machine that enforces policy constraints before committing updates to the worksite model.",
+      "DP5: Distributed consensus architecture – operational updates are broadcast to multiple model replicas, validated independently against safety policies, and committed only when a quorum agrees on the new state."
+    ],
+    "selected_dp": "DP2: Asynchronous event-stream architecture with bounded staleness guarantees and policy-compliance validation pipeline",
+    "rationale_for_selection": "DP2 decouples the source of operational updates from the worksite model consumer, enabling independent scaling and failure isolation. The event-stream pattern naturally supports audit trails (required for safety compliance) and allows policy validation to be applied consistently without blocking operators. Bounded staleness (e.g., p95 ≤ 1.0 s) is achievable through explicit latency SLOs on the validation and application pipeline, and the pattern avoids the tight coupling and single-point-of-failure risks of DP1 and DP4. DP3 introduces unnecessary complexity for this FR; DP5 adds consensus overhead unsuitable for latency targets.",
+    "coupling_check": {
+      "assessment": "Fail",
+      "potential_sources": [
+        "Policy validation logic tightly coupled to event schema – if safety policies change, event structure may need revision. Mitigation: define policies as declarative rules external to event processing.",
+        "Worksite model consumer tightly coupled to event stream format – if event schema evolves, all consumers must adapt. Mitigation: use schema versioning and adapter patterns.",
+        "Bounded staleness guarantee couples the event pipeline latency to the FR acceptance criterion. If latency target tightens, pipeline optimization becomes mandatory. Mitigation: design pipeline with explicit latency budgets and monitoring.",
+        "Safety policy enforcement location – if policies are embedded in the validation pipeline, changes require redeployment. Mitigation: externalize policies as configuration or rules engine."
+      ],
+      "notes": "The selected DP achieves loose coupling between operational sources and the worksite model, but introduces a new coupling point: the policy-compliance validation pipeline. This is acceptable because policy validation is a cross-cutting concern that must be centralized for safety; however, the pipeline itself must be designed to isolate policy logic from event processing logic."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Operational updates can be modeled as discrete, immutable events. RISK: If updates are continuous streams (e.g., sensor telemetry), event granularity must be carefully chosen to avoid either excessive latency (coarse events) or overwhelming throughput (fine events).",
+      "ASSUMPTION: Policy validation can be performed asynchronously without blocking operators. RISK: If policies require real-time human approval or external system checks, latency may exceed the 1.0 s target. Mitigation: pre-validate policies offline or use fast-path approval for common scenarios.",
+      "ASSUMPTION: Eventual consistency is acceptable for the worksite model. RISK: If operators require immediate visibility of their own updates (read-your-write consistency), the asynchronous pattern may cause user experience issues. Mitigation: implement local optimistic updates with server reconciliation.",
+      "ASSUMPTION: The event stream infrastructure (broker, storage) can sustain the operational update rate without loss or reordering. RISK: If update volume is unpredictable or bursty, backpressure handling and queue overflow policies must be defined. Mitigation: implement circuit breakers and graceful degradation.",
+      "ASSUMPTION: The p95 ≤ 1.0 s latency target applies end-to-end from event emission to worksite model consistency. RISK: If latency is measured only to event ingestion (not application), the actual model update latency may exceed the target. Mitigation: define latency measurement points explicitly in the acceptance criteria.",
+      "ASSUMPTION: Safety policies are deterministic and can be evaluated without external dependencies. RISK: If policies require calls to external systems (e.g., compliance databases), latency and availability become critical. Mitigation: cache policy data locally with refresh SLOs."
+    ],
+    "recommended_revision": "Refine the FR to explicitly state: (1) the latency measurement point (event emission to model consistency), (2) the acceptable staleness window for non-critical state variables, (3) the failure mode when policy validation fails (reject update, quarantine, or alert), and (4) the expected operational update rate and burstiness profile. Additionally, decompose the FR into two sub-FRs: FR2.1 'Validate operational updates against safety policies' and FR2.2 'Apply validated updates to the worksite model within latency target,' each with its own DP and IM, to clarify the policy-validation pipeline as a distinct architectural concern."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Safety Services",
+      "scope": "Centralized asynchronous event-stream processing with bounded staleness guarantees, policy-compliance validation, and safety-critical alert generation"
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Ingests vehicle state, sensor data, and operational telemetry streams with timestamps for staleness evaluation"
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Emits safety-driven task directives and intervention commands to Vehicle and Teleoperation based on policy validation results"
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Broadcasts policy-compliance violations and safety alerts to external monitoring and logging systems"
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Manages asynchronous communication with remote systems; handles latency and message ordering guarantees for event stream integrity"
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Safety Services",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit: Safety Services is the natural owner of policy-compliance validation and bounded staleness guarantees. Event-stream architecture aligns with safety-critical asynchronous processing. Minimal diffusion: only Telemetry ingestion and SafetyAlert/Tasking egress required. Internal state management and validation logic remain fully contained."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor fit: Vehicle is a physical/operational entity, not a policy-validation service. Event-stream and compliance validation logic would diffuse across Vehicle control, telemetry collection, and external safety systems. Creates tight coupling between vehicle dynamics and safety policy enforcement."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Weak fit: Teleoperation is a user-interaction and command-relay layer. Policy-compliance validation and bounded staleness guarantees are orthogonal to remote operation. Event-stream processing would diffuse to Vehicle, Safety Services, and external monitoring. Violates separation of concerns."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.55,
+        "diffusion_score": 0.45,
+        "notes": "Moderate fit but overly broad: NGHE Solution is a top-level system container. While it could technically host the event-stream architecture, placing DP2 here bypasses the specialized Safety Services module, creating unnecessary coupling across Vehicle, Teleoperation, and external systems. Reduces modularity and accountability."
+      }
+    ],
+    "ownership_candidate": "Safety Services",
+    "containment_hypothesis": "Safety Services is the single, most cohesive owner of asynchronous event-stream processing with bounded staleness and policy-compliance validation. This module is architecturally designed to consume telemetry, validate against safety policies, and emit alerts/tasks—exactly the responsibilities of DP2. Containment is strong because: (1) policy validation is a safety-critical concern, (2) bounded staleness is a safety property, (3) event-stream processing is a standard pattern for asynchronous, time-sensitive systems, and (4) external interfaces (Telemetry in, SafetyAlert/Tasking out) are already defined and aligned with Safety Services' role.",
+    "containment_risks": [
+      "Risk: If policy rules are defined or updated by external systems (e.g., Teleoperation or Vehicle), diffusion of policy-definition logic may occur. Mitigation: Establish a clear policy-configuration interface (e.g., PolicyUpdate) that Safety Services consumes but does not own.",
+      "Risk: If bounded staleness thresholds vary by vehicle type or operational mode, Vehicle or Teleoperation may need to parameterize Safety Services. Mitigation: Expose staleness thresholds as configuration inputs to Safety Services, not as embedded logic in Vehicle/Teleoperation.",
+      "Risk: If event-stream buffering or ordering guarantees require Network Link coordination, tight coupling may emerge. Mitigation: Define explicit Network Link contracts (e.g., message ordering, delivery guarantees) that Safety Services depends on but does not implement.",
+      "Risk: Telemetry ingestion rate or schema changes may require Safety Services to adapt. Mitigation: Use a schema-agnostic or versioned Telemetry interface to decouple Safety Services from telemetry evolution."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP2 (asynchronous event-stream architecture with bounded staleness guarantees and policy-compliance validation pipeline) directly addresses the FR requirement to update the worksite model within customer-defined latency targets. The asynchronous pattern is appropriate for time-sensitive, safety-critical state updates; bounded staleness is a quantifiable mechanism to enforce latency compliance; and policy-compliance validation ensures operational state reflects safety constraints. The DP is solution-agnostic and does not over-specify implementation details."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Policy-definition logic: If policy rules are sourced or updated by Vehicle or Teleoperation modules, policy-validation logic may diffuse across module boundaries. Mitigation: Establish a unidirectional PolicyUpdate interface that Safety Services consumes; policy authorship remains external, but validation remains centralized.",
+        "Staleness threshold parameterization: If bounded staleness thresholds vary by vehicle type, operational mode, or customer, Vehicle or Teleoperation may attempt to embed threshold logic. Mitigation: Expose staleness thresholds as configuration inputs (e.g., StalenessConfig) to Safety Services; thresholds are data, not logic.",
+        "Network Link coupling: If event-stream ordering or delivery guarantees require tight coordination with Network Link (e.g., message sequencing, retry logic), Safety Services may become coupled to network-layer concerns. Mitigation: Define explicit Network Link contracts (e.g., FIFO ordering, at-least-once delivery) that Safety Services depends on but does not implement.",
+        "Telemetry schema evolution: If Telemetry ingestion schema changes frequently (e.g., new sensor types, field additions), Safety Services may require frequent adaptation. Mitigation: Use schema versioning or a schema-agnostic deserialization layer to decouple Safety Services from telemetry evolution."
+      ],
+      "containment_notes": "Safety Services is the optimal IM owner for DP2. Containment score of 0.92 reflects strong alignment: (1) policy-compliance validation is a core safety-critical responsibility, (2) bounded staleness is a safety property inherent to Safety Services' domain, (3) asynchronous event-stream processing is a standard pattern for time-sensitive systems, (4) external interfaces (Telemetry in, SafetyAlert/Tasking out, Network Link inout) are already defined and aligned with Safety Services' role. Diffusion score of 0.08 is minimal and manageable via the mitigations listed above. Alternative candidates (Vehicle, Teleoperation, NGHE Solution) show poor to moderate fit due to orthogonal concerns and risk of scattering validation logic across multiple modules."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The acceptance criterion (p95 latency ≤ 1.0 s) is measurable and testable. Safety Services' event-stream architecture with bounded staleness guarantees provides explicit latency bounds that can be validated via: (1) end-to-end latency instrumentation (Telemetry ingestion timestamp to worksite model update emission), (2) staleness threshold compliance monitoring, (3) policy-validation pipeline latency profiling. Network Link and Telemetry interfaces must provide timestamp metadata and delivery guarantees to enable latency verification.",
+      "allocation_clarity": "Clear. The FR is allocated to DP2 (asynchronous event-stream with bounded staleness), which is owned by Safety Services (IM). The allocation chain is: FR (update worksite model within latency target) → DP2 (asynchronous event-stream with bounded staleness) → Safety Services (centralized event-stream processor with policy validation). Ownership boundaries are explicit; external interfaces (Telemetry, Tasking, SafetyAlert, Network Link) are defined. Potential ambiguity: if 'worksite model update' is interpreted as a shared data structure updated by multiple modules, clarify whether Safety Services owns the model or only emits update events that other modules consume. Recommend: Safety Services emits update events; downstream consumers (e.g., Vehicle, Teleoperation, external monitoring) subscribe and apply updates to their local worksite models."
+    },
+    "recommended_revisions": [
+      "Clarify worksite model ownership: Specify whether Safety Services owns the authoritative worksite model or emits update events that downstream modules consume. If the latter, define a WorksiteModelUpdate event interface with schema versioning to decouple Safety Services from consumer-specific model representations.",
+      "Formalize policy-configuration interface: Define a PolicyUpdate or PolicyConfiguration interface that Safety Services consumes. Specify: (1) policy source (e.g., external policy service, configuration file), (2) update frequency and latency requirements, (3) validation and rollback semantics. This prevents policy-definition logic from diffusing into Safety Services.",
+      "Establish Network Link contracts: Document explicit guarantees that Network Link provides to Safety Services: (1) message ordering (FIFO, causal, or none), (2) delivery semantics (at-most-once, at-least-once, exactly-once), (3) latency bounds for message propagation. These contracts are prerequisites for Safety Services to guarantee bounded staleness.",
+      "Define Telemetry schema versioning: Specify how Telemetry ingestion handles schema evolution (e.g., new sensor types, field additions). Recommend: use schema versioning or a schema-agnostic deserialization layer to decouple Safety Services from telemetry changes.",
+      "Quantify staleness thresholds: For each supported update scenario (e.g., vehicle state, sensor data, operational telemetry), specify the bounded staleness threshold (e.g., 100 ms, 500 ms, 1.0 s). Expose these as configuration inputs to Safety Services, not embedded logic.",
+      "Add latency instrumentation requirements: Specify that Telemetry, Safety Services, and Network Link must emit timestamps and latency metrics to enable end-to-end latency verification against the p95 ≤ 1.0 s acceptance criterion."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass with high confidence. However, the recommended_revisions and diffusion_risks reveal that DP2 (asynchronous event-stream with bounded staleness) introduces several architectural dependencies and design decisions that are not yet decomposed into concrete sub-FRs. Given the high safety criticality of this system, deriving next-level sub-FRs is essential to: (1) make policy-configuration and validation logic explicit and testable, (2) formalize Network Link contracts that Safety Services depends on, (3) specify worksite model ownership and update semantics, (4) quantify staleness thresholds and latency instrumentation. These sub-FRs will reduce diffusion risk and clarify ownership boundaries before detailed design and implementation.",
+    "next_level_sub_frs": [
+      "FR2.1: Ingest and validate policy-configuration updates from external policy sources without embedding policy-definition logic in Safety Services.",
+      "FR2.2: Guarantee bounded staleness of worksite model state by enforcing explicit latency bounds on event-stream processing and policy-validation pipeline.",
+      "FR2.3: Emit worksite model updates as versioned events that downstream modules (Vehicle, Teleoperation, external monitoring) can consume and apply to their local representations.",
+      "FR2.4: Establish and enforce Network Link delivery contracts (message ordering, delivery semantics, latency bounds) that Safety Services depends on to guarantee bounded staleness.",
+      "FR2.5: Ingest and deserialize telemetry data with schema versioning to decouple Safety Services from telemetry schema evolution.",
+      "FR2.6: Instrument end-to-end latency (Telemetry ingestion to worksite model update emission) and emit latency metrics to verify compliance with p95 ≤ 1.0 s acceptance criterion."
+    ],
+    "revise": {
+      "target": null,
+      "why": "No revisions to current-level FR, DP, or IM are required. All gates pass; the recommended_revisions are design-level clarifications that should be addressed during sub-FR decomposition and detailed design, not at this level."
+    },
+    "record": {
+      "assumptions": [
+        "Safety Services is the optimal owner of DP2 (asynchronous event-stream with bounded staleness) and will remain so through sub-FR decomposition.",
+        "Policy-configuration updates are sourced externally (e.g., policy service, configuration file) and Safety Services consumes them via a unidirectional interface.",
+        "Network Link provides explicit delivery guarantees (FIFO ordering, at-least-once delivery) that Safety Services can depend on.",
+        "Worksite model updates are emitted as events; downstream modules subscribe and apply updates to their local representations (Safety Services does not own a shared mutable model).",
+        "Telemetry schema evolution is managed via versioning or schema-agnostic deserialization; Safety Services does not embed schema-specific logic.",
+        "Latency instrumentation (timestamps, metrics) is available from Telemetry, Safety Services, and Network Link to enable end-to-end verification."
+      ],
+      "open_risks": [
+        "Policy-definition logic diffusion: If policy rules are authored or updated by Vehicle or Teleoperation modules, validation logic may scatter across module boundaries. Mitigation: enforce unidirectional PolicyUpdate interface; policy authorship is external.",
+        "Staleness threshold parameterization: If thresholds vary by vehicle type, operational mode, or customer, threshold logic may embed in Vehicle or Teleoperation. Mitigation: expose thresholds as configuration inputs (StalenessConfig) to Safety Services.",
+        "Network Link coupling: If event-stream ordering or delivery guarantees require tight coordination with Network Link, Safety Services may become coupled to network-layer concerns. Mitigation: define explicit Network Link contracts that Safety Services depends on but does not implement.",
+        "Telemetry schema evolution: If schema changes frequently, Safety Services may require frequent adaptation. Mitigation: use schema versioning or schema-agnostic deserialization layer.",
+        "Worksite model ownership ambiguity: If 'worksite model update' is interpreted as a shared mutable data structure, multiple modules may attempt to update it, creating race conditions and ownership conflicts. Mitigation: clarify that Safety Services emits update events; downstream modules apply updates to their local representations."
+      ],
+      "evidence_needed": [
+        "Formal specification of PolicyUpdate interface: source, update frequency, latency requirements, validation and rollback semantics.",
+        "Network Link contract documentation: message ordering (FIFO, causal, or none), delivery semantics (at-most-once, at-least-once, exactly-once), latency bounds.",
+        "WorksiteModelUpdate event schema with versioning strategy to decouple Safety Services from consumer-specific model representations.",
+        "Telemetry schema versioning or schema-agnostic deserialization design to decouple Safety Services from telemetry evolution.",
+        "Quantified staleness thresholds for each update scenario (e.g., vehicle state, sensor data, operational telemetry) with configuration interface specification.",
+        "Latency instrumentation design: timestamp metadata, end-to-end latency measurement, metrics emission, and verification against p95 ≤ 1.0 s acceptance criterion.",
+        "Sub-FR decomposition and DP selection for FR2.1–FR2.6 to validate that diffusion risks are mitigated and ownership boundaries remain clear."
+      ]
+    }
+  }
+}

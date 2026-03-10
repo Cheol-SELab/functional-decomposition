@@ -1,0 +1,168 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and designated work zones with sufficient fidelity to support autonomous path planning, collision avoidance, and operator situational awareness.",
+    "rationale": "The original FR was vague on scope (what constitutes 'area analysis') and lacked explicit linkage to downstream functional consumers (planning, execution, safety). Refinement adds: (1) real-time update cadence to support dynamic safety; (2) explicit feature taxonomy (terrain, static obstacles, dynamic hazards, work zones); (3) fidelity requirement tied to use cases (path planning, collision avoidance, situational awareness); (4) availability requirement for planning/execution functions.",
+    "verification_idea": "Acceptance test: Worksite model is generated within 5 minutes of site entry, updated at ≥2 Hz, contains all declared feature types with ≥95% detection accuracy for obstacles >0.5 m, and is accessible via standardized query interface to planning and safety modules.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire worksite sensor data (LiDAR, camera, GNSS, IMU) with sufficient coverage and refresh rate.",
+      "CR-NGHE-006.2: Process sensor data to detect and classify terrain, static obstacles, dynamic hazards, and work zones.",
+      "CR-NGHE-006.3: Maintain a persistent, updateable 3D spatial model (map/grid) of the worksite.",
+      "CR-NGHE-006.4: Provide query and subscription interfaces to planning, execution, and safety functions.",
+      "CR-NGHE-006.5: Ensure worksite model data integrity and consistency under concurrent access."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized on-vehicle perception stack (sensor fusion, SLAM, occupancy grid) with local model storage and REST/gRPC query API.",
+      "DP-B: Distributed perception: vehicle collects raw sensor data; cloud-based processing generates and maintains model; vehicle queries via network link.",
+      "DP-C: Hybrid: vehicle maintains local occupancy grid for real-time safety (collision avoidance); cloud maintains authoritative high-fidelity model for planning and post-mission analysis.",
+      "DP-D: Tele-operator-assisted mapping: operator manually annotates worksite features via teleoperation interface; system stores annotations in local database."
+    ],
+    "selected_dp": "DP-C: Hybrid on-vehicle + cloud model architecture. Vehicle maintains a local real-time occupancy grid (updated at ≥2 Hz from onboard sensors) for immediate safety-critical functions (collision avoidance, dynamic hazard detection). Cloud service maintains authoritative high-fidelity 3D model (mesh, semantic labels) for planning, long-term site memory, and multi-vehicle coordination. Bidirectional sync via Network Link with conflict resolution favoring vehicle-local safety state.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between vehicle perception (sensor fusion, SLAM) and cloud model reconciliation: mitigated by clear separation of concerns (vehicle = real-time safety, cloud = planning fidelity) and explicit sync protocol.",
+        "Coupling between worksite model and path planning (CR-NGHE-006 → planning FR): acceptable; model is input to planning, not vice versa.",
+        "Coupling between worksite model and safety services (collision avoidance, hazard alerts): acceptable; model is input to safety logic, not vice versa."
+      ],
+      "notes": "DP-C avoids tight coupling to teleoperation (DP-D would require operator availability for every site) and avoids latency-critical cloud dependency for real-time safety (DP-B). Hybrid approach balances real-time safety (local) with planning fidelity (cloud)."
+    },
+    "assumptions_risks": [
+      "Assumption: Vehicle has sufficient onboard compute (GPU, multi-core CPU) for real-time SLAM and occupancy grid updates. Risk: If compute is limited, local model may lag; mitigation: pre-characterize compute budget during design phase.",
+      "Assumption: Network link to cloud is available and has acceptable latency (<5 s) for model sync. Risk: If network is unavailable or congested, cloud model may become stale; mitigation: vehicle operates autonomously with local model; cloud sync is best-effort.",
+      "Assumption: Sensor suite (LiDAR, camera, GNSS, IMU) is calibrated and mounted with known extrinsics. Risk: Miscalibration leads to model drift; mitigation: periodic calibration checks and sensor health monitoring.",
+      "Assumption: Safety-critical collision avoidance logic uses only local vehicle model, not cloud model. Risk: If assumption is violated, safety depends on network availability; mitigation: enforce architectural constraint in code review."
+    ],
+    "recommended_revision": "None at this stage. DP-C is well-justified by safety criticality and operational constraints. Proceed to IM assignment with explicit interface contracts for model query/subscription and sync protocol."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "The Vehicle module owns the real-time local occupancy grid, sensor fusion pipeline (LiDAR, camera, GNSS, IMU), SLAM algorithm, and local model query API. It does NOT own cloud model storage or long-term site memory; those are external to Vehicle scope. Vehicle is responsible for: (1) sensor data acquisition and preprocessing; (2) real-time occupancy grid updates (≥2 Hz); (3) local model consistency; (4) collision avoidance queries against local model; (5) transmission of model updates to cloud via Network Link."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle transmits sensor data (raw LiDAR point clouds, camera frames, GNSS/IMU state) and local occupancy grid snapshots to cloud/planning functions. Frequency: ≥2 Hz for occupancy grid; variable for raw sensor data depending on bandwidth."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Vehicle receives cloud model updates (high-fidelity mesh, semantic labels, planning-relevant features) and transmits local model deltas for cloud reconciliation. Sync protocol: vehicle-local state is authoritative for safety; cloud state is authoritative for planning fidelity."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives work-zone definitions and planning constraints from planning/execution functions. These are incorporated into the worksite model as semantic annotations (e.g., 'no-go zone', 'priority work area')."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Vehicle transmits detected hazards (dynamic obstacles, terrain anomalies, work-zone violations) to Safety Services. Alerts are generated from local occupancy grid and real-time sensor fusion."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Vehicle is the natural owner of real-time perception and local model. Sensor fusion, SLAM, and occupancy grid are tightly coupled to vehicle hardware and real-time constraints. Diffusion risk: cloud model sync logic may leak into Vehicle if not carefully architected; mitigation: define explicit sync interface and keep cloud model logic in separate module."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.65,
+        "diffusion_score": 0.35,
+        "notes": "NGHE Solution is the system-level container, but assigning worksite modeling to it would diffuse responsibility across multiple sub-modules (Vehicle, cloud, planning). Not recommended as primary owner; Vehicle is more cohesive."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.15,
+        "diffusion_score": 0.85,
+        "notes": "Teleoperation is for operator control and situational awareness, not for autonomous perception and model generation. Assigning worksite modeling to Teleoperation would couple safety-critical perception to operator availability. Not recommended."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Safety Services consumes the worksite model (for collision avoidance, hazard detection) but does not own its generation or maintenance. Assigning model generation to Safety Services would conflate perception with safety logic. Not recommended."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "Vehicle is the optimal owner of the real-time local worksite model because: (1) it owns the sensor hardware and real-time perception pipeline; (2) it has the lowest latency to safety-critical functions (collision avoidance); (3) it can operate autonomously without external dependencies; (4) it naturally interfaces with Telemetry (sensor data out) and Network Link (model sync). Cloud model storage and planning-fidelity features are external to Vehicle scope and owned by NGHE Solution or a dedicated cloud service module (not in current candidate list).",
+    "containment_risks": [
+      "Risk: Vehicle module becomes too large if it also owns path planning, task execution, and teleoperation. Mitigation: Enforce clear separation of concerns; Vehicle owns perception and local model only; planning and execution are separate modules.",
+      "Risk: Cloud model sync logic is not well-defined, leading to diffusion of sync responsibility between Vehicle and cloud. Mitigation: Define explicit sync protocol and interface; cloud model updates are received via Network Link; Vehicle transmits model deltas via Telemetry.",
+      "Risk: Safety-critical collision avoidance logic depends on cloud model instead of local model. Mitigation: Enforce architectural constraint: collision avoidance uses only local Vehicle model; cloud model is for planning and situational awareness only.",
+      "Risk: Sensor fusion and SLAM algorithms are complex and may introduce bugs. Mitigation: Rigorous testing, sensor health monitoring, and fallback to conservative occupancy grid if SLAM confidence is low."
+    ],
+    "recommended_revision": "Clarify that Vehicle module owns ONLY the real-time local occupancy grid and sensor fusion pipeline. Cloud model storage, high-fidelity mesh generation, and semantic labeling are owned by a separate cloud service module (not in current candidate list). Define explicit sync protocol and interface between Vehicle and cloud model. Ensure collision avoidance logic uses only local Vehicle model."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid on-vehicle + cloud model) directly addresses the refined FR: it generates a real-time worksite model with terrain, obstacles, and work zones; it supports path planning, collision avoidance, and situational awareness; it is available to planning/execution functions via query interfaces. The hybrid approach is justified by safety criticality (real-time local model for safety) and operational constraints (cloud model for planning fidelity and multi-vehicle coordination)."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Vehicle module may become too large if it also owns path planning or task execution. Mitigation: Enforce clear module boundaries; Vehicle owns perception and local model only.",
+        "Cloud model sync logic may diffuse between Vehicle and cloud if not carefully architected. Mitigation: Define explicit sync protocol and interface; Vehicle transmits model deltas via Telemetry; cloud updates are received via Network Link.",
+        "Collision avoidance logic may inadvertently depend on cloud model instead of local model. Mitigation: Enforce architectural constraint in code review; collision avoidance uses only local Vehicle model."
+      ],
+      "containment_notes": "Vehicle is the optimal owner of the real-time local worksite model (containment score 0.92). External interfaces (Telemetry, Network Link, Tasking, SafetyAlert) are well-defined and map to known interfaces. Cloud model storage and planning-fidelity features are external to Vehicle scope and should be owned by a separate module (not in current candidate list)."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible via acceptance tests: (1) Worksite model is generated within 5 minutes of site entry; (2) Model is updated at ≥2 Hz; (3) All declared feature types (terrain, static obstacles, dynamic hazards, work zones) are present; (4) Detection accuracy is ≥95% for obstacles >0.5 m; (5) Query interface is accessible to planning and safety modules. Tests can be conducted in simulation (synthetic worksite) and field trials (real worksite).",
+      "allocation_clarity": "Allocation is clear: Vehicle module owns real-time local model generation and maintenance. Cloud model storage and planning-fidelity features are allocated to external modules (not in current candidate list). Interfaces are explicit: Telemetry (sensor data out), Network Link (model sync), Tasking (work-zone input), SafetyAlert (hazard output)."
+    },
+    "recommended_revisions": [
+      "Define explicit sync protocol between Vehicle local model and cloud model. Specify conflict resolution rules (e.g., vehicle-local state is authoritative for safety; cloud state is authoritative for planning fidelity).",
+      "Specify sensor fusion and SLAM algorithm requirements (e.g., update frequency, accuracy, robustness to GPS denial).",
+      "Define query interface for planning and safety modules to access local worksite model (e.g., REST API, gRPC, publish-subscribe).",
+      "Specify data retention and archival policy for worksite models (e.g., how long are models stored; are they shared across multiple vehicles or sites).",
+      "Clarify ownership of cloud model storage and high-fidelity mesh generation (not in current Vehicle scope; should be allocated to a separate module)."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The refined FR is well-defined and decomposable into sub-FRs (sensor acquisition, data processing, model maintenance, query interface, data consistency). DP-C is sound and justified by safety criticality and operational constraints. Vehicle is the optimal IM owner with high containment score (0.92) and well-defined external interfaces. However, the refined FR is NOT atomic; it requires further decomposition into sub-FRs to allocate design responsibility and verify implementation. Proceeding to the next level of decomposition will clarify sensor requirements, processing algorithms, model representation, and query interface design.",
+    "justification_detail": "CR-NGHE-006 is a system-level FR that spans multiple design concerns: (1) sensor acquisition and preprocessing; (2) real-time data processing (SLAM, occupancy grid); (3) model persistence and consistency; (4) query and subscription interfaces; (5) cloud model sync. Each sub-FR requires its own DP and IM assignment. Decomposing now will enable rigorous design and verification at lower levels.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire worksite sensor data (LiDAR, camera, GNSS, IMU) with sufficient coverage and refresh rate to support real-time occupancy grid updates at ≥2 Hz.",
+      "CR-NGHE-006.2: Process sensor data using sensor fusion and SLAM to generate and update a real-time occupancy grid with ≥95% detection accuracy for obstacles >0.5 m.",
+      "CR-NGHE-006.3: Maintain a persistent, updateable 3D occupancy grid with thread-safe concurrent access for collision avoidance and query operations.",
+      "CR-NGHE-006.4: Provide query and subscription interfaces (REST API, gRPC, or publish-subscribe) to planning, execution, and safety functions for accessing worksite model.",
+      "CR-NGHE-006.5: Synchronize local occupancy grid with cloud model via Network Link, with conflict resolution favoring vehicle-local state for safety-critical operations."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Vehicle has sufficient onboard compute (GPU, multi-core CPU) for real-time SLAM and occupancy grid updates.",
+        "Network link to cloud is available with acceptable latency (<5 s) for model sync; vehicle operates autonomously with local model if network is unavailable.",
+        "Sensor suite (LiDAR, camera, GNSS, IMU) is calibrated and mounted with known extrinsics.",
+        "Safety-critical collision avoidance logic uses only local vehicle model, not cloud model.",
+        "Worksite features (terrain, obstacles, work zones) are static or slowly changing relative to vehicle motion (≥2 Hz update rate is sufficient).",
+        "Cloud model storage and high-fidelity mesh generation are owned by a separate module (not in current Vehicle scope)."
+      ],
+      "open_risks": [
+        "Sensor fusion and SLAM algorithms may introduce drift or failures in GPS-denied environments. Mitigation: sensor health monitoring, fallback to conservative occupancy grid, periodic calibration.",
+        "Cloud model sync may become stale if network is unavailable. Mitigation: vehicle operates autonomously with local model; cloud sync is best-effort.",
+        "Collision avoidance logic may inadvertently depend on cloud model instead of local model. Mitigation: enforce architectural constraint in code review.",
+        "Worksite model may become too large for onboard storage if site is very large or sensor resolution is high. Mitigation: implement spatial partitioning (e.g., octree) and streaming updates.",
+        "Multi-vehicle coordination may require shared worksite model; current design assumes single-vehicle model. Mitigation: cloud model serves as shared reference; vehicles sync via cloud."
+      ],
+      "evidence_needed": [
+        "Sensor specifications and performance data (LiDAR range, camera resolution, GNSS accuracy, IMU drift).",
+        "Onboard compute specifications and real-time performance benchmarks for SLAM and occupancy grid updates.",
+        "Network link specifications (bandwidth, latency, availability) for model sync.",
+        "Acceptance test results: worksite model generation time, update frequency, detection accuracy, query interface performance.",
+        "Field trial data: sensor fusion robustness in GPS-denied environments, cloud model sync behavior under network congestion, collision avoidance performance with local model.",
+        "Design documentation: sync protocol, conflict resolution rules, query interface specification, data retention policy."
+      ]
+    }
+  }
+}

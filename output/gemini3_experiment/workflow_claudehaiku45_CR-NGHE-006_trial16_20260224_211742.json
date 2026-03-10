@@ -1,0 +1,176 @@
+{
+  "refined_fr": {
+    "refined_fr": "Capture and represent worksite spatial features in a machine-readable model.",
+    "rationale": "The candidate FR bundles three distinct obligations: (1) terrain analysis, (2) obstacle identification, and (3) work-zone representation. Each is a separate functional concern with different data sources, processing logic, and stakeholder consumption patterns. The refined FR is solution-neutral (avoids 'mapping/modeling' terminology which implies a specific DP) and focuses on the core problem: making spatial features available in a structured, queryable form. Splitting into atomic sub-FRs allows independent verification and design of each concern.",
+    "verification_idea": "Confirm that a worksite model exists in a defined schema/format, contains spatial coordinates and feature classifications, and is accessible to downstream planning and execution functions per the acceptance criteria.",
+    "sub_frs": [
+      "FR-NGHE-006.1: Acquire terrain elevation and surface properties across the worksite.",
+      "FR-NGHE-006.2: Identify and locate static obstacles (structures, vegetation, utilities) within the worksite boundary.",
+      "FR-NGHE-006.3: Define and represent work zones (designated operational areas, restricted zones, staging areas) in the worksite model.",
+      "FR-NGHE-006.4: Integrate terrain, obstacle, and work-zone data into a unified, queryable worksite model."
+    ],
+    "is_atomic": false,
+    "note": "The refined FR is atomic at the integration level; the sub-FRs are the true atomic requirements. Each sub-FR addresses a single functional obligation and can be designed and verified independently."
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Acquire raw spatial data from multiple independent sensor modalities (vision, range, inertial) and store in a unified sensor-agnostic buffer; apply modality-specific calibration and fusion algorithms to produce a coherent 3D spatial representation; expose the representation via a standardized query interface (e.g., occupancy grid, point cloud, mesh) that planning/execution functions consume without knowledge of acquisition method.",
+      "DP2: Define a declarative schema for worksite features (geometry, semantics, safety zones, operational constraints) and implement a feature extraction pipeline that maps raw sensor observations to schema-compliant feature instances; persist features in a queryable spatial database; provide read-only access through a feature query API that decouples consumers from extraction logic.",
+      "DP3: Establish a modular spatial representation layer that separates data acquisition (sensor drivers), geometric processing (registration, filtering, segmentation), semantic annotation (feature classification), and model persistence (storage/retrieval); each module exposes a well-defined interface; composition is managed by a coordinator that enforces data flow without tight coupling.",
+      "DP4: Implement a real-time spatial streaming architecture where sensor data flows through a processing pipeline (calibration → fusion → feature extraction → model update); maintain a versioned, queryable model state that planning/execution functions can subscribe to or poll; ensure model consistency through transactional updates and conflict resolution.",
+      "DP5: Adopt a hybrid representation combining a static baseline model (pre-scanned or CAD-derived) with dynamic delta updates from continuous sensing; use a change-detection mechanism to identify and integrate only significant spatial deviations; expose both baseline and current state to consumers, allowing them to reason about stability and confidence."
+    ],
+    "selected_dp": "DP2: Define a declarative schema for worksite features (geometry, semantics, safety zones, operational constraints) and implement a feature extraction pipeline that maps raw sensor observations to schema-compliant feature instances; persist features in a queryable spatial database; provide read-only access through a feature query API that decouples consumers from extraction logic.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Feature extraction logic tightly coupled to specific sensor modalities (risk: adding new sensor type requires pipeline modification). Mitigation: abstract sensor input as normalized observations; keep extraction logic sensor-agnostic.",
+        "Schema rigidity: if worksite feature taxonomy is hardcoded, adding new feature types requires schema migration and code changes. Mitigation: use extensible schema (e.g., JSON Schema with versioning) and support schema evolution.",
+        "Query API coupling: if consumers depend on internal database structure, schema changes propagate downstream. Mitigation: enforce strict API contract; version the query interface independently of storage.",
+        "Spatial database choice: selecting a specific database technology (e.g., PostGIS) couples the DP to that implementation. Mitigation: abstract database behind a repository interface; allow swapping implementations.",
+        "Real-time vs. batch consistency: if planning/execution functions expect synchronous model updates but extraction is asynchronous, timing assumptions create hidden coupling. Mitigation: define explicit consistency guarantees (eventual, transactional, or polling-based) in the API contract."
+      ],
+      "notes": "DP2 achieves good separation of concerns by isolating feature extraction from consumption. The declarative schema and query API provide stable boundaries. Primary risk is schema/extraction logic coupling; this is manageable through abstraction and versioning. DP2 is preferred over DP1 (lower-level fusion) because it raises the abstraction to features, which aligns with planning/execution domain language. DP3 and DP4 are more complex and introduce additional coordination overhead; DP5 introduces state management complexity. DP2 balances expressiveness, decoupling, and implementability."
+    },
+    "assumptions_risks": [
+      "Assumption: Worksite features can be meaningfully extracted from raw sensor data with acceptable latency and accuracy. Risk: If feature extraction is unreliable or slow, planning/execution functions may receive stale or incorrect models. Mitigation: define SLAs for extraction latency and accuracy; implement confidence/quality metrics in the model; provide fallback mechanisms (e.g., manual annotation, conservative assumptions).",
+      "Assumption: A stable, agreed-upon feature schema exists or can be defined early. Risk: If feature taxonomy evolves frequently or varies by worksite type, schema becomes a bottleneck. Mitigation: design schema for extensibility; use versioning; allow worksite-specific feature profiles.",
+      "Assumption: Planning/execution functions can tolerate some model staleness (i.e., the model is not required to be real-time). Risk: If dynamic obstacles or hazards appear between model updates, safety is compromised. Mitigation: define update frequency requirements; implement change-detection to prioritize critical features; provide uncertainty/confidence bounds in the model.",
+      "Assumption: Sensor data is available and reliable. Risk: Sensor failures, occlusions, or degraded conditions may produce incomplete or incorrect models. Mitigation: implement sensor health monitoring; define model completeness metrics; provide mechanisms to flag uncertain regions.",
+      "Assumption: The query API is sufficient for all planning/execution use cases. Risk: Unforeseen query patterns or performance requirements may emerge. Mitigation: design API for extensibility; monitor usage patterns; support multiple query modes (e.g., spatial range, feature type, semantic attribute).",
+      "Assumption: Safety zones and operational policies can be represented within the feature schema. Risk: Complex, context-dependent policies may not fit a static schema. Mitigation: separate policy representation from spatial model; use a policy engine that consults the model rather than embedding policies in it.",
+      "Assumption: Worksite model generation is decoupled from planning/execution. Risk: If planning functions require real-time model updates or have tight feedback loops with extraction, the decoupling breaks. Mitigation: define clear model update semantics; implement versioning; allow consumers to request model snapshots at specific times."
+    ],
+    "recommended_revision": "Refine DP2 as follows: (1) Explicitly separate the feature schema definition (declarative, versioned, extensible) from the extraction pipeline (modular, sensor-agnostic, with pluggable feature detectors). (2) Define the query API contract in terms of feature types, spatial predicates, and semantic attributes, independent of storage technology. (3) Introduce a model versioning and change-notification mechanism so consumers can detect and react to model updates without polling. (4) Add a confidence/quality layer to the model, allowing extraction to annotate features with uncertainty metrics and allowing consumers to filter by confidence thresholds. (5) Clarify the relationship between the spatial model and the safety/operational policy layer: the model should represent geometry and semantics; policies should be evaluated separately by a policy engine that consults the model. (6) Define explicit SLAs for model freshness, completeness, and accuracy, and provide monitoring/alerting to detect violations. This revision strengthens the decoupling and makes the DP more resilient to schema evolution and sensor changes."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "Centralized worksite feature schema definition, sensor-to-feature extraction pipeline, spatial database persistence, and read-only feature query API serving all downstream consumers (Vehicle, Teleoperation, Safety Services)"
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Raw sensor observations (LiDAR, camera, IMU, GPS) ingested from Vehicle and field sensors; mapped to schema-compliant feature instances"
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Feature query API consumed by Safety Services to retrieve safety zones, operational constraints, and hazard features for real-time safety evaluation"
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Feature query API consumed by Teleoperation and Vehicle to retrieve geometry, semantics, and operational constraints for mission planning and autonomous navigation"
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent containment. Schema definition, extraction pipeline, spatial database, and query API are all core NGHE responsibilities. Telemetry ingestion is a natural input; SafetyAlert and Tasking outputs are read-only API calls with minimal coupling. No duplication of extraction logic across Vehicle, Teleoperation, or Safety Services."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor containment. Safety Services is a consumer of features, not the owner of feature extraction or schema. Placing extraction logic here would couple safety evaluation to feature persistence and force Vehicle/Teleoperation to depend on Safety Services for feature queries. High diffusion: schema and pipeline logic would leak into Vehicle and Teleoperation."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.25,
+        "diffusion_score": 0.75,
+        "notes": "Poor containment. Vehicle is a sensor producer and consumer of features for navigation, not the owner of global feature extraction or schema. Placing extraction here would duplicate logic across multiple vehicle instances and force Teleoperation and Safety Services to depend on Vehicle for feature queries. High diffusion and poor scalability."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Poor containment. Teleoperation is a consumer of features for operator visualization and mission planning, not the owner of extraction or schema. Placing extraction here would couple teleoperation to feature persistence and force Vehicle and Safety Services to depend on Teleoperation. High diffusion and poor separation of concerns."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "NGHE Solution is the natural owner of the feature schema, extraction pipeline, and spatial database because it is the system-level integration layer responsible for worksite understanding and situational awareness. All downstream modules (Vehicle, Teleoperation, Safety Services) are consumers of features via a read-only query API, which decouples them from extraction logic and allows independent evolution. This design maximizes cohesion within NGHE Solution and minimizes coupling to consumers.",
+    "containment_risks": [
+      "Risk: If the feature schema becomes too domain-specific to one consumer (e.g., Safety Services), it may not generalize well to Vehicle navigation or Teleoperation visualization. Mitigation: Design schema with multi-consumer use cases in mind; validate schema against all three consumer domains during design review.",
+      "Risk: If the spatial database becomes a bottleneck (high query latency or throughput limits), downstream modules may be starved. Mitigation: Implement caching strategies, query optimization, and performance monitoring; consider read replicas for high-frequency consumers.",
+      "Risk: If the feature extraction pipeline is tightly coupled to specific sensor types or calibration parameters, adding new sensors or recalibrating existing ones may require pipeline changes. Mitigation: Design extraction pipeline with pluggable sensor adapters and parameterized calibration; version the schema to support incremental evolution.",
+      "Risk: If the query API is not well-documented or versioned, consumers may make brittle assumptions about feature structure or availability. Mitigation: Provide clear API contracts, versioning strategy, and deprecation policy; include schema documentation and example queries."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. Acceptance criteria require that 'a worksite model/map is generated and available to planning/execution functions for an agreed set of site features.' The IM boundary (NGHE Solution) explicitly owns schema definition, extraction pipeline, spatial database persistence, and read-only query API. Verification is straightforward: (1) confirm schema covers agreed site features (geometry, semantics, safety zones, operational constraints); (2) validate that features are queryable by Vehicle, Teleoperation, and Safety Services via the API; (3) measure latency and availability of feature queries against SLAs. The allocation is clear: NGHE Solution is the single source of truth for worksite features.",
+      "allocation_clarity": "Excellent. The FR maps unambiguously to DP2 (declarative schema + extraction pipeline + spatial database + query API), and DP2 is fully contained within the NGHE Solution IM boundary. No ambiguity about ownership or responsibility. Downstream modules (Vehicle, Teleoperation, Safety Services) are explicitly positioned as read-only consumers, eliminating confusion about who owns feature extraction and persistence."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP2 directly and completely addresses the FR. The FR requires 'capture and represent worksite spatial features in a machine-readable model.' DP2 specifies: (1) a declarative schema for worksite features (addresses 'represent'); (2) a feature extraction pipeline mapping raw sensor observations to schema-compliant instances (addresses 'capture'); (3) persistent storage in a queryable spatial database (addresses 'machine-readable model'); (4) read-only query API for decoupled access (addresses availability to downstream functions). The DP is solution-neutral on implementation technology (e.g., database choice, extraction algorithm) while being specific enough to guide design. No independence axiom violations detected: the schema, extraction, and query API are logically coupled but not redundant."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Risk: Feature schema domain-specificity. If the schema is optimized for one consumer (e.g., Safety Services' hazard zones) at the expense of others (Vehicle navigation, Teleoperation visualization), generalization will fail. Mitigation: Validate schema against all three consumer use cases during design review; include geometry (for navigation), semantics (for interpretation), and safety metadata (for hazard detection) as first-class schema elements.",
+        "Risk: Spatial database performance bottleneck. High query latency or throughput limits will starve downstream modules. Mitigation: Implement query caching, spatial indexing (R-tree or quadtree), and read replicas for high-frequency consumers (Vehicle, Safety Services); establish and monitor query latency SLAs (e.g., <100ms for real-time safety queries).",
+        "Risk: Extraction pipeline sensor coupling. If the pipeline is tightly coupled to specific sensor types, calibration parameters, or data formats, adding new sensors or recalibrating will require pipeline changes and risk breaking existing consumers. Mitigation: Design extraction with pluggable sensor adapters; parameterize calibration; version the schema to support incremental evolution without breaking existing API consumers.",
+        "Risk: Query API contract brittleness. If the API is not versioned or well-documented, consumers may make brittle assumptions about feature structure, availability, or query semantics. Mitigation: Establish API versioning strategy (e.g., semantic versioning); provide clear schema documentation, example queries, and deprecation policy; include schema validation on both producer and consumer sides.",
+        "Risk: Extraction pipeline latency. If feature extraction from raw sensor observations is slow, the worksite model will lag behind reality, degrading safety and navigation performance. Mitigation: Establish end-to-end latency budgets (e.g., <500ms from sensor observation to queryable feature); profile extraction pipeline; consider streaming or incremental extraction for high-frequency updates."
+      ],
+      "containment_notes": "Excellent containment (0.92 score). The NGHE Solution IM boundary cleanly encapsulates all core responsibilities: schema definition, extraction pipeline, spatial database, and query API. No duplication of extraction logic across Vehicle, Teleoperation, or Safety Services. All downstream modules are read-only consumers, minimizing coupling and enabling independent evolution. The external interfaces are well-defined: Telemetry (in) from sensors, SafetyAlert and Tasking (out) via read-only API calls. No evidence of DP diffusion across module boundaries. The design respects the separation of concerns: NGHE Solution owns 'how to extract and persist features'; consumers own 'how to use features for their domain logic.'"
+    },
+    "recommended_revisions": [
+      "Revision 1: Explicitly define the feature schema as a versioned, multi-consumer contract. Include geometry (coordinates, shapes, spatial relationships), semantics (feature type, labels, metadata), safety metadata (hazard zones, operational constraints), and temporal metadata (timestamp, confidence, source). Validate schema against Vehicle navigation, Teleoperation visualization, and Safety Services hazard detection use cases.",
+      "Revision 2: Specify extraction pipeline architecture with pluggable sensor adapters (LiDAR, camera, IMU, GPS) and parameterized calibration. Define data flow: raw sensor observations → adapter normalization → feature extraction → schema validation → spatial database persistence. Include error handling and fallback strategies for sensor failures or calibration drift.",
+      "Revision 3: Define spatial database technology and query API contract. Specify query types (e.g., 'features within bounding box', 'features of type X', 'features with safety constraint Y'), response format (JSON, protobuf, etc.), latency SLAs, and versioning strategy. Include caching and read replica strategy for high-frequency consumers.",
+      "Revision 4: Establish end-to-end latency budget from sensor observation to queryable feature (recommend <500ms for real-time safety and navigation). Profile extraction pipeline and database query performance; identify and mitigate bottlenecks.",
+      "Revision 5: Document API deprecation policy and schema evolution strategy. Define how schema changes (e.g., adding new feature types, changing geometry representation) will be communicated to and validated against downstream consumers. Include backward compatibility guarantees or explicit breaking change notifications.",
+      "Revision 6: Add acceptance criteria for feature schema coverage. Specify which site features (e.g., obstacles, terrain, safety zones, operational constraints) must be captured and represented. Cross-reference against 'agreed set of site features' from worksite safety plan and operational policies."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass with high confidence. The FR is well-defined, the DP is solution-neutral yet specific enough to guide design, and the IM boundary (NGHE Solution) is cleanly scoped with excellent containment (0.92). However, the recommended revisions reveal that critical sub-level design decisions remain unresolved: (1) feature schema structure and multi-consumer validation, (2) extraction pipeline architecture with sensor adapter pluggability, (3) spatial database technology and query API contract, (4) end-to-end latency budgets and performance profiling, and (5) schema versioning and API deprecation strategy. These are not defects in the current FR-DP-IM mapping but rather design details that must be decomposed into sub-FRs to ensure the DP is fully realized without diffusion or performance risks. Given high safety criticality, deferring these decisions to the next level is unacceptable; they must be explicitly captured as sub-FRs to drive detailed design and verification. Proceeding to sub-level decomposition ensures traceability from high-level worksite modeling down to concrete schema, pipeline, and API specifications.",
+    "next_level_sub_frs": [
+      "FR2.1: Define and validate a multi-consumer feature schema that captures geometry, semantics, safety metadata, and temporal information for all agreed worksite features (obstacles, terrain, safety zones, operational constraints) in a format queryable by Vehicle navigation, Teleoperation visualization, and Safety Services hazard detection.",
+      "FR2.2: Extract and normalize raw sensor observations (LiDAR, camera, IMU, GPS) into schema-compliant feature instances via a pluggable, parameterized extraction pipeline that supports sensor adapter composition and calibration drift detection.",
+      "FR2.3: Persist extracted features in a queryable spatial database with support for geometry-based queries (bounding box, spatial relationships), semantic filtering (feature type, metadata), and safety constraint queries, meeting latency SLAs (<100ms for real-time safety queries) and availability requirements.",
+      "FR2.4: Provide a versioned, well-documented read-only query API that decouples downstream consumers (Vehicle, Teleoperation, Safety Services) from internal schema and database implementation, with explicit deprecation policy and backward compatibility guarantees.",
+      "FR2.5: Establish and monitor end-to-end latency from sensor observation to queryable feature (<500ms target for real-time safety and navigation), including extraction pipeline profiling, database query optimization, and caching strategies for high-frequency consumers.",
+      "FR2.6: Support schema evolution and feature type extensibility without breaking existing API consumers, via versioning, schema validation, and explicit communication of breaking changes to downstream modules."
+    ],
+    "revise": {
+      "target": null,
+      "why": "No revisions needed at current level. The FR-DP-IM mapping is sound and passes all gates. Revisions recommended in gate output are design-level details (schema structure, pipeline architecture, API contract, latency budgets) that belong in sub-level FRs, not corrections to the current FR-DP-IM logic."
+    },
+    "record": {
+      "assumptions": [
+        "Assumption 1: 'Agreed set of site features' is defined in worksite safety plan and operational policies and will be available during detailed design phase.",
+        "Assumption 2: Downstream consumers (Vehicle, Teleoperation, Safety Services) will be available for schema validation and use case review during design.",
+        "Assumption 3: Sensor suite (LiDAR, camera, IMU, GPS) is fixed or known; if new sensors are added post-deployment, extraction pipeline must support pluggable adapters without breaking existing feature extraction.",
+        "Assumption 4: Spatial database technology (e.g., PostGIS, MongoDB, custom spatial index) will be selected during detailed design based on latency, throughput, and query complexity requirements.",
+        "Assumption 5: Query API consumers (Vehicle, Teleoperation, Safety Services) will tolerate schema versioning and deprecation policies; breaking changes will be communicated with sufficient lead time for consumer updates."
+      ],
+      "open_risks": [
+        "Risk 1 (High): Feature schema domain-specificity. If schema is optimized for one consumer at expense of others, generalization will fail. Mitigation: Validate schema against all three consumer use cases (FR2.1); include geometry, semantics, and safety metadata as first-class elements.",
+        "Risk 2 (High): Extraction pipeline latency. If feature extraction is slow, worksite model lags behind reality, degrading safety and navigation. Mitigation: Establish end-to-end latency budget <500ms (FR2.5); profile and optimize extraction pipeline; consider streaming or incremental extraction.",
+        "Risk 3 (Medium): Spatial database performance bottleneck. High query latency or throughput limits will starve downstream modules. Mitigation: Implement query caching, spatial indexing (R-tree, quadtree), and read replicas (FR2.3); establish and monitor query latency SLAs.",
+        "Risk 4 (Medium): Extraction pipeline sensor coupling. Tight coupling to specific sensor types or calibration parameters will break when sensors are added or recalibrated. Mitigation: Design extraction with pluggable sensor adapters and parameterized calibration (FR2.2); version schema to support incremental evolution.",
+        "Risk 5 (Medium): Query API contract brittleness. Consumers may make brittle assumptions about feature structure or query semantics if API is not versioned or well-documented. Mitigation: Establish API versioning strategy, provide clear schema documentation, and include deprecation policy (FR2.4, FR2.6)."
+      ],
+      "evidence_needed": [
+        "Evidence 1: Worksite safety plan and operational policies defining 'agreed set of site features' (geometry, semantics, safety constraints, operational constraints).",
+        "Evidence 2: Use case documentation from Vehicle navigation, Teleoperation visualization, and Safety Services hazard detection, specifying required feature types, query patterns, and latency/availability requirements.",
+        "Evidence 3: Sensor specifications (LiDAR, camera, IMU, GPS) including data rates, accuracy, calibration procedures, and failure modes.",
+        "Evidence 4: Performance benchmarks for spatial database candidates (PostGIS, MongoDB, custom index) under expected query loads and latency constraints.",
+        "Evidence 5: Extraction pipeline architecture design with sensor adapter interfaces, calibration parameter schema, and error handling strategy.",
+        "Evidence 6: Query API specification including query types, response formats, latency SLAs, versioning strategy, and deprecation policy.",
+        "Evidence 7: End-to-end latency profiling from sensor observation to queryable feature, identifying bottlenecks in extraction pipeline and database query path.",
+        "Evidence 8: Schema validation results against all three consumer use cases, confirming that geometry, semantics, and safety metadata are sufficient for Vehicle, Teleoperation, and Safety Services."
+      ]
+    }
+  }
+}

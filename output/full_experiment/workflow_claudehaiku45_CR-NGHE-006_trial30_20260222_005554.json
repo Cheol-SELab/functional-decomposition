@@ -1,0 +1,172 @@
+{
+  "refined_fr": {
+    "refined_fr": "Capture and represent worksite spatial features in a machine-readable model.",
+    "rationale": "The candidate FR bundles three distinct obligations: (1) terrain analysis, (2) obstacle identification, and (3) work-zone representation. Each is a separate functional concern with different data sources, processing logic, and stakeholder consumption patterns. The refined FR is solution-neutral (avoids 'mapping/modeling' terminology which implies implementation choice) and focuses on the core problem: making worksite geometry and features available in a structured, queryable form. Splitting into atomic sub-FRs allows independent DP selection and IM packaging.",
+    "verification_idea": "Confirm that a worksite model exists in a defined schema (e.g., point cloud, mesh, or feature database) and can be queried by downstream planning and execution functions to retrieve spatial attributes (position, geometry, classification) for an agreed set of site features.",
+    "sub_frs": [
+      "FR-NGHE-006.1: Acquire terrain elevation and surface geometry data from the worksite.",
+      "FR-NGHE-006.2: Identify and classify static obstacles (structures, vegetation, utilities) within the worksite boundary.",
+      "FR-NGHE-006.3: Define and represent work-zone boundaries and restricted areas in the spatial model.",
+      "FR-NGHE-006.4: Persist and provide access to the worksite spatial model for planning and execution functions."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Acquire spatial feature data through multi-modal sensing (vision, range, inertial) and fuse into a unified coordinate frame; store as a structured spatial graph with feature attributes (geometry, classification, safety constraints); expose via query interface for downstream planning/execution consumers.",
+      "DP2: Decompose worksite into discrete zones; assign zone-level feature inventories (obstacles, hazards, access points) via manual annotation or semi-automated detection; maintain zone-feature mappings in a relational schema; provide zone-based query and update APIs.",
+      "DP3: Capture worksite features as a voxel-grid occupancy model with semantic labels; support incremental updates and spatial queries; export standardized representations (point clouds, meshes, occupancy maps) on demand for planning/execution modules.",
+      "DP4: Integrate real-time feature acquisition with policy-driven filtering; apply safety plan rules (e.g., exclusion zones, hazard buffers) during model construction; emit only policy-compliant feature sets to planning/execution; maintain audit trail of filtering decisions.",
+      "DP5: Establish a feature abstraction layer that decouples raw sensor data from model representation; define canonical feature types (static obstacles, dynamic hazards, access routes, safety zones) independent of acquisition method; map sensor outputs to canonical types via pluggable adapters; expose only canonical features to consumers."
+    ],
+    "selected_dp": "DP5: Establish a feature abstraction layer that decouples raw sensor data from model representation; define canonical feature types (static obstacles, dynamic hazards, access routes, safety zones) independent of acquisition method; map sensor outputs to canonical types via pluggable adapters; expose only canonical features to consumers.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Adapter layer must remain stable as sensor modalities evolve; risk of tight coupling if adapters embed domain-specific logic.",
+        "Canonical feature schema must be negotiated with planning/execution consumers; premature lock-in to schema could constrain future feature types.",
+        "Policy application (safety plan, operational constraints) should be orthogonal to feature abstraction; risk of conflating model construction with policy enforcement.",
+        "Real-time update cadence and latency requirements not yet specified; could force architectural changes if adapters cannot sustain required throughput."
+      ],
+      "notes": "DP5 achieves loose coupling by introducing an abstraction boundary (canonical feature types) between acquisition and consumption. Adapters are localized, allowing sensor modalities to change without affecting downstream planning/execution. However, success depends on: (1) stable definition of canonical types, (2) clear separation of concerns between feature abstraction and policy filtering, (3) explicit interface contracts for adapters and consumers."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Worksite features can be meaningfully classified into a finite set of canonical types (obstacles, hazards, routes, zones) that remain stable across operational contexts. RISK: If feature taxonomy must evolve frequently or is domain-specific, abstraction layer becomes a bottleneck.",
+      "ASSUMPTION: Raw sensor data can be reliably mapped to canonical types via deterministic or learned adapters. RISK: Ambiguous or noisy sensor inputs may produce inconsistent feature classifications, degrading model quality.",
+      "ASSUMPTION: Planning/execution functions can operate on canonical feature representations without requiring raw sensor data. RISK: If downstream consumers need sensor-level detail (e.g., confidence scores, raw point clouds), abstraction layer may hide critical information.",
+      "ASSUMPTION: Safety plan and operational policies are stable and can be applied as post-processing filters on the feature model. RISK: If policies must influence feature acquisition strategy (e.g., prioritize hazard detection in high-risk zones), policy logic must be pushed into adapters, violating separation of concerns.",
+      "ASSUMPTION: Worksite spatial extent and feature density are bounded such that a unified model can be constructed and queried in real-time. RISK: Large-scale or highly dynamic worksites may require distributed or hierarchical model representations.",
+      "ASSUMPTION: Acceptance criteria ('agreed set of site features') implies stakeholder consensus on feature taxonomy and model fidelity. RISK: If stakeholders have conflicting feature requirements, model may become over-specified or under-specified."
+    ],
+    "recommended_revision": "Refine FR to explicitly address: (1) Canonical feature taxonomy and acceptance criteria for feature classification accuracy; (2) Real-time update requirements and latency bounds; (3) Scope of safety plan and operational policies to be enforced during model construction vs. post-hoc filtering; (4) Worksite scale, feature density, and spatial extent assumptions; (5) Consumer interface contract (query types, update notifications, data formats). Propose IM layer decomposition: IM-Acquisition (sensor adapters), IM-Abstraction (canonical feature schema and type mapping), IM-Storage (spatial index and query engine), IM-Policy (safety/operational rule engine), IM-Export (consumer-facing APIs). Validate that DP5 + proposed IM decomposition satisfies independence axiom (no circular dependencies between modules) and information axiom (no unnecessary information content in interfaces)."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Safety Services",
+      "scope": "Centralized feature abstraction and canonical representation layer that decouples raw sensor data from model representation; manages feature type definitions, sensor-to-canonical mapping adapters, and exposes unified feature interface to all consumers."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Receives raw sensor data (lidar, radar, camera, ultrasonic outputs) from Vehicle subsystem; ingests heterogeneous sensor streams for adapter mapping."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Emits canonical feature objects (static obstacles, dynamic hazards, access routes, safety zones) to downstream safety decision logic and Teleoperation for operator awareness."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives feature type configuration and adapter registration requests; allows dynamic binding of new sensor types to canonical feature mappers."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Safety Services",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit: Safety Services is the natural home for feature abstraction because it owns safety-critical perception logic and canonical feature definitions. Raw sensor data flows in via Telemetry; canonical features flow out via SafetyAlert. Adapter registry and pluggable mappers are contained within this boundary. Minor diffusion: Vehicle must remain aware of which sensors it owns (not a problem—Vehicle owns hardware, Safety Services owns interpretation)."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.45,
+        "diffusion_score": 0.55,
+        "notes": "Poor fit: Vehicle is responsible for hardware control and sensor acquisition, not semantic interpretation. Placing feature abstraction here violates separation of concerns. Canonical feature definitions and adapters would diffuse to Teleoperation and Safety Services anyway, creating bidirectional coupling and duplicated logic."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.38,
+        "diffusion_score": 0.62,
+        "notes": "Poor fit: Teleoperation is a consumer of features, not their producer or abstractor. Placing feature abstraction here inverts the dependency graph—Vehicle and Safety Services would depend on Teleoperation for feature definitions, creating circular coupling. Adapter logic has no business reason to live in the operator interface layer."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.25,
+        "diffusion_score": 0.75,
+        "notes": "Very poor fit: NGHE Solution is the top-level system container, not a functional module. Placing feature abstraction at this level provides no architectural clarity and forces all subsystems to reach into a global layer, increasing coupling and reducing modularity."
+      }
+    ],
+    "ownership_candidate": "Safety Services",
+    "containment_hypothesis": "Safety Services is the optimal boundary because: (1) it owns safety-critical perception and decision logic, making feature abstraction a natural responsibility; (2) canonical feature types are safety domain concepts (obstacles, hazards, zones), not vehicle hardware or operator concerns; (3) pluggable adapters map sensor outputs to safety semantics, which is Safety Services' domain; (4) the DP's core value—decoupling raw data from model representation—is realized by Safety Services consuming Telemetry (raw) and producing SafetyAlert (canonical), with adapters as internal implementation detail.",
+    "containment_risks": [
+      "Risk: If Vehicle subsystem needs to perform local sensor fusion or validation before sending Telemetry, Safety Services may not have visibility into sensor health metadata. Mitigation: Extend Telemetry interface to include sensor confidence/quality metadata alongside raw values.",
+      "Risk: If multiple independent safety services (e.g., collision avoidance, geofencing, emergency stop) each need different feature subsets, adapter registry could become complex. Mitigation: Design adapter framework to support feature filtering and composition; use dependency injection to bind adapters at Safety Services initialization.",
+      "Risk: If Teleoperation needs to display raw sensor data for operator debugging, it must request it separately from Vehicle (not from Safety Services canonical features). Mitigation: Ensure Telemetry interface is available to Teleoperation as well; Safety Services does not monopolize sensor access.",
+      "Risk: Adapter pluggability requires runtime registration mechanism; if adapters are added dynamically, Safety Services must validate adapter correctness. Mitigation: Define adapter interface contract and validation rules; use type checking and unit tests for adapter implementations."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP5 directly addresses FR by establishing a feature abstraction layer that decouples raw sensor data from machine-readable model representation. The DP specifies concrete mechanisms (canonical feature types, pluggable adapters, unified interface) that satisfy the FR's requirement to capture and represent worksite spatial features. The DP is solution-agnostic regarding sensor modality, enabling heterogeneous sensor integration."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Minor diffusion risk: Vehicle subsystem must provide sensor health/confidence metadata alongside raw Telemetry to enable Safety Services to validate feature quality. Without this, Safety Services cannot assess whether a canonical feature is reliable. Mitigation: Extend Telemetry interface schema to include per-sensor confidence scores and validity flags.",
+        "Moderate diffusion risk: If multiple independent safety services (collision avoidance, geofencing, emergency stop) each require different feature subsets or transformations, the adapter registry and feature composition logic could fragment across Safety Services and downstream consumers. Mitigation: Centralize adapter framework and feature filtering logic within Safety Services; expose composition API to allow consumers to request feature subsets without duplicating adapter logic.",
+        "Minor diffusion risk: Teleoperation may need access to raw sensor data for operator debugging/visualization, creating a secondary data path outside the canonical feature abstraction. This is acceptable if Telemetry interface is independently available to Teleoperation, but must be explicitly documented to avoid confusion about data ownership. Mitigation: Document that Safety Services owns canonical feature abstraction; Vehicle owns raw sensor access; Teleoperation may consume both independently.",
+        "Moderate diffusion risk: Adapter pluggability requires runtime registration and validation. If adapters are added dynamically without proper type checking or contract enforcement, Safety Services could accept malformed adapters that produce invalid canonical features, violating safety invariants. Mitigation: Define formal adapter interface contract; implement adapter validation at registration time; use static type checking and unit test coverage for all adapters before deployment."
+      ],
+      "containment_notes": "Safety Services is the optimal IM boundary with 0.92 containment score and 0.08 diffusion score. The module naturally owns safety-critical perception logic and canonical feature definitions. The FR->DP->IM chain is coherent: raw sensor data enters via Telemetry (in), adapters map to canonical types (internal), canonical features exit via SafetyAlert (out). Tasking interface enables dynamic adapter registration without violating module boundaries. Vehicle, Teleoperation, and NGHE Solution are poor candidates due to separation-of-concerns violations and circular coupling risks. Safety Services' ownership is justified by domain alignment: canonical feature types (obstacles, hazards, zones) are safety semantics, not hardware or UI concerns."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. Acceptance criteria require that 'a worksite model/map is generated and available to planning/execution functions for an agreed set of site features.' Safety Services' SafetyAlert interface directly satisfies this by emitting canonical feature objects. Verification can be performed by: (1) confirming that canonical features are generated for all agreed site feature types (static obstacles, dynamic hazards, access routes, safety zones); (2) validating that SafetyAlert consumers (planning/execution functions) receive features with required metadata (position, type, confidence); (3) testing adapter correctness for each sensor modality via unit tests and integration tests with Vehicle Telemetry.",
+      "allocation_clarity": "Clear. The FR is allocated to Safety Services as the sole owner of feature abstraction and canonical representation. Vehicle owns sensor acquisition and raw data emission (Telemetry). Teleoperation consumes canonical features for operator awareness. Planning/execution functions consume canonical features for decision-making. The allocation respects the 'worksite safety plan and operational policies' constraint by ensuring that feature definitions and safety semantics are centralized in Safety Services, enabling consistent enforcement of safety policies across all consumers. No ambiguity exists regarding which module is responsible for feature abstraction, adapter management, or canonical type definitions."
+    },
+    "recommended_revisions": [
+      "Extend Telemetry interface specification to mandate sensor confidence/quality metadata (e.g., signal strength, validity flags, timestamp precision) alongside raw values. This enables Safety Services to assess feature reliability and propagate confidence to downstream consumers.",
+      "Formalize the adapter interface contract as a typed specification (e.g., interface definition or schema). Define validation rules for adapter implementations, including type safety, null-handling, and error propagation. Implement adapter validation at registration time in the Tasking interface handler.",
+      "Document the data access model explicitly: (1) Vehicle owns raw sensor hardware and Telemetry emission; (2) Safety Services owns canonical feature abstraction and SafetyAlert emission; (3) Teleoperation may consume both Telemetry (for raw debugging) and SafetyAlert (for operator awareness) independently. Clarify that Safety Services does not monopolize sensor access.",
+      "Define feature composition and filtering API within Safety Services to allow downstream consumers to request feature subsets (e.g., 'only dynamic hazards within 10m') without duplicating adapter or filtering logic. This prevents diffusion of feature logic to Teleoperation or planning/execution modules.",
+      "Specify adapter lifecycle management: how adapters are registered, validated, versioned, and deprecated. Include rollback procedures for faulty adapters to ensure safety-critical feature abstraction remains reliable under dynamic adapter updates.",
+      "Add acceptance test cases that verify: (1) each canonical feature type is produced correctly for all supported sensor modalities; (2) SafetyAlert consumers receive features with required metadata; (3) adapter registration and validation work correctly; (4) feature quality degrades gracefully if a sensor fails or adapter is unavailable."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass with high confidence and clear allocation to Safety Services. However, the gate results expose multiple safety-critical diffusion risks and architectural dependencies that require decomposition into sub-FRs to ensure complete specification and risk mitigation. Specifically: (1) Adapter validation and lifecycle management is safety-critical but underspecified at the current level; (2) Sensor confidence/quality metadata propagation is essential for downstream safety decisions but lacks explicit FR coverage; (3) Feature composition and filtering logic could fragment across consumers without explicit ownership and interface specification; (4) Data access model (raw vs. canonical) requires explicit functional requirements to prevent confusion and unauthorized access patterns. Given high safety criticality, decomposing these concerns into child FRs ensures that each risk mitigation strategy is backed by explicit functional requirements, design parameters, and implementation boundaries. This prevents post-hoc patching and ensures safety invariants are maintained through the full hierarchy.",
+    "next_level_sub_frs": [
+      "FR5.1: Validate adapter implementations against formal interface contract before registration to ensure canonical features conform to type safety and safety semantics.",
+      "FR5.2: Propagate sensor confidence, validity flags, and quality metadata from Vehicle Telemetry through canonical feature abstraction to downstream consumers (SafetyAlert) to enable safety-critical decision-making based on feature reliability.",
+      "FR5.3: Provide feature composition and filtering API within Safety Services to allow downstream consumers to request feature subsets (e.g., dynamic hazards within 10m radius) without duplicating adapter or filtering logic.",
+      "FR5.4: Manage adapter lifecycle (registration, validation, versioning, deprecation, rollback) to ensure safety-critical feature abstraction remains reliable under dynamic adapter updates and gracefully degrades if adapters fail.",
+      "FR5.5: Enforce explicit data access model distinguishing raw sensor access (Vehicle Telemetry ownership) from canonical feature access (Safety Services ownership) to prevent unauthorized data paths and ensure consistent safety policy enforcement."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "Current DP5 specifies 'feature abstraction layer with canonical types, pluggable adapters, unified interface' but does not explicitly address: (1) adapter validation mechanisms and contracts; (2) confidence/quality metadata propagation; (3) feature composition API design; (4) adapter lifecycle management; (5) data access control boundaries. These are not minor details—they are safety-critical design decisions that must be elevated to explicit DPs at the next level. Revising DP5 to reference these sub-DPs ensures that the design domain captures the full solution architecture, not just the high-level abstraction concept. This prevents implementation teams from making ad-hoc decisions on validation, metadata, and lifecycle management that could violate safety invariants."
+    },
+    "record": {
+      "assumptions": [
+        "Safety Services has sufficient computational capacity and latency budget to perform real-time adapter validation and feature composition without degrading safety alert responsiveness.",
+        "Vehicle Telemetry interface can be extended to include confidence/quality metadata without breaking existing consumers or introducing latency overhead.",
+        "Adapter implementations can be statically type-checked and unit-tested before deployment; dynamic adapters are not required to be added at runtime without validation.",
+        "Downstream consumers (planning/execution, Teleoperation) can tolerate a feature composition API with filtering/subsetting semantics; they do not require raw, unfiltered feature streams.",
+        "Adapter versioning and rollback procedures can be implemented without requiring Safety Services restart or loss of in-flight safety alerts.",
+        "The 'worksite safety plan and operational policies' constraint is enforceable through centralized feature definitions in Safety Services; no external policy engine is required."
+      ],
+      "open_risks": [
+        "Adapter validation at registration time may introduce latency spikes if validation is computationally expensive (e.g., full type inference, contract checking). Mitigation: profile validation performance; implement caching and incremental validation if needed.",
+        "Feature composition API could become a performance bottleneck if downstream consumers request complex feature subsets frequently. Mitigation: design API with caching and pre-computed feature views; monitor query patterns.",
+        "Confidence/quality metadata propagation may expose sensor limitations to downstream consumers, potentially causing them to reject valid features or make overly conservative decisions. Mitigation: define confidence thresholds and decision rules in Safety Services; document expected confidence ranges for each sensor modality.",
+        "Adapter lifecycle management (versioning, rollback) could introduce complexity and operational overhead. Mitigation: define clear versioning scheme; automate rollback procedures; test rollback scenarios in integration tests.",
+        "Data access model enforcement (raw vs. canonical) may require runtime access control checks, adding latency and complexity. Mitigation: enforce at interface level (Telemetry vs. SafetyAlert); document access policies; use static analysis to verify no unauthorized access patterns."
+      ],
+      "evidence_needed": [
+        "Formal adapter interface contract specification (e.g., TypeScript interface, Protocol Buffer schema, or JSON Schema) with type safety, null-handling, and error propagation rules.",
+        "Adapter validation algorithm and performance profile: latency, memory overhead, coverage of contract rules.",
+        "Sensor confidence/quality metadata schema: definition of confidence scores, validity flags, timestamp precision, and how they map to feature reliability.",
+        "Feature composition API specification: query language, filtering semantics, performance characteristics, caching strategy.",
+        "Adapter lifecycle management procedures: registration workflow, validation gates, versioning scheme, deprecation policy, rollback procedures.",
+        "Data access model documentation: explicit statement of which modules own raw vs. canonical data; access control rules; examples of authorized and unauthorized access patterns.",
+        "Integration test cases: adapter validation correctness, confidence metadata propagation, feature composition API correctness, adapter lifecycle management (registration, versioning, rollback).",
+        "Safety analysis: FMEA or FTA covering adapter validation failures, confidence metadata corruption, feature composition errors, and adapter lifecycle failures. Verify that mitigations are sufficient for high safety criticality."
+      ]
+    }
+  }
+}

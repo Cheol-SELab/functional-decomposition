@@ -1,0 +1,181 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall propagate worksite model state changes to all authorized consumers within the customer-defined latency threshold.",
+    "rationale": "The original FR conflates two distinct obligations: (1) detecting/capturing state changes in the worksite model, and (2) delivering those changes to consumers within a time bound. The refined FR focuses on the propagation obligation (the primary latency concern) and removes the vague 'operational use' qualifier in favor of explicit reference to customer-defined acceptance criteria. The term 'propagate' is solution-neutral (avoids prescribing polling, pub-sub, or push mechanisms) and 'authorized consumers' acknowledges that different stakeholders (operator, tele-operator, safety manager, maintenance) may have different visibility and latency requirements.",
+    "verification_idea": "Measure end-to-end latency from the moment a worksite state change is committed (e.g., equipment position update, hazard detection, task completion) to the moment that change is available to each authorized consumer role. Validate against customer-defined p95 threshold (e.g., ≤1.0 s) across supported update scenarios (e.g., position updates, safety alerts, task status changes). Confirm that unauthorized consumers do not receive restricted state changes.",
+    "sub_frs": [
+      "FR-NGHE-007.1: The NGHE solution shall detect and capture worksite model state changes from authorized sources (equipment sensors, operator inputs, external systems).",
+      "FR-NGHE-007.2: The NGHE solution shall propagate worksite model state changes to all authorized consumers within the customer-defined latency threshold.",
+      "FR-NGHE-007.3: The NGHE solution shall enforce access control such that only authorized consumers receive worksite model state changes relevant to their role."
+    ],
+    "is_atomic": false,
+    "note": "The refined FR is more atomic than the original, but the three sub-FRs represent a complete decomposition of the latency concern. If further atomicity is required, FR-NGHE-007.2 could be the primary FR, with FR-NGHE-007.1 and FR-NGHE-007.3 treated as supporting functional requirements or constraints."
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Centralized event-driven state propagation with asynchronous message broker (decouples producers from consumers, enables selective subscription by authorization context)",
+      "DP2: Synchronous request-response state synchronization with polling intervals (simple but introduces latency variance and tight coupling between state owner and consumers)",
+      "DP3: Hybrid push-pull model with event notification + on-demand state fetch (balances latency and consistency; consumers subscribe to change events but fetch full state on demand)",
+      "DP4: Replicated state store with eventual consistency and conflict resolution (distributes state ownership; requires reconciliation logic and acceptance of transient divergence)",
+      "DP5: Direct peer-to-peer state broadcast with local caching (eliminates intermediary; scales poorly with consumer count and authorization complexity)"
+    ],
+    "selected_dp": "DP3: Hybrid push-pull model with event notification + on-demand state fetch. Producers emit immutable change events (with authorization metadata) to a decoupled notification layer; authorized consumers subscribe to filtered event streams and maintain local state replicas. On-demand fetch provides consistency verification and handles late-joining consumers without replay burden.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Authorization filtering must be applied at event emission (producer) AND subscription (consumer) to avoid information leakage—requires shared authorization schema (acceptable coupling, necessary for security)",
+        "Event schema evolution: breaking changes in change event structure require versioning strategy to avoid consumer breakage (mitigated by immutable event append-only design)",
+        "State fetch endpoint must remain available during high-latency scenarios; if fetch fails, consumer cannot verify consistency (risk: degraded mode acceptance criteria needed)",
+        "Notification layer becomes a single point of failure for latency SLA; requires redundancy and failover design (architectural dependency, not logical coupling)"
+      ],
+      "notes": "DP3 decouples producer from consumer identity and timing, enabling independent scaling and authorization policies. Event-driven core avoids tight synchronous dependencies. Hybrid model mitigates eventual consistency risks by allowing consumers to verify state freshness on-demand."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Worksite model state is decomposable into discrete, immutable change events (e.g., 'safety plan updated', 'worker location changed'). RISK: If state is highly interdependent or requires atomic multi-field updates, event granularity may cause transient inconsistency visible to consumers.",
+      "ASSUMPTION: Authorized consumers can be identified and filtered at subscription time (e.g., by role, worksite ID, clearance level). RISK: If authorization is dynamic or context-dependent (e.g., time-of-day, location-based), static subscription filtering is insufficient; requires runtime authorization checks on event delivery.",
+      "ASSUMPTION: p95 ≤ 1.0 s latency is achievable with asynchronous event propagation + network transit. RISK: If notification layer has queuing delays or consumer processing is slow, p95 may exceed threshold; requires capacity planning and latency monitoring.",
+      "ASSUMPTION: Consumers can tolerate brief periods of stale state (eventual consistency window). RISK: If safety-critical decisions depend on real-time state (e.g., emergency shutdown), stale state could cause harm; may require synchronous confirmation for critical updates.",
+      "ASSUMPTION: Change event history is retained for a bounded window (e.g., 24 hours) to support late-joining consumers. RISK: Storage and replay overhead grows with event volume; requires retention policy and archival strategy.",
+      "ASSUMPTION: Worksite model schema is stable or versioned. RISK: Uncontrolled schema changes break event consumers; requires governance and change control process."
+    ],
+    "recommended_revision": "FR should be refined to explicitly address: (1) Definition of 'authorized consumers' and authorization model (role-based, attribute-based, dynamic?). (2) Tolerance for eventual consistency: is transient state divergence acceptable, or are certain updates required to be synchronous? (3) Scope of 'worksite model state': which entities/fields are in scope (e.g., safety plan, worker locations, equipment status, incident log)? (4) Failure mode acceptance: if notification layer is unavailable, should consumers fall back to polling, or is service degradation acceptable? (5) Audit and compliance requirements: must all state changes be logged and traceable to source? Revised FR: 'The NGHE solution shall propagate authorized worksite model state changes (safety plan, worker locations, equipment status) to all subscribed consumers within p95 ≤ 1.0 s latency, with eventual consistency guarantee and support for late-joining consumers via state fetch. Authorization filtering shall be applied at event emission and subscription. Critical safety updates (e.g., emergency shutdown) shall be confirmed synchronously.'"
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "Centralized event notification and state synchronization layer that orchestrates hybrid push-pull data flow across all connected vehicles and teleoperation consumers, managing authorization, event filtering, and on-demand state fetch for late-joining clients."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "inout",
+        "details": "Receives immutable change events from Vehicle producers; pushes filtered event streams and on-demand state snapshots to authorized Teleoperation and Safety Services consumers."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Delivers authorization metadata and consumer subscription directives derived from event notification logic to Vehicle and Teleoperation modules."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "Receives safety-critical events from Vehicle; broadcasts filtered safety alerts to authorized consumers; supports on-demand fetch of safety state for consistency verification."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Underlying transport for event emission, subscription management, and on-demand state fetch requests/responses across distributed producers and consumers."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit. NGHE Solution is the natural hub for decoupled event notification, authorization filtering, and state synchronization across heterogeneous consumers (Vehicle, Teleoperation, Safety Services). The hybrid push-pull model is a cross-cutting concern that belongs at the solution level. Minor diffusion: Vehicle and Teleoperation must implement event producers/consumers, but core DP logic (notification layer, filtering, on-demand fetch) is contained here."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor fit. Vehicle is a producer of events, not the orchestrator of the notification system. Placing the hybrid push-pull model here would couple all consumers directly to Vehicle, violating decoupling intent. Authorization, filtering, and on-demand fetch logic would diffuse across multiple vehicle instances and teleoperation clients."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Poor fit. Teleoperation is a consumer of events, not the hub. Placing the notification layer here would create asymmetric coupling: Vehicle would push to Teleoperation, and Safety Services would need separate integration. On-demand fetch and authorization filtering would be misplaced in a consumer module."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.38,
+        "diffusion_score": 0.62,
+        "notes": "Poor fit. Safety Services is a specialized consumer focused on safety-critical alerts. The general-purpose hybrid push-pull model (supporting all data types, multiple producers/consumers, authorization) is too broad for this module. Placing it here would force Vehicle and Teleoperation to route through Safety Services, creating unnecessary coupling."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution (Architecture/Platform team)",
+    "containment_hypothesis": "The hybrid push-pull model is fundamentally a cross-cutting, decoupled communication pattern that must sit above all producers and consumers. NGHE Solution is the only module with sufficient scope and neutrality to contain the event notification layer, authorization filtering, and on-demand state fetch without creating producer-consumer coupling. Vehicle, Teleoperation, and Safety Services remain loosely coupled via well-defined interfaces (Telemetry, Tasking, SafetyAlert, Network Link).",
+    "containment_risks": [
+      "NGHE Solution may become a bottleneck if event throughput or authorization logic is not carefully optimized; requires non-blocking, asynchronous design.",
+      "Authorization metadata embedded in events must be standardized across all producers; inconsistent metadata format will diffuse authorization logic into consumers.",
+      "On-demand state fetch consistency verification logic must be centralized; if pushed to individual consumers, diffusion and inconsistency will result.",
+      "Network Link reliability is critical; if Network Link fails, the entire push-pull model degrades; requires explicit fallback and retry strategy within NGHE Solution.",
+      "Late-joining consumer handling (on-demand fetch without replay burden) requires careful state snapshot management; if snapshots are stale or incomplete, consumers will diverge."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The FR specifies a measurable latency threshold (p95 ≤ 1.0 s) and authorization scope ('all authorized consumers'). The IM boundary (NGHE Solution) is positioned as the centralized orchestrator, making latency measurement and authorization enforcement directly attributable to this module. Verification can be instrumented at the Telemetry, Tasking, and SafetyAlert interfaces to confirm end-to-end propagation time and consumer filtering correctness.",
+      "allocation_clarity": "Clear. The FR requirement maps unambiguously to NGHE Solution as the owner of state propagation logic. Vehicle, Teleoperation, and Safety Services are identified as producers/consumers with well-defined interface contracts (Telemetry, Tasking, SafetyAlert). Authorization metadata flow and on-demand fetch are explicitly scoped to NGHE Solution, eliminating ambiguity about which module is accountable for latency and authorization compliance."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP3 (hybrid push-pull model) directly addresses the FR requirement. Push (event notification) satisfies low-latency propagation to subscribed consumers; pull (on-demand state fetch) handles late-joining consumers and consistency verification without replay burden. The DP explicitly incorporates authorization metadata in events and filtering at the notification layer, satisfying the 'authorized consumers' constraint. The decoupled architecture (immutable events, filtered streams, local state replicas) is well-suited to meet the p95 ≤ 1.0 s latency target by avoiding synchronous round-trips and enabling asynchronous, batched propagation."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Authorization metadata standardization: If event producers (Vehicle, Teleoperation) emit inconsistent authorization metadata formats, filtering logic will diffuse into NGHE Solution's event processing layer and potentially leak into consumer implementations. Mitigation: Define a canonical authorization metadata schema (e.g., JSON schema or protobuf) enforced at the Telemetry and SafetyAlert ingress points.",
+        "On-demand state fetch consistency: If state snapshot management is not centralized within NGHE Solution, late-joining consumers will implement ad-hoc fetch logic, diffusing the DP across multiple modules. Mitigation: Encapsulate snapshot versioning, staleness detection, and merge-conflict resolution within NGHE Solution; expose a single, versioned fetch API.",
+        "Event producer coupling: Vehicle and Teleoperation modules must implement event emission logic (producers). If this logic is not standardized (e.g., event schema, retry behavior, ordering guarantees), diffusion will occur. Mitigation: Provide producer SDKs or libraries that enforce schema and delivery semantics; treat producer implementation as a shared concern owned by NGHE Solution team.",
+        "Network Link reliability fallback: If Network Link fails, NGHE Solution must implement fallback and retry strategies (e.g., local event buffering, eventual consistency). If this logic is pushed to individual consumers, diffusion and inconsistency will result. Mitigation: Implement resilience patterns (circuit breaker, exponential backoff, local queue) within NGHE Solution; document consumer expectations for degraded-mode behavior.",
+        "Latency bottleneck at NGHE Solution: High event throughput or complex authorization rules could cause NGHE Solution to become a bottleneck, violating the p95 ≤ 1.0 s latency constraint. Mitigation: Design NGHE Solution with non-blocking, asynchronous event processing; use message queues (e.g., Kafka, RabbitMQ) to decouple producers from consumers; implement authorization filtering as a fast-path operation (e.g., in-memory cache or bloom filter)."
+      ],
+      "containment_notes": "Excellent containment (0.92 score). NGHE Solution is the natural hub for the hybrid push-pull model because it is the only module with sufficient scope and neutrality to orchestrate communication between heterogeneous producers (Vehicle, Teleoperation) and consumers (Teleoperation, Safety Services) without creating coupling. The DP logic (event notification, filtering, on-demand fetch) is cross-cutting and must reside at the solution level. Minor diffusion (0.08) is acceptable: Vehicle and Teleoperation must implement event producer/consumer interfaces, but core DP logic (notification layer, authorization filtering, state synchronization) is contained within NGHE Solution. The four external interfaces (Telemetry, Tasking, SafetyAlert, Network Link) provide clear boundaries for producer/consumer interaction and reduce diffusion risk."
+    },
+    "recommended_revisions": [
+      "Formalize authorization metadata schema: Define a canonical schema for authorization metadata embedded in events (e.g., consumer_id, permission_scope, timestamp, signature). Enforce schema validation at NGHE Solution ingress to prevent diffusion of authorization logic into producers and consumers.",
+      "Specify on-demand fetch API contract: Document the on-demand state fetch interface (request/response format, versioning, staleness tolerance, consistency guarantees). Centralize snapshot management within NGHE Solution; expose a single, versioned fetch endpoint to prevent consumer-side divergence.",
+      "Implement producer SDK/library: Provide a standardized producer library (or code generator) that Vehicle and Teleoperation modules use to emit events. This ensures consistent event schema, delivery semantics, and retry behavior, reducing diffusion risk.",
+      "Define Network Link resilience strategy: Document fallback behavior (e.g., local event buffering, eventual consistency window, retry limits) for Network Link failures. Implement resilience patterns within NGHE Solution; communicate degraded-mode expectations to consumers via interface contracts.",
+      "Establish latency SLO and monitoring: Instrument NGHE Solution to measure end-to-end propagation latency (producer emit → consumer receive) at the p95 percentile. Set up alerts for latency violations. Design NGHE Solution with non-blocking, asynchronous event processing and message queues to meet the p95 ≤ 1.0 s target.",
+      "Document authorization filtering rules: Specify how authorization metadata is evaluated to determine which consumers receive which events. Centralize filtering logic within NGHE Solution; avoid pushing authorization decisions to individual consumers.",
+      "Define late-joining consumer handling: Document the on-demand fetch workflow for late-joining consumers (e.g., request latest snapshot, apply subsequent events, verify consistency). Ensure NGHE Solution maintains sufficient state history to support this workflow without replay burden."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-IM, FR-DP, DP-IM) pass with high confidence. The FR is measurable (p95 ≤ 1.0 s latency, authorized consumers), the DP (hybrid push-pull) directly addresses the FR, and the IM (NGHE Solution as centralized orchestrator) is well-positioned with clear interface boundaries. However, the recommended revisions and diffusion risks reveal that critical sub-concerns—authorization metadata standardization, on-demand fetch consistency, producer SDK enforcement, and Network Link resilience—must be decomposed into explicit sub-FRs to ensure they are not deferred or lost during implementation. Given the high safety criticality of this system, decomposing these concerns now reduces the risk of architectural diffusion and ensures accountability at lower levels. The containment score (0.92) is excellent but not perfect; the remaining 0.08 diffusion risk (producer/consumer interface implementation) is acceptable only if sub-level FRs explicitly govern producer SDK design, authorization schema enforcement, and resilience patterns.",
+    "next_level_sub_frs": [
+      "FR 2.1: Enforce canonical authorization metadata schema across all event producers (Vehicle, Teleoperation) to prevent diffusion of authorization logic into consumer implementations.",
+      "FR 2.2: Provide a centralized, versioned on-demand state fetch API within NGHE Solution that guarantees consistency for late-joining consumers without replay burden.",
+      "FR 2.3: Standardize event producer behavior (schema, delivery semantics, retry logic) via a producer SDK or code generator to ensure consistent event emission across Vehicle and Teleoperation modules.",
+      "FR 2.4: Implement Network Link resilience strategies (local event buffering, eventual consistency, retry limits) within NGHE Solution to maintain state propagation during network failures.",
+      "FR 2.5: Achieve p95 ≤ 1.0 s end-to-end latency for state propagation by designing NGHE Solution with non-blocking, asynchronous event processing and message queue decoupling.",
+      "FR 2.6: Centralize authorization filtering logic within NGHE Solution's notification layer to prevent consumer-side authorization decision diffusion."
+    ],
+    "revise": {
+      "target": null,
+      "why": "No revision needed at the current level. The FR, DP, and IM are well-defined and pass all gates. Decomposition into sub-FRs is the appropriate next step to operationalize the recommended revisions and mitigate diffusion risks."
+    },
+    "record": {
+      "assumptions": [
+        "NGHE Solution has sufficient computational capacity and network bandwidth to process and filter events without becoming a bottleneck.",
+        "Vehicle and Teleoperation modules can be modified to emit events conforming to a canonical schema and use a standardized producer SDK.",
+        "Network Link failures are transient and can be mitigated via local buffering and eventual consistency; no requirement for zero-loss delivery.",
+        "Authorization metadata is static or changes infrequently enough to be cached in-memory within NGHE Solution.",
+        "Late-joining consumers are tolerable of eventual consistency (i.e., they do not require strict causal ordering of all historical events).",
+        "The p95 ≤ 1.0 s latency target is achievable with asynchronous, batched event propagation and does not require synchronous round-trip guarantees."
+      ],
+      "open_risks": [
+        "Authorization metadata schema divergence: If producers emit inconsistent authorization metadata formats, filtering logic will diffuse into NGHE Solution and potentially leak into consumers. Mitigation: Enforce schema validation at ingress; provide producer SDK.",
+        "On-demand fetch consistency: If snapshot management is not centralized, late-joining consumers will implement ad-hoc fetch logic. Mitigation: Encapsulate snapshot versioning and merge-conflict resolution within NGHE Solution.",
+        "Latency bottleneck at NGHE Solution: High event throughput or complex authorization rules could violate p95 ≤ 1.0 s target. Mitigation: Design with non-blocking, asynchronous processing; use message queues.",
+        "Network Link reliability: If Network Link fails, NGHE Solution must implement fallback strategies; if pushed to consumers, diffusion and inconsistency will result. Mitigation: Implement resilience patterns within NGHE Solution.",
+        "Producer coupling: If event emission logic is not standardized, diffusion will occur across Vehicle and Teleoperation. Mitigation: Provide producer SDK; treat producer implementation as shared concern.",
+        "Safety-critical authorization failures: Incorrect authorization filtering could allow unauthorized consumers to receive safety-critical state (e.g., emergency stop commands). Mitigation: Implement authorization filtering as a fast-path, high-assurance operation; add audit logging and monitoring."
+      ],
+      "evidence_needed": [
+        "Latency measurement data: Instrument NGHE Solution to measure end-to-end propagation latency (producer emit → consumer receive) at p50, p95, p99 percentiles under realistic load. Confirm p95 ≤ 1.0 s is achievable.",
+        "Authorization schema specification: Define and document canonical authorization metadata schema (e.g., JSON schema, protobuf). Validate schema against real-world producer/consumer use cases.",
+        "Producer SDK design and implementation: Develop and test producer SDK with Vehicle and Teleoperation teams. Measure adoption rate and schema compliance.",
+        "On-demand fetch API contract: Specify on-demand state fetch interface (request/response format, versioning, staleness tolerance, consistency guarantees). Test with late-joining consumer scenarios.",
+        "Network Link resilience testing: Simulate Network Link failures (latency spikes, packet loss, connection drops). Verify NGHE Solution implements fallback strategies and maintains eventual consistency.",
+        "Authorization filtering correctness: Implement and test authorization filtering logic. Verify that only authorized consumers receive events; audit log all authorization decisions.",
+        "Safety-critical scenario validation: Test authorization filtering under safety-critical scenarios (e.g., emergency stop propagation, permission revocation). Confirm no unauthorized access or missed propagation."
+      ]
+    }
+  }
+}

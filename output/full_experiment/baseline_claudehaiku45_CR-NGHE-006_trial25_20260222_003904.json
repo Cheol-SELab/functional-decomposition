@@ -1,0 +1,167 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and designated work zones with sufficient fidelity to support autonomous path planning and operator situational awareness.",
+    "rationale": "The original FR was vague on scope (what constitutes 'area analysis') and lacked specificity on fidelity requirements, update cadence, and consumer functions. Refinement adds: (1) explicit feature categories (terrain, static obstacles, dynamic hazards, work zones); (2) real-time update requirement to support safety-critical operations; (3) linkage to downstream consumers (path planning, situational awareness); (4) acknowledgment of high safety criticality.",
+    "verification_idea": "Acceptance test: (a) Worksite model generated within 5 minutes of site survey; (b) Terrain elevation accuracy ±0.5 m over 95% of mapped area; (c) Static obstacles detected with >95% recall; (d) Dynamic hazards updated at ≥2 Hz; (e) Model accessible to planning and execution subsystems via standardized interface; (f) Safety Manager can audit model completeness against site checklist.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire terrain and obstacle data from onboard and/or external sensors.",
+      "CR-NGHE-006.2: Fuse multi-source sensor data into a unified 3D spatial representation.",
+      "CR-NGHE-006.3: Classify and label terrain, obstacles, hazards, and work zones in the model.",
+      "CR-NGHE-006.4: Maintain model currency and consistency with real-time updates.",
+      "CR-NGHE-006.5: Expose worksite model to planning and execution functions via standardized interface.",
+      "CR-NGHE-006.6: Provide model audit and validation capabilities to Safety Manager."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Onboard LiDAR + camera + IMU fusion pipeline; local 3D occupancy grid updated at 10 Hz; model pushed to cloud for planning.",
+      "DP-B: Tele-operator manually annotates aerial survey imagery; static model stored in planning database; dynamic hazards reported via voice/tasking.",
+      "DP-C: Hybrid: onboard sensors (LiDAR, camera) stream to edge processor; edge fuses data and maintains local model; model synchronized with cloud planning system and Safety Services via Telemetry interface.",
+      "DP-D: Distributed sensor network (fixed ground stations + vehicle sensors) with centralized fusion server; model hosted in cloud; accessed via REST API."
+    ],
+    "selected_dp": "DP-C: Hybrid onboard + edge + cloud architecture with sensor fusion pipeline. Onboard LiDAR and camera stream to vehicle-local edge processor (or Vehicle module compute). Edge processor fuses data into a 3D occupancy grid and semantic map (terrain, obstacles, hazards, zones). Model is synchronized with cloud planning system and Safety Services via Telemetry interface at configurable cadence (≥2 Hz for dynamic hazards, ≥0.5 Hz for static features). Model is queryable by planning/execution functions and auditable by Safety Manager.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Sensor data acquisition (LiDAR, camera) is tightly coupled to Vehicle hardware; decoupling via standardized sensor abstraction layer (e.g., ROS drivers) mitigates.",
+        "Fusion algorithm is independent of sensor modality; can be updated without Vehicle changes.",
+        "Telemetry interface is the coupling point to Safety Services and planning; interface contract must be stable and versioned.",
+        "Edge processor location (onboard vs. external) is a design choice; DP is agnostic to this as long as fusion logic is encapsulated."
+      ],
+      "notes": "DP-C avoids tight coupling to any single sensor or cloud provider. Hybrid approach allows graceful degradation: if cloud link fails, local model remains available for onboard autonomy. Telemetry interface is the primary external dependency; must be carefully specified."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Onboard compute (Vehicle module) has sufficient CPU/GPU for real-time fusion (LiDAR + camera at 10 Hz). Risk: If Vehicle compute is limited, fusion may lag or drop frames.",
+      "ASSUMPTION: Telemetry interface has sufficient bandwidth and latency (<500 ms) to stream model updates to cloud. Risk: High-latency or lossy network may cause stale model in planning system.",
+      "ASSUMPTION: Sensor calibration and synchronization are solved (e.g., via Vehicle's sensor fusion stack). Risk: Misaligned sensor data degrades map quality.",
+      "ASSUMPTION: Safety Services can consume Telemetry-formatted model updates. Risk: If Safety Services expects different data format, integration fails.",
+      "RISK: Real-time fusion is computationally expensive; may conflict with other Vehicle autonomy tasks (e.g., obstacle avoidance). Mitigation: Prioritize fusion; use GPU acceleration if available."
+    ],
+    "recommended_revision": "Clarify compute resource allocation: specify whether fusion runs on Vehicle onboard compute or on a separate edge device (e.g., mobile edge server at site). If onboard, specify CPU/GPU requirements and thermal constraints. If external edge, specify network latency SLA and failover behavior."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "The Vehicle module owns the worksite mapping/modeling capability. It integrates onboard sensors (LiDAR, camera, IMU), runs the sensor fusion pipeline (data acquisition, registration, occupancy grid generation, semantic labeling), and maintains the local 3D model. Vehicle exposes the model via Telemetry interface for consumption by planning, execution, and Safety Services. Vehicle also provides model query/audit endpoints for Safety Manager inspection."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle publishes worksite model updates (3D occupancy grid, semantic labels, timestamp, confidence metrics) to Telemetry stream. Consumers: planning/execution functions, Safety Services, cloud analytics. Cadence: ≥2 Hz for dynamic hazards, ≥0.5 Hz for static features. Format: TBD (e.g., ROS PointCloud2, custom protobuf)."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives tasking commands (e.g., 'map zone A', 'update model', 'freeze model for audit'). Tasking may originate from planning system or Safety Manager. Vehicle adjusts fusion parameters or model update rate in response."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Vehicle publishes safety-critical alerts derived from model (e.g., 'unknown obstacle detected in work zone', 'personnel detected near equipment'). Safety Services consumes these alerts and escalates if needed."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Vehicle is the natural owner: it has onboard sensors, compute, and autonomy stack. Sensor fusion is a core Vehicle capability. Model is generated and maintained locally. Diffusion risk: model must be exported via Telemetry to planning/Safety Services; this is acceptable as it is a well-defined interface. No duplication of fusion logic across modules."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.45,
+        "diffusion_score": 0.55,
+        "notes": "NGHE Solution is the system-level container, but it does not own sensors or compute. If mapping/modeling is assigned here, it would require Vehicle to stream raw sensor data to NGHE Solution, which would then fuse and return model to Vehicle and planning. This creates a circular dependency and unnecessary latency. Not recommended."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Teleoperation is for remote operator control, not sensor fusion. Assigning mapping here would require Teleoperation to manage Vehicle sensors, which violates separation of concerns. Tele-operator may consume the model for situational awareness, but does not own its generation. Not recommended."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Safety Services consumes the model to detect hazards and generate alerts, but does not own sensor acquisition or fusion. If Safety Services owned mapping, it would need direct access to Vehicle sensors, creating tight coupling. Safety Services should be a consumer of Telemetry, not the owner. Not recommended."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "Vehicle is the optimal owner because: (1) it has exclusive access to onboard sensors (LiDAR, camera, IMU); (2) it has local compute for real-time fusion; (3) sensor fusion is a core autonomy capability; (4) model is generated and maintained locally, minimizing latency; (5) Vehicle can gracefully degrade if cloud link fails. Telemetry interface is the clean boundary for exporting model to downstream consumers (planning, Safety Services, cloud).",
+    "containment_risks": [
+      "RISK: Vehicle module becomes large and complex if it owns both autonomy (path planning, obstacle avoidance) and mapping/modeling. Mitigation: Encapsulate fusion logic in a dedicated sub-module (e.g., 'MapBuilder') within Vehicle; use clear internal interfaces.",
+      "RISK: If Vehicle compute is overloaded, fusion may degrade. Mitigation: Implement priority queue; fusion is high-priority. Consider offloading to external edge processor if onboard compute is insufficient.",
+      "RISK: Telemetry interface must be stable and well-versioned. If planning/Safety Services expect different model formats, integration fails. Mitigation: Define Telemetry schema early; use versioning and backward compatibility.",
+      "RISK: Model audit/validation for Safety Manager requires Vehicle to expose query endpoints. If Vehicle is offline, audit is blocked. Mitigation: Replicate model to cloud; Safety Manager queries cloud replica."
+    ],
+    "recommended_revision": "Confirm that Vehicle module has sufficient onboard compute (CPU/GPU) for real-time fusion. If not, consider a hybrid approach: Vehicle streams raw sensor data to an external edge processor (e.g., mobile edge server at site), which fuses and returns model to Vehicle via a local network link. Vehicle then re-exports model via Telemetry. This avoids overloading Vehicle compute while keeping ownership clear."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid onboard + edge + cloud fusion) directly addresses the refined FR. It specifies: (1) data acquisition (onboard sensors); (2) fusion mechanism (edge processor); (3) model representation (3D occupancy grid + semantic labels); (4) update cadence (≥2 Hz for dynamic, ≥0.5 Hz for static); (5) consumer interface (Telemetry). DP is traceable to all sub-FRs (6.1–6.6). No functional gaps identified."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Model must be exported via Telemetry to planning/Safety Services. This is a necessary interface, not a diffusion risk, as long as Telemetry contract is stable.",
+        "If Vehicle compute is insufficient, fusion may be offloaded to external edge processor. This introduces a network dependency (latency, bandwidth). Mitigation: Specify network SLA and failover behavior.",
+        "Sensor data acquisition (LiDAR, camera) is tightly coupled to Vehicle hardware. Mitigation: Use standardized sensor abstraction layer (e.g., ROS drivers) to decouple algorithm from hardware."
+      ],
+      "containment_notes": "Vehicle is the clear owner. Fusion logic is encapsulated within Vehicle (or a sub-module). Model is generated and maintained locally. Telemetry is the clean export interface. No duplication of fusion logic across modules. Containment score 0.92 is acceptable for a system of this complexity."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible. Acceptance tests can be defined: (a) model generation latency; (b) terrain accuracy; (c) obstacle detection recall/precision; (d) update cadence; (e) interface compliance (Telemetry format); (f) Safety Manager audit capability. All tests are measurable and traceable to refined FR.",
+      "allocation_clarity": "Allocation is clear. Vehicle owns mapping/modeling. Planning/execution functions consume model via Telemetry. Safety Services consumes model and generates alerts. Safety Manager audits model via query endpoints. No ambiguity in ownership or responsibility."
+    },
+    "recommended_revisions": [
+      "Specify Telemetry schema for worksite model (e.g., ROS PointCloud2 + custom metadata, or protobuf). Include versioning strategy.",
+      "Define network SLA for Telemetry (latency, bandwidth, reliability). Specify failover behavior if cloud link fails.",
+      "Clarify compute resource allocation: confirm Vehicle has sufficient CPU/GPU for real-time fusion, or specify external edge processor requirements.",
+      "Define model audit/validation interface for Safety Manager. Specify query endpoints and response format.",
+      "Specify sensor calibration and synchronization requirements (e.g., LiDAR-camera alignment tolerance)."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The refined FR is well-formed and traceable to DP and IM. However, the FR is not yet atomic; it decomposes into 6 sub-FRs (data acquisition, fusion, classification, currency, interface, audit). Each sub-FR requires further refinement and DP selection. Proceeding to the next decomposition level is necessary to allocate design responsibility and verify feasibility. Additionally, critical design decisions (compute location, Telemetry schema, network SLA) must be resolved at the next level.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire terrain and obstacle data from onboard and/or external sensors.",
+      "CR-NGHE-006.2: Fuse multi-source sensor data into a unified 3D spatial representation.",
+      "CR-NGHE-006.3: Classify and label terrain, obstacles, hazards, and work zones in the model.",
+      "CR-NGHE-006.4: Maintain model currency and consistency with real-time updates.",
+      "CR-NGHE-006.5: Expose worksite model to planning and execution functions via standardized interface.",
+      "CR-NGHE-006.6: Provide model audit and validation capabilities to Safety Manager."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Vehicle module has onboard compute (CPU/GPU) capable of real-time sensor fusion at ≥2 Hz.",
+        "Telemetry interface has sufficient bandwidth and latency (<500 ms) to stream model updates.",
+        "Sensor calibration and synchronization are handled by Vehicle's sensor fusion stack.",
+        "Safety Services can consume Telemetry-formatted model updates.",
+        "Planning/execution functions can query model via Telemetry interface.",
+        "Safety Manager has access to Vehicle (or cloud replica) for model audit."
+      ],
+      "open_risks": [
+        "Vehicle compute overload: fusion may degrade if Vehicle is running other autonomy tasks. Mitigation: implement priority queue; consider external edge processor.",
+        "Network latency: if Telemetry link is slow, planning system may use stale model. Mitigation: specify network SLA; implement local caching.",
+        "Sensor failure: if LiDAR or camera fails, model quality degrades. Mitigation: implement graceful degradation; alert Safety Manager.",
+        "Model format mismatch: if planning/Safety Services expect different model format, integration fails. Mitigation: define Telemetry schema early; use versioning.",
+        "Safety criticality: high safety criticality requires rigorous validation of model accuracy and update cadence. Mitigation: define acceptance tests; conduct field trials."
+      ],
+      "evidence_needed": [
+        "Specification of Vehicle onboard compute (CPU, GPU, memory, thermal constraints).",
+        "Specification of Telemetry interface (schema, versioning, bandwidth, latency SLA).",
+        "Specification of sensor suite (LiDAR model, camera resolution, IMU specs, calibration tolerance).",
+        "Specification of fusion algorithm (occupancy grid resolution, semantic labels, update rate).",
+        "Specification of model audit/validation interface (query endpoints, response format, access control).",
+        "Field trial results: model accuracy, update latency, compute utilization, network performance.",
+        "Safety analysis: hazard identification, risk assessment, mitigation strategies for high-criticality mapping function."
+      ]
+    }
+  }
+}

@@ -1,0 +1,162 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and work-zone boundaries, with sufficient fidelity to support autonomous path planning and operator situational awareness.",
+    "rationale": "The original FR was vague on fidelity requirements, update frequency, and intended consumers. Refinement clarifies that the model must serve both planning (offline) and execution (real-time) functions, must distinguish static from dynamic features, and must be safety-critical (high criticality factor). This enables verification against acceptance criteria: 'worksite model/map is generated and available to planning/execution functions for an agreed set of site features.'",
+    "verification_idea": "Acceptance test: (1) Model generated within 5 min of site survey; (2) Terrain elevation accuracy ±0.5 m; (3) Obstacle detection coverage ≥95% for objects >0.3 m; (4) Model accessible via Telemetry interface to planning and execution subsystems; (5) Safety-critical features (hazard zones) flagged and logged.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire worksite sensor data (LiDAR, camera, GNSS) and fuse into unified coordinate frame.",
+      "CR-NGHE-006.2: Classify and segment terrain, obstacles, and work zones from fused sensor data.",
+      "CR-NGHE-006.3: Maintain and update worksite model in real-time as new sensor data arrives.",
+      "CR-NGHE-006.4: Expose worksite model via standardized interface (Telemetry) to planning and execution consumers.",
+      "CR-NGHE-006.5: Flag and alert Safety Services when hazardous features (personnel proximity, unstable terrain) are detected in the model."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized mapping service (on-vehicle compute) that fuses multi-sensor data (LiDAR, camera, GNSS) into a 3D occupancy grid and publishes via Telemetry interface.",
+      "DP-B: Distributed edge mapping (vehicle + tele-operator station) where vehicle collects raw sensor data, tele-operator performs fusion and classification, and publishes model back to vehicle.",
+      "DP-C: Cloud-based mapping service where vehicle streams raw sensor data to cloud, cloud performs fusion/classification, and pushes model back to vehicle and planning systems via Telemetry.",
+      "DP-D: Hybrid mapping (vehicle + Safety Services) where vehicle performs local sensor fusion, Safety Services performs hazard classification and alerts, and model is shared via Telemetry."
+    ],
+    "selected_dp": "DP-A: Centralized on-vehicle mapping service with multi-sensor fusion (LiDAR, camera, GNSS) into 3D occupancy grid, published via Telemetry interface to planning/execution and Safety Services.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Sensor data acquisition (LiDAR, camera, GNSS) is decoupled from fusion logic via standardized sensor driver interfaces.",
+        "Fusion algorithm is decoupled from model representation (occupancy grid is a standard format).",
+        "Model publication is decoupled from consumption via Telemetry interface (planning, execution, Safety Services are independent consumers).",
+        "Real-time update loop is self-contained on vehicle, reducing latency and network dependency."
+      ],
+      "notes": "DP-A avoids cloud latency (DP-C) and tele-operator bottleneck (DP-B), critical for safety-critical real-time hazard detection. Hybrid (DP-D) introduces unnecessary coupling between vehicle mapping and Safety Services; hazard classification should be a separate concern."
+    },
+    "assumptions_risks": [
+      "Assumption: Vehicle has sufficient on-board compute (GPU/FPGA) to perform real-time multi-sensor fusion at ≥10 Hz.",
+      "Assumption: LiDAR, camera, and GNSS are available on vehicle and calibrated to common coordinate frame.",
+      "Risk: If on-board compute is insufficient, fusion latency may exceed real-time requirements, degrading hazard detection.",
+      "Risk: Sensor calibration drift over time may degrade model accuracy; periodic recalibration procedure required.",
+      "Risk: Occupancy grid resolution vs. memory trade-off; coarse grid may miss small hazards, fine grid may exceed compute/memory budget."
+    ],
+    "recommended_revision": "Specify on-board compute platform (e.g., NVIDIA Jetson AGX Orin or equivalent) and occupancy grid resolution (e.g., 0.1 m voxels) in DP to enable feasibility assessment. Add requirement for sensor calibration verification at startup and periodic drift detection."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "On-vehicle mapping service module: integrates LiDAR, camera, GNSS sensor drivers; performs real-time multi-sensor fusion into 3D occupancy grid; maintains and updates model state; publishes model via Telemetry interface to external consumers (planning, execution, Safety Services). Includes sensor data acquisition, fusion algorithm, model storage, and Telemetry publisher."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle publishes worksite model (3D occupancy grid, terrain elevation, obstacle locations, work-zone boundaries, hazard flags) to planning/execution functions and Safety Services. Frequency: ≥10 Hz for real-time updates."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives mapping task parameters (survey area bounds, sensor configuration, update frequency) from planning/execution. Used to configure mapping service at mission start."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Vehicle publishes safety-critical hazard detections (personnel proximity, unstable terrain, work-zone violations) to Safety Services for real-time alerting and intervention."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "Mapping service is core vehicle capability; sensor fusion, model maintenance, and real-time updates are tightly coupled to vehicle state and sensor suite. Minimal diffusion: only Telemetry/SafetyAlert publication crosses boundary. High containment justified by safety criticality and real-time latency requirements."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Safety Services should consume model (via Telemetry) and perform hazard classification/alerting, not generate the model. Assigning mapping to Safety Services would couple sensor fusion to safety logic, violating separation of concerns. High diffusion risk: Safety Services would need direct access to vehicle sensors and compute, creating architectural coupling."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 15,
+        "diffusion_score": 85,
+        "notes": "Teleoperation is for remote operator control, not mapping. Assigning mapping to Teleoperation would introduce unnecessary latency (operator station may be remote) and couple operator interface to sensor fusion. High diffusion: tele-operator station may lack compute resources for real-time fusion."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 30,
+        "diffusion_score": 70,
+        "notes": "NGHE Solution is the top-level system container. Mapping could be assigned here as a system-level service, but this would diffuse the implementation across multiple physical/software boundaries (vehicle sensors, on-board compute, network publication). Better to assign to Vehicle (the physical platform where sensors and compute reside) and expose via Telemetry interface."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "Worksite mapping service is best contained within Vehicle module because: (1) Sensors (LiDAR, camera, GNSS) are vehicle-mounted; (2) Real-time fusion requires low-latency access to sensor data; (3) Model is a vehicle-centric representation of the environment; (4) Safety-critical hazard detection depends on model freshness, which is maximized by on-vehicle processing. External consumers (planning, execution, Safety Services) access model via Telemetry interface, maintaining loose coupling.",
+    "containment_risks": [
+      "Risk: Vehicle module may become overloaded if mapping service consumes significant compute/memory, leaving insufficient resources for vehicle control and navigation. Mitigation: Specify compute budget (e.g., max 30% CPU, 2 GB RAM) and monitor at runtime.",
+      "Risk: Sensor calibration and maintenance are vehicle-specific; if mapping service is tightly coupled to vehicle hardware, changes to sensor suite may require significant rework. Mitigation: Use abstraction layer (sensor driver interface) to decouple fusion algorithm from specific sensor models.",
+      "Risk: Model publication via Telemetry may create network bottleneck if model size is large (e.g., high-resolution occupancy grid). Mitigation: Implement model compression/streaming and adaptive resolution based on network bandwidth."
+    ],
+    "recommended_revision": "Clarify Vehicle module scope to include 'on-vehicle mapping service' as a distinct sub-component with defined interfaces (sensor inputs, Telemetry/SafetyAlert outputs). Specify compute platform and resource budget. Define sensor driver abstraction layer to enable sensor suite flexibility."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "Selected DP (centralized on-vehicle mapping with multi-sensor fusion) directly addresses refined FR (generate and maintain real-time worksite model). DP specifies how (sensor fusion, occupancy grid, Telemetry publication) and where (on-vehicle). Coupling check passes: sensor acquisition, fusion, and publication are logically decoupled. Assumptions and risks are identified and manageable (compute platform, sensor calibration, grid resolution)."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Telemetry interface publication may create network bottleneck if model size exceeds available bandwidth. Mitigation: Implement adaptive compression and streaming.",
+        "SafetyAlert publication couples Vehicle mapping to Safety Services; if Safety Services is unavailable, hazard alerts may not reach operators. Mitigation: Implement local hazard logging and fallback alerting on vehicle."
+      ],
+      "containment_notes": "Vehicle module is the correct containment boundary. Mapping service is tightly coupled to vehicle sensors and compute, and must operate in real-time with low latency. Assigning to Safety Services, Teleoperation, or NGHE Solution would introduce unacceptable diffusion and latency. Telemetry/SafetyAlert interfaces are appropriate for loose coupling to external consumers."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible via acceptance tests: (1) Model generation time, (2) Terrain accuracy, (3) Obstacle detection coverage, (4) Interface availability (Telemetry, SafetyAlert), (5) Real-time update frequency. All tests can be performed on vehicle with sensor data playback or live survey.",
+      "allocation_clarity": "Allocation is clear: Vehicle module owns mapping service; planning/execution and Safety Services are consumers via Telemetry/SafetyAlert. Ownership boundaries are well-defined. Interface contracts (Telemetry format, SafetyAlert schema, Tasking parameters) must be specified in detailed design."
+    },
+    "recommended_revisions": [
+      "Specify Telemetry interface schema (occupancy grid format, coordinate frame, update frequency, compression method).",
+      "Specify SafetyAlert schema (hazard type, location, severity, timestamp).",
+      "Specify Tasking interface schema (survey area bounds, sensor configuration, update frequency).",
+      "Define compute platform and resource budget for on-vehicle mapping service.",
+      "Define sensor calibration procedure and drift detection mechanism.",
+      "Define occupancy grid resolution and memory budget."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "Refined FR is not atomic; it contains five sub-FRs (sensor data acquisition, classification, model maintenance, interface publication, hazard alerting). Each sub-FR requires further decomposition to DP and IM. DP-A is sound and well-coupled, and Vehicle is the correct IM boundary. Proceed to next decomposition level for sub-FRs CR-NGHE-006.1 through CR-NGHE-006.5.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire worksite sensor data (LiDAR, camera, GNSS) and fuse into unified coordinate frame.",
+      "CR-NGHE-006.2: Classify and segment terrain, obstacles, and work zones from fused sensor data.",
+      "CR-NGHE-006.3: Maintain and update worksite model in real-time as new sensor data arrives.",
+      "CR-NGHE-006.4: Expose worksite model via standardized interface (Telemetry) to planning and execution consumers.",
+      "CR-NGHE-006.5: Flag and alert Safety Services when hazardous features (personnel proximity, unstable terrain) are detected in the model."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Vehicle has sufficient on-board compute (GPU/FPGA) to perform real-time multi-sensor fusion at ≥10 Hz.",
+        "LiDAR, camera, and GNSS are available on vehicle and calibrated to common coordinate frame.",
+        "Telemetry interface is available and has sufficient bandwidth for model publication.",
+        "Safety Services is available to consume SafetyAlert messages; fallback alerting is implemented on vehicle.",
+        "Occupancy grid is an acceptable model representation for planning/execution and Safety Services."
+      ],
+      "open_risks": [
+        "On-board compute may be insufficient for real-time fusion; feasibility assessment required.",
+        "Sensor calibration drift may degrade model accuracy over time; periodic recalibration procedure required.",
+        "Occupancy grid resolution vs. memory trade-off; optimal resolution must be determined.",
+        "Network bandwidth may be insufficient for high-resolution model publication; compression/streaming required.",
+        "Safety Services availability and response time for hazard alerts; fallback mechanism required."
+      ],
+      "evidence_needed": [
+        "Compute platform specification and performance benchmarks for multi-sensor fusion.",
+        "Sensor calibration procedure and drift detection mechanism.",
+        "Occupancy grid resolution analysis (accuracy vs. memory/compute trade-off).",
+        "Network bandwidth analysis and model compression strategy.",
+        "Safety Services interface specification and response time requirements.",
+        "Acceptance test results for model generation time, accuracy, and interface availability."
+      ]
+    }
+  }
+}

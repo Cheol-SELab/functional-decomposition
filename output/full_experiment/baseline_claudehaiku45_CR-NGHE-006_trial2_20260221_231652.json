@@ -1,0 +1,174 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and designated work zones with sufficient fidelity to support autonomous path planning and operator situational awareness.",
+    "rationale": "The original FR was vague on scope (what constitutes 'area analysis') and lacked specificity on fidelity requirements, update frequency, and consumer functions. Refinement clarifies that the worksite model must be dynamic, multi-layered (terrain + obstacles + hazards + zones), and explicitly linked to downstream planning/execution. High safety criticality demands explicit hazard representation.",
+    "verification_idea": "Acceptance: (1) Model generated within 5 minutes of site entry; (2) Terrain elevation accuracy ±0.5 m over 95% of mapped area; (3) Static obstacles detected with 90% recall; (4) Dynamic hazards updated at ≥2 Hz; (5) Work zones editable by Site Manager and persisted; (6) Model accessible to planning and execution subsystems via standardized interface.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire terrain elevation data via onboard sensors (LiDAR/stereo) and fuse into elevation map.",
+      "CR-NGHE-006.2: Detect and classify static obstacles (rocks, structures, vegetation) and represent in occupancy grid.",
+      "CR-NGHE-006.3: Detect and track dynamic hazards (personnel, equipment) in real-time.",
+      "CR-NGHE-006.4: Represent and manage work-zone boundaries (geofences) editable by Site Manager.",
+      "CR-NGHE-006.5: Expose worksite model via standardized interface to planning and execution functions.",
+      "CR-NGHE-006.6: Validate model consistency and alert Safety Manager to anomalies or sensor failures."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized mapping service (runs on vehicle compute) that fuses multi-sensor input (LiDAR, stereo, IMU, GNSS) into a unified 3D occupancy grid + elevation map + dynamic object tracker; exposes model via REST/gRPC API.",
+      "DP-B: Distributed mapping where each sensor stream is processed independently (terrain by LiDAR module, obstacles by vision module, hazards by radar module) and results are loosely coupled via message bus; Site Manager edits zones via separate UI service.",
+      "DP-C: Cloud-centric mapping where raw sensor data is streamed to remote server, processed centrally, and pushed back to vehicle and Site Manager; vehicle maintains local cache for safety-critical functions."
+    ],
+    "selected_dp": "DP-A: Centralized mapping service with multi-sensor fusion on vehicle compute, exposing unified model via standardized API. Rationale: (1) High safety criticality demands low-latency, deterministic access to model; cloud-centric (DP-C) introduces network dependency and latency risk. (2) Centralized fusion (DP-A) ensures consistency and single source of truth, reducing coupling complexity vs. distributed (DP-B). (3) Vehicle-resident compute is available and sufficient for real-time fusion at expected sensor rates. (4) Standardized API decouples consumers (planning, execution, Safety Services) from implementation details.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Sensor input coupling: LiDAR, stereo, IMU, GNSS must be time-synchronized and calibrated; risk of drift if calibration not maintained.",
+        "Consumer coupling: Planning and execution functions depend on model freshness and accuracy; if fusion lags, downstream decisions degrade.",
+        "Safety Services coupling: Hazard detection must feed Safety Services for real-time alerts; latency in hazard update propagation is a safety risk."
+      ],
+      "notes": "Coupling is manageable via explicit time-sync protocol, sensor health monitoring, and bounded-latency API contracts. Recommend explicit interface SLAs (e.g., model update rate ≥2 Hz, hazard detection latency <500 ms)."
+    },
+    "assumptions_risks": [
+      "Assumption: Vehicle compute has sufficient CPU/GPU and memory for real-time multi-sensor fusion; risk if compute is undersized.",
+      "Assumption: Sensor calibration is stable over mission duration; risk of drift if thermal or mechanical stress causes misalignment.",
+      "Assumption: Site Manager can edit work zones via UI without disrupting real-time mapping; risk if UI blocks mapping thread.",
+      "Risk: Sensor occlusion (e.g., dust, rain) may degrade terrain and obstacle detection; mitigation via sensor health monitoring and fallback to prior map.",
+      "Risk: Dynamic hazard tracking (personnel, equipment) requires robust detection; false negatives are safety-critical; recommend conservative detection thresholds and human-in-loop validation."
+    ],
+    "recommended_revision": "Refine DP-A to explicitly specify: (1) Sensor fusion algorithm (e.g., occupancy grid with Bayesian update, Kalman filter for dynamic objects); (2) Compute resource budget (CPU, GPU, memory); (3) API contract (latency, update rate, accuracy guarantees); (4) Fallback behavior if sensors fail (e.g., freeze map, alert operator); (5) Work-zone edit protocol (e.g., Site Manager submits edit, mapping service validates and applies atomically)."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "The Vehicle module owns the real-time worksite mapping service, including multi-sensor fusion (LiDAR, stereo, IMU, GNSS), occupancy grid and elevation map generation, dynamic object tracking, and the standardized API that exposes the model to planning, execution, and Safety Services. The Vehicle module also owns the local work-zone editor and persistence layer."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle publishes worksite model state (terrain, obstacles, hazards, zones) as telemetry to Teleoperation and Safety Services for situational awareness and safety monitoring."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives work-zone edits and mapping configuration commands from Site Manager (via Teleoperation or direct UI); tasking includes zone geometry, priority, and constraints."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Vehicle publishes hazard detections and model anomalies (sensor failures, inconsistencies) to Safety Services via SafetyAlert for real-time safety monitoring and operator alerts."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Vehicle may optionally stream raw sensor data or model snapshots to remote planning/analysis systems via Network Link; also receives remote work-zone updates if Site Manager operates from remote location."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "NGHE Solution is the top-level system; worksite mapping is a subsystem function. Assigning to NGHE Solution would diffuse the mapping service across multiple physical/software layers (vehicle, cloud, UI) without clear ownership. Not recommended."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.95,
+        "diffusion_score": 0.05,
+        "notes": "Vehicle is the natural owner: it hosts the sensors (LiDAR, stereo, IMU, GNSS), compute resources, and real-time processing. Mapping service is tightly coupled to vehicle state and sensor streams. Work-zone persistence can be local or synced to cloud, but primary logic resides on vehicle. Highly cohesive, minimal diffusion."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Teleoperation is a consumer of the worksite model (for operator situational awareness) and a provider of work-zone edits (Site Manager input). It should not own the mapping service; that would couple teleoperation to sensor fusion logic and create a distributed, hard-to-maintain architecture."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.15,
+        "diffusion_score": 0.85,
+        "notes": "Safety Services is a consumer of hazard detections and model state. It should not own the mapping service; that would require Safety Services to host sensors and fusion logic, which is architecturally incorrect and operationally risky (safety logic should be independent of mapping implementation)."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module is the optimal owner because: (1) it hosts all sensors and compute resources required for real-time fusion; (2) mapping is a core vehicle capability, not a cross-cutting concern; (3) containment minimizes interface complexity and latency; (4) Vehicle already owns other real-time perception functions (e.g., obstacle avoidance, localization); (5) clear ownership enables independent testing and evolution of mapping algorithms.",
+    "containment_risks": [
+      "Risk: If Vehicle compute is overloaded, mapping service may starve other critical functions (e.g., safety monitoring, teleoperation responsiveness). Mitigation: Explicit resource allocation (e.g., CPU cores, memory limits) and priority scheduling.",
+      "Risk: Work-zone edits from Site Manager (via Teleoperation) must be synchronized with real-time mapping; race conditions or stale edits could cause inconsistency. Mitigation: Atomic edit protocol with versioning and conflict resolution.",
+      "Risk: If Vehicle loses network connectivity, Site Manager cannot edit zones or receive model updates. Mitigation: Local zone persistence on Vehicle; Site Manager can edit locally and sync when connectivity restored.",
+      "Risk: Sensor failures (e.g., LiDAR outage) degrade mapping quality; Vehicle must detect and alert Safety Services. Mitigation: Sensor health monitoring and graceful degradation (e.g., fall back to prior map, reduce planning confidence)."
+    ],
+    "recommended_revision": "Clarify the following in the Vehicle module specification: (1) Compute resource allocation for mapping service (e.g., 2 CPU cores, 4 GB RAM, optional GPU); (2) Sensor interface contracts (data rates, latencies, calibration requirements); (3) Work-zone edit protocol (e.g., Site Manager submits edit via Tasking interface, Vehicle validates and applies atomically, publishes updated model via Telemetry); (4) Fallback behavior for sensor failures (e.g., freeze map, alert Safety Services, operator can manually override); (5) Model versioning and consistency guarantees (e.g., all consumers see consistent snapshot at time T)."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "The refined FR clearly specifies what the worksite model must contain (terrain, obstacles, hazards, zones) and how it will be used (planning, execution, safety monitoring). DP-A (centralized fusion service) directly addresses all FR elements: it acquires and fuses sensor data (terrain, obstacles), tracks dynamic hazards, manages work zones, and exposes the model via API. The DP is implementable, testable, and traceable to FR. No FR-DP mismatch detected."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Moderate risk: Work-zone edits originate from Teleoperation (Site Manager UI) but are applied in Vehicle mapping service. This requires a well-defined Tasking interface and atomic edit protocol to avoid race conditions. Recommend explicit versioning and conflict resolution.",
+        "Low risk: Sensor data flows from Vehicle sensors to mapping service (internal to Vehicle module); no diffusion across module boundaries.",
+        "Low risk: Model output flows to Teleoperation (Telemetry), Safety Services (SafetyAlert), and planning/execution (internal or via Telemetry). Interfaces are well-defined and unidirectional."
+      ],
+      "containment_notes": "Vehicle module contains the mapping service and all real-time processing. External interfaces (Telemetry, Tasking, SafetyAlert, Network Link) are clearly defined and minimal. Containment is strong; diffusion is limited to well-scoped interfaces. Recommend explicit interface SLAs (latency, update rate, accuracy) to manage coupling."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The refined FR specifies measurable acceptance criteria (terrain accuracy ±0.5 m, obstacle recall 90%, hazard update rate ≥2 Hz, model availability to planning/execution). Vehicle module can be tested in isolation (with sensor simulators) and in integration (with planning, execution, Safety Services). Verification plan is clear: sensor accuracy tests, fusion algorithm validation, API contract tests, end-to-end scenario tests.",
+      "allocation_clarity": "High. The FR is allocated to Vehicle module with clear sub-FRs (sensor acquisition, obstacle detection, hazard tracking, zone management, model exposure, consistency validation). Each sub-FR can be assigned to a specific component or service within Vehicle (e.g., LiDAR driver, stereo processor, object tracker, zone manager, API server). Ownership and responsibility are unambiguous."
+    },
+    "recommended_revisions": [
+      "Refine the Tasking interface specification to include work-zone edit protocol: (a) Site Manager submits edit with zone geometry, priority, constraints; (b) Vehicle mapping service validates edit (e.g., zone within mapped area, no conflicts with safety constraints); (c) Vehicle applies edit atomically and publishes updated model; (d) Site Manager receives confirmation or rejection with reason.",
+      "Specify sensor health monitoring and fallback behavior: (a) Vehicle continuously monitors sensor status (e.g., LiDAR frame rate, stereo disparity quality); (b) If sensor fails, Vehicle alerts Safety Services via SafetyAlert and degrades mapping (e.g., freeze map, reduce planning confidence); (c) Operator can manually override or request re-initialization.",
+      "Define model versioning and consistency: (a) Each model update is tagged with version number and timestamp; (b) Consumers (planning, execution, Safety Services) can request model at specific version or latest; (c) Vehicle guarantees that all consumers see consistent snapshot (no partial updates).",
+      "Clarify compute resource allocation: (a) Specify CPU, GPU, memory budget for mapping service; (b) Define priority relative to other Vehicle functions (e.g., safety monitoring, teleoperation); (c) Recommend resource isolation (e.g., containerization, CPU affinity) to prevent starvation."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The refined FR is well-scoped and traceable to DP and IM. The DP (centralized fusion service) is sound and implementable. The IM assignment (Vehicle module) is optimal with minimal diffusion. However, the FR is not yet atomic; it comprises six sub-FRs (sensor acquisition, obstacle detection, hazard tracking, zone management, model exposure, consistency validation) that require further decomposition. Each sub-FR should be refined, assigned a DP, and allocated to a specific component or service within the Vehicle module. Recommend proceeding to the next decomposition level for each sub-FR to ensure complete architectural clarity and traceability.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire terrain elevation data via onboard sensors (LiDAR/stereo) and fuse into elevation map.",
+      "CR-NGHE-006.2: Detect and classify static obstacles (rocks, structures, vegetation) and represent in occupancy grid.",
+      "CR-NGHE-006.3: Detect and track dynamic hazards (personnel, equipment) in real-time.",
+      "CR-NGHE-006.4: Represent and manage work-zone boundaries (geofences) editable by Site Manager.",
+      "CR-NGHE-006.5: Expose worksite model via standardized interface to planning and execution functions.",
+      "CR-NGHE-006.6: Validate model consistency and alert Safety Manager to anomalies or sensor failures."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Vehicle compute has sufficient resources (CPU, GPU, memory) for real-time multi-sensor fusion at expected sensor rates (LiDAR 10-20 Hz, stereo 30 Hz, IMU 100 Hz, GNSS 10 Hz).",
+        "Sensor calibration is stable over mission duration; thermal and mechanical stress do not cause significant misalignment.",
+        "Site Manager can edit work zones via UI without disrupting real-time mapping (e.g., UI runs on separate thread or process).",
+        "Planning and execution functions can tolerate model update latency of 100-500 ms (not real-time, but near-real-time).",
+        "Safety Services can tolerate hazard detection latency of <500 ms for real-time alerts.",
+        "Network connectivity is available for remote Site Manager access and cloud sync, but Vehicle can operate autonomously with local map if connectivity is lost.",
+        "Sensor occlusion (dust, rain, fog) is manageable via sensor health monitoring and fallback to prior map; operator can manually override if needed."
+      ],
+      "open_risks": [
+        "Sensor fusion algorithm complexity: Multi-sensor fusion (LiDAR, stereo, IMU, GNSS) is non-trivial; algorithm selection and tuning will impact accuracy and latency. Recommend early prototyping and validation.",
+        "Compute resource contention: Mapping service shares Vehicle compute with other critical functions (safety monitoring, teleoperation, planning). Resource allocation and priority scheduling must be carefully designed to prevent starvation.",
+        "Work-zone edit consistency: Site Manager edits must be synchronized with real-time mapping; race conditions or stale edits could cause inconsistency. Recommend atomic edit protocol with versioning.",
+        "Dynamic hazard detection: Detecting and tracking personnel and equipment in real-time is challenging, especially in cluttered environments. False negatives are safety-critical; recommend conservative detection thresholds and human-in-loop validation.",
+        "Sensor failure modes: LiDAR, stereo, IMU, GNSS can fail independently; Vehicle must detect failures and degrade gracefully. Recommend comprehensive sensor health monitoring and fallback strategies.",
+        "Model accuracy and fidelity: Terrain accuracy ±0.5 m and obstacle recall 90% are ambitious; may require high-resolution sensors and sophisticated algorithms. Recommend early validation against acceptance criteria."
+      ],
+      "evidence_needed": [
+        "Sensor specifications and performance data (accuracy, latency, failure modes).",
+        "Vehicle compute specifications (CPU, GPU, memory, power budget).",
+        "Sensor fusion algorithm design and validation (e.g., simulation, lab testing).",
+        "Worksite model representation and API specification (e.g., occupancy grid format, REST/gRPC schema).",
+        "Work-zone edit protocol and conflict resolution strategy.",
+        "Sensor health monitoring and fallback behavior specification.",
+        "Model versioning and consistency guarantees.",
+        "Resource allocation and priority scheduling design.",
+        "Integration test plan (mapping service with planning, execution, Safety Services).",
+        "Acceptance test plan (terrain accuracy, obstacle recall, hazard detection latency, model availability)."
+      ]
+    }
+  }
+}

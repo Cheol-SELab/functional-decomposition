@@ -1,0 +1,167 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and designated work zones with sufficient fidelity to support autonomous path planning and operator situational awareness.",
+    "rationale": "The original FR was vague on scope (what constitutes 'area analysis') and lacked specificity on fidelity requirements, update frequency, and consumer functions. Refinement clarifies that the worksite model must be dynamic, support both planning and execution, and meet safety-critical use cases (hazard detection). High safety criticality demands explicit inclusion of dynamic hazard representation.",
+    "verification_idea": "Acceptance: (1) Model generated within 5 minutes of site entry; (2) Terrain elevation accuracy ±0.5 m over 95% of mapped area; (3) Static obstacles detected with 90% recall; (4) Dynamic hazards (personnel) detected within 2 m with 95% confidence; (5) Model accessible to planning and execution subsystems via standardized interface; (6) Safety Manager can review model before operations commence.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire terrain and obstacle data from onboard sensors (LiDAR, camera, IMU) and external sources.",
+      "CR-NGHE-006.2: Fuse multi-modal sensor data into a unified 3D spatial representation.",
+      "CR-NGHE-006.3: Classify and label terrain, static obstacles, dynamic hazards, and work zones.",
+      "CR-NGHE-006.4: Maintain and update the worksite model in real-time as the vehicle moves and new data arrives.",
+      "CR-NGHE-006.5: Expose the worksite model via standardized interfaces to planning, execution, and safety subsystems.",
+      "CR-NGHE-006.6: Validate model integrity and flag anomalies or low-confidence regions to the operator and Safety Services."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized mapping engine (SLAM-based) running on vehicle compute, fusing LiDAR + camera + IMU, publishing model via ROS/middleware to planning and safety subsystems.",
+      "DP-B: Distributed sensor processing: onboard perception pipeline (LiDAR → obstacle detection, camera → hazard classification) feeding a cloud-based map server; vehicle queries map for planning.",
+      "DP-C: Hybrid edge-cloud: onboard lightweight occupancy grid (LiDAR) for immediate planning; cloud-based semantic mapping (camera + ML) for detailed hazard classification and long-term persistence.",
+      "DP-D: Operator-assisted mapping: vehicle collects raw sensor data; tele-operator or site manager manually annotates terrain and hazards via UI; model stored in central repository."
+    ],
+    "selected_dp": "DP-C: Hybrid edge-cloud architecture with onboard lightweight occupancy grid (LiDAR-based) for real-time planning and safety, coupled with cloud-based semantic mapping (camera + ML inference) for detailed hazard classification, work-zone definition, and persistent model storage. Onboard compute maintains a local cache; cloud service provides model versioning, multi-user access, and integration with planning/execution workflows.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between onboard occupancy grid and cloud semantic map: mitigated by clear data flow (occupancy grid → cloud for enrichment; cloud → vehicle for planning context). Both are read-only from each other's perspective at execution time.",
+        "Coupling with Teleoperation subsystem: DP-C requires network link for cloud sync; acceptable given Teleoperation already depends on Network Link.",
+        "Coupling with Safety Services: DP-C must expose hazard classifications in real-time; design includes SafetyAlert interface for critical detections."
+      ],
+      "notes": "DP-C avoids tight coupling by separating concerns: edge handles latency-critical occupancy; cloud handles semantic richness and persistence. Decoupling via message queues and versioned APIs reduces risk of cascading failures."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Network connectivity is available for cloud sync; fallback to local-only occupancy grid if cloud unavailable.",
+      "ASSUMPTION: Onboard compute (GPU/CPU) is sufficient for real-time LiDAR processing (~10 Hz); if not, occupancy grid update rate may degrade.",
+      "RISK: Cloud latency (>2 s) may delay hazard classification; mitigated by onboard conservative occupancy grid (treats uncertain regions as obstacles).",
+      "RISK: Camera-based hazard detection (personnel, small objects) may fail in poor lighting or occlusion; mitigated by multi-modal fusion and operator override.",
+      "RISK: Model drift if LiDAR calibration drifts; requires periodic recalibration or loop-closure detection."
+    ],
+    "recommended_revision": "Clarify cloud service SLA (availability, latency, data retention) and define fallback behavior (local-only mode) if cloud is unavailable. Specify ML model versioning and update strategy for hazard classifiers. Define model refresh rate (e.g., 1 Hz for occupancy, 0.5 Hz for semantics) and acceptable staleness for planning."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "Onboard perception and mapping subsystem: LiDAR/camera sensor drivers, real-time occupancy grid generation, local model caching, sensor fusion pipeline, and interfaces to planning/execution and Safety Services. Excludes cloud semantic mapping service (owned by separate entity) and tele-operator UI (owned by Teleoperation)."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle publishes occupancy grid, sensor health, and model update status to Telemetry stream for monitoring and cloud ingestion."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives planning requests (e.g., 'generate map of zone X') and model queries (e.g., 'is cell (x,y,z) occupied?') from planning subsystem via Tasking interface."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Vehicle publishes critical hazard detections (personnel within 2 m, unstable terrain) to SafetyAlert for immediate Safety Services notification."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Vehicle uses Network Link to sync local occupancy grid with cloud semantic mapping service and retrieve enriched model context."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Vehicle is the natural owner of onboard perception and real-time occupancy grid. Sensor drivers, fusion pipeline, and local caching are tightly coupled to vehicle hardware and compute. Cloud sync is a thin integration layer (low diffusion). Ownership is clear."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.15,
+        "diffusion_score": 0.85,
+        "notes": "Safety Services should consume hazard alerts from Vehicle, not own the mapping pipeline. Placing mapping in Safety Services would create tight coupling to vehicle sensors and duplicate occupancy grid logic. Not recommended."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.1,
+        "diffusion_score": 0.9,
+        "notes": "Teleoperation is a user interface and remote control subsystem. Mapping logic belongs on the vehicle (edge) for latency and autonomy. Teleoperation may consume the model for visualization but should not own generation. High diffusion risk."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.05,
+        "diffusion_score": 0.95,
+        "notes": "NGHE Solution is the top-level system container. Mapping is a subsystem function, not a solution-level concern. Assigning to NGHE Solution would blur ownership and prevent clear interface contracts. Not recommended."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module owns the onboard perception and occupancy grid generation because (1) sensors and compute are vehicle-resident, (2) real-time latency demands edge processing, (3) occupancy grid is tightly coupled to vehicle kinematics and sensor calibration, (4) cloud semantic mapping is a separate service consumed via Network Link. This assignment minimizes diffusion and aligns with physical/logical architecture.",
+    "containment_risks": [
+      "RISK: If Vehicle module becomes too large (sensor drivers + fusion + planning interface + safety interface), consider splitting into Vehicle.Perception and Vehicle.Planning submodules at next decomposition level.",
+      "RISK: Cloud semantic mapping service is not explicitly listed as an IM candidate; clarify whether it is owned by a separate 'Cloud Services' module or external vendor. If external, Vehicle must define a clear contract (API, data format, SLA).",
+      "RISK: Network Link dependency introduces availability risk; Vehicle must gracefully degrade to local-only mode if cloud is unavailable."
+    ],
+    "recommended_revision": "Confirm that cloud semantic mapping is out of scope for this decomposition (owned externally or by a separate module). Define Vehicle.Perception as a sub-module boundary to manage complexity. Specify fallback behavior and model staleness thresholds for cloud-unavailable scenarios."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid edge-cloud) directly addresses all sub-FRs: (1) onboard LiDAR acquisition and fusion, (2) real-time occupancy grid, (3) cloud-based classification, (4) continuous updates, (5) interface exposure, (6) anomaly flagging. DP-C is feasible, testable, and aligns with safety-critical requirements (conservative occupancy grid + SafetyAlert interface). No decoupling issues detected."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Cloud semantic mapping service is not explicitly owned by Vehicle; requires clear external interface contract (API, data format, versioning). Recommend defining a 'Cloud Mapping Service' IM boundary or clarifying external ownership.",
+        "Network Link dependency: Vehicle must handle cloud unavailability gracefully. Recommend explicit fallback mode (local-only occupancy grid) and model staleness thresholds."
+      ],
+      "containment_notes": "Vehicle is the correct owner of onboard perception and occupancy grid. Containment score 0.92 is high; diffusion is minimal and well-managed via Network Link interface. No other candidate module is suitable. Ownership is clear and defensible."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible: (1) occupancy grid accuracy can be tested in controlled environments (known terrain + obstacles); (2) hazard detection can be validated with synthetic and real sensor data; (3) model update latency can be measured; (4) interface contracts can be validated via integration tests. Safety-critical aspects (hazard detection, SafetyAlert) require formal validation and operator acceptance.",
+      "allocation_clarity": "Allocation is clear: Vehicle owns onboard perception and occupancy grid; Safety Services consumes SafetyAlert; planning subsystem queries model via Tasking. Interfaces are named and directional. No ambiguity."
+    },
+    "recommended_revisions": [
+      "Clarify cloud semantic mapping ownership and define external interface contract (API, SLA, data format).",
+      "Define fallback behavior and model staleness thresholds for cloud-unavailable scenarios.",
+      "Specify occupancy grid resolution, update frequency, and memory footprint constraints for Vehicle compute.",
+      "Define hazard classification confidence thresholds and false-positive/false-negative trade-offs for SafetyAlert.",
+      "Add sub-module boundaries (Vehicle.Perception, Vehicle.Planning) at next decomposition level to manage complexity."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "CR-NGHE-006 is not atomic; it decomposes into 6 sub-FRs (sensor acquisition, fusion, classification, updates, interface exposure, validation). DP-C is sound and well-allocated to Vehicle. However, the sub-FRs require further decomposition to define detailed algorithms, interface contracts, and safety validation. Recommend proceeding to next level for sub-FRs CR-NGHE-006.1 through 006.6.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire terrain and obstacle data from onboard sensors (LiDAR, camera, IMU) and external sources.",
+      "CR-NGHE-006.2: Fuse multi-modal sensor data into a unified 3D spatial representation.",
+      "CR-NGHE-006.3: Classify and label terrain, static obstacles, dynamic hazards, and work zones.",
+      "CR-NGHE-006.4: Maintain and update the worksite model in real-time as the vehicle moves and new data arrives.",
+      "CR-NGHE-006.5: Expose the worksite model via standardized interfaces to planning, execution, and safety subsystems.",
+      "CR-NGHE-006.6: Validate model integrity and flag anomalies or low-confidence regions to the operator and Safety Services."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Network connectivity is available for cloud sync; fallback to local-only occupancy grid if unavailable.",
+        "Onboard compute (GPU/CPU) is sufficient for real-time LiDAR processing (~10 Hz).",
+        "Cloud semantic mapping service is owned externally or by a separate module (not Vehicle).",
+        "Operator and Safety Manager will review and approve worksite model before operations commence.",
+        "Terrain elevation accuracy requirement is ±0.5 m; hazard detection confidence is 95%."
+      ],
+      "open_risks": [
+        "Cloud latency (>2 s) may delay hazard classification; mitigated by conservative occupancy grid.",
+        "Camera-based hazard detection may fail in poor lighting or occlusion; requires multi-modal fusion and operator override.",
+        "LiDAR calibration drift may cause model drift; requires periodic recalibration or loop-closure detection.",
+        "Model staleness if cloud is unavailable; requires explicit fallback and threshold definition.",
+        "Vehicle module may become too large; recommend splitting into sub-modules at next level."
+      ],
+      "evidence_needed": [
+        "Sensor specifications (LiDAR range, resolution, update rate; camera FOV, resolution; IMU accuracy).",
+        "Onboard compute specifications (CPU, GPU, memory, power budget).",
+        "Cloud service SLA (availability, latency, data retention, API contract).",
+        "Terrain elevation accuracy and hazard detection confidence requirements (from Safety Manager and Site Manager).",
+        "Integration test plan for occupancy grid, hazard detection, and SafetyAlert interface.",
+        "Fallback behavior and model staleness thresholds for cloud-unavailable scenarios."
+      ]
+    }
+  }
+}

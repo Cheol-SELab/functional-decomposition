@@ -1,0 +1,164 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current operational state (vehicle position, task progress, environmental changes, safety events) within p95 ≤ 1.0 s latency for all supported update scenarios (teleoperated commands, autonomous task execution, sensor data ingestion, safety alerts).",
+    "rationale": "CR-NGHE-007 is a latency requirement that must be decomposed into functional sub-requirements addressing data acquisition, transmission, processing, and model synchronization. The refined statement explicitly names the update sources and acceptance criterion to enable testable allocation. High safety criticality demands that latency bounds apply uniformly across safety-critical and operational updates.",
+    "verification_idea": "Measure end-to-end latency from event occurrence (e.g., sensor reading, command issuance, safety event detection) to worksite model state change across representative scenarios. Collect p95 latency samples under nominal and degraded network conditions. Validate against 1.0 s threshold.",
+    "sub_frs": [
+      "FR-007.1: Acquire operational state data (vehicle telemetry, task status, environmental sensors) with sufficient frequency and fidelity.",
+      "FR-007.2: Transmit operational state data from vehicle to worksite model with bounded network latency.",
+      "FR-007.3: Process and integrate received state data into worksite model with bounded computation latency.",
+      "FR-007.4: Synchronize worksite model updates across all stakeholder interfaces (Site Manager, Tele-operator, Safety Manager) with bounded distribution latency.",
+      "FR-007.5: Prioritize safety-critical updates (SafetyAlert events) to meet latency bounds even under network congestion."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-007.A: Implement a centralized worksite model server with real-time data ingestion pipeline; vehicle telemetry streamed via Network Link at configurable frequency; server processes and broadcasts updates to all clients via Telemetry and SafetyAlert interfaces.",
+      "DP-007.B: Implement a distributed worksite model with edge processing on vehicle; vehicle computes and caches model state locally; periodic synchronization with central server via Network Link; clients query either vehicle or server depending on latency tolerance.",
+      "DP-007.C: Implement a hybrid model with dual-path update: fast-path for safety-critical updates (SafetyAlert) routed through dedicated low-latency channel; standard-path for operational updates (Telemetry, Tasking) routed through standard network with buffering and prioritization."
+    ],
+    "selected_dp": "DP-007.C: Hybrid dual-path update architecture with safety-critical fast-path (SafetyAlert via dedicated low-latency channel) and operational standard-path (Telemetry/Tasking via prioritized network queue). This design decouples safety-critical latency from operational latency, allowing independent tuning and reducing coupling between safety and operational subsystems.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between SafetyAlert and Telemetry interfaces if both share same network resource; mitigated by dedicated channel for SafetyAlert.",
+        "Coupling between worksite model update logic and network transmission if not separated; mitigated by explicit pipeline stages (acquire → process → distribute).",
+        "Coupling between vehicle telemetry acquisition and model synchronization if vehicle state changes are not idempotent; requires careful design of update semantics."
+      ],
+      "notes": "DP-007.C exhibits lower coupling than DP-007.A (which conflates safety and operational paths) and DP-007.B (which introduces edge processing complexity). Dual-path design allows independent optimization of safety and operational latency budgets."
+    },
+    "assumptions_risks": [
+      "Assumption: Network infrastructure supports dedicated low-latency channel for SafetyAlert (e.g., separate QoS class, priority queue, or physical link). Risk: If not available, SafetyAlert latency may degrade under congestion.",
+      "Assumption: Vehicle can reliably detect and classify safety-critical events for fast-path routing. Risk: Misclassification could delay critical alerts or flood fast-path with non-critical events.",
+      "Assumption: Worksite model update semantics are idempotent and commutative (order-independent). Risk: If not, out-of-order delivery on standard-path could corrupt model state.",
+      "Assumption: p95 ≤ 1.0 s latency is achievable with commodity network hardware and software. Risk: May require custom hardware or protocol optimization if baseline latency is > 500 ms."
+    ],
+    "recommended_revision": "Refine DP-007.C to explicitly specify: (1) SafetyAlert channel characteristics (dedicated vs. prioritized, latency SLA); (2) Telemetry/Tasking queue discipline (FIFO, priority, drop policy); (3) Model update semantics (idempotency, ordering guarantees); (4) Fallback behavior if fast-path unavailable. These details are necessary for IM assignment and verification."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Teleoperation module owns the worksite model update pipeline, including: (1) real-time data ingestion from vehicle via Network Link; (2) dual-path routing logic (SafetyAlert fast-path, Telemetry/Tasking standard-path); (3) worksite model state management and synchronization; (4) distribution of updates to stakeholder clients via Telemetry and SafetyAlert interfaces. Teleoperation acts as the central hub for operational state awareness across the NGHE solution."
+    },
+    "external_interfaces": [
+      {
+        "name": "Network Link",
+        "direction": "in",
+        "details": "Vehicle-to-Teleoperation communication channel. Carries vehicle telemetry, task status, sensor data, and safety events. Teleoperation module receives raw data and routes to appropriate processing pipeline (fast-path or standard-path)."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Teleoperation module broadcasts operational state updates (vehicle position, task progress, environmental state) to Site Manager, Tele-operator, and other operational clients. Latency target: p95 ≤ 1.0 s for standard updates."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Teleoperation module broadcasts safety-critical updates (hazard detection, safety violations, emergency events) to Safety Manager and safety-critical clients. Latency target: p95 ≤ 1.0 s for safety updates (may be tighter than operational updates)."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Teleoperation module receives task commands from Site Manager or Tele-operator. Task status updates are integrated into worksite model and reflected in Telemetry broadcasts."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "NGHE Solution is the top-level system boundary. Worksite model update is a core system function, but assigning to NGHE Solution would diffuse responsibility across all subsystems without clear ownership. Not recommended as IM boundary."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Vehicle module owns vehicle-side telemetry acquisition and transmission. However, worksite model state management, dual-path routing, and client distribution are not vehicle responsibilities. Assigning to Vehicle would create tight coupling between vehicle and worksite model, violating separation of concerns. Not recommended."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.9,
+        "diffusion_score": 0.1,
+        "notes": "Teleoperation module is the natural hub for real-time operational state awareness and remote control. It owns the worksite model, manages communication with vehicle (via Network Link), and distributes updates to stakeholders (via Telemetry, SafetyAlert, Tasking). High containment, low diffusion. Recommended."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Safety Services owns safety-critical logic and SafetyAlert generation. However, the broader worksite model update pipeline (including operational telemetry and task status) is not a Safety Services responsibility. Assigning to Safety Services would split the update pipeline across modules. Not recommended as primary IM."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "Teleoperation module is the optimal IM boundary for worksite model update latency because: (1) it owns the central worksite model data structure; (2) it manages the primary communication channel with vehicle (Network Link); (3) it distributes updates to all stakeholder clients (Telemetry, SafetyAlert); (4) it can implement dual-path routing logic (fast-path for SafetyAlert, standard-path for Telemetry/Tasking) without diffusion. Containment score 0.9 reflects high alignment with DP-007.C.",
+    "containment_risks": [
+      "Risk: Teleoperation module may become a bottleneck if worksite model update processing is CPU-intensive. Mitigation: Profile and optimize model update algorithms; consider multi-threaded or asynchronous processing.",
+      "Risk: Tight coupling between Teleoperation and Network Link if network protocol details leak into model update logic. Mitigation: Define clean interface contract for Network Link (e.g., message schema, delivery guarantees); isolate protocol handling in separate layer.",
+      "Risk: Tight coupling between Teleoperation and Safety Services if SafetyAlert generation logic is embedded in Teleoperation. Mitigation: Safety Services owns SafetyAlert generation; Teleoperation owns SafetyAlert routing and distribution.",
+      "Risk: Worksite model state consistency if updates arrive out-of-order or are duplicated. Mitigation: Implement idempotent update semantics (e.g., timestamp-based or sequence-number-based); validate ordering guarantees on Network Link."
+    ],
+    "recommended_revision": "Clarify the boundary between Teleoperation (worksite model update pipeline) and Safety Services (SafetyAlert generation). Specifically: (1) Safety Services detects safety-critical events and generates SafetyAlert messages; (2) Teleoperation receives SafetyAlert messages from Safety Services (or vehicle) and routes them via fast-path to stakeholders; (3) define the interface contract between Safety Services and Teleoperation (e.g., SafetyAlert message schema, delivery guarantees). This separation ensures Safety Services owns safety logic while Teleoperation owns operational state distribution."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-007.C (hybrid dual-path architecture) directly addresses FR-007 (worksite model update latency ≤ 1.0 s) by decoupling safety-critical and operational update paths. The dual-path design allows independent optimization of latency budgets for each path, reducing coupling and improving feasibility of meeting the p95 ≤ 1.0 s constraint. DP-007.C is traceable to FR-007 and its sub-FRs (FR-007.1 through FR-007.5)."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Diffusion risk: If Teleoperation module does not own the full dual-path routing logic, responsibility for latency optimization may diffuse across Vehicle, Safety Services, and Teleoperation. Mitigation: Assign all routing and prioritization logic to Teleoperation; Vehicle and Safety Services provide inputs (telemetry, alerts) but do not manage routing.",
+        "Diffusion risk: If Network Link interface does not provide clear delivery guarantees (latency, ordering, reliability), Teleoperation may need to implement compensating logic (retries, reordering buffers), increasing complexity. Mitigation: Define Network Link SLA (e.g., p95 latency, ordering guarantees) as a design constraint."
+      ],
+      "containment_notes": "Teleoperation module achieves high containment (0.9) for DP-007.C because it owns the central worksite model, manages dual-path routing, and distributes updates via Telemetry and SafetyAlert interfaces. Low diffusion (0.1) indicates that DP-007.C can be realized within Teleoperation without significant spillover to other modules."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "FR-007 (worksite model update latency) is verifiable via end-to-end latency measurement. Teleoperation module can be instrumented to measure latency from event arrival (via Network Link or Tasking) to update broadcast (via Telemetry or SafetyAlert). Verification is feasible with standard performance testing tools and network simulation.",
+      "allocation_clarity": "Allocation of FR-007 to Teleoperation module is clear: Teleoperation owns the worksite model update pipeline and is responsible for meeting the p95 ≤ 1.0 s latency constraint. Sub-FRs (FR-007.1 through FR-007.5) can be further allocated to sub-components of Teleoperation (e.g., data ingestion, processing, distribution) in the next decomposition level."
+    },
+    "recommended_revisions": [
+      "Refine DP-007.C to specify SafetyAlert channel characteristics (dedicated vs. prioritized, latency SLA) and Telemetry/Tasking queue discipline (FIFO, priority, drop policy). These details are necessary for detailed design and verification.",
+      "Define the interface contract for Network Link (message schema, delivery guarantees, latency SLA). This is critical for Teleoperation module to meet its latency target.",
+      "Clarify the boundary between Teleoperation (worksite model update pipeline) and Safety Services (SafetyAlert generation). Define the interface contract between these modules.",
+      "Establish a latency budget allocation across the update pipeline stages (acquisition, transmission, processing, distribution). This enables verification at each stage and supports root-cause analysis if latency targets are not met."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-007 (worksite model update latency) is not atomic and requires further decomposition. The refined FR identifies five sub-FRs (FR-007.1 through FR-007.5) that address distinct stages of the update pipeline: data acquisition, transmission, processing, synchronization, and prioritization. DP-007.C (hybrid dual-path architecture) is a sound design concept but requires detailed specification of channel characteristics, queue discipline, and update semantics. Teleoperation module is the correct IM boundary with high containment (0.9) and low diffusion (0.1). The next decomposition level should allocate sub-FRs to sub-components of Teleoperation and define detailed DPs for each stage.",
+    "next_level_sub_frs": [
+      "FR-007.1: Acquire operational state data (vehicle telemetry, task status, environmental sensors) with sufficient frequency and fidelity.",
+      "FR-007.2: Transmit operational state data from vehicle to worksite model with bounded network latency.",
+      "FR-007.3: Process and integrate received state data into worksite model with bounded computation latency.",
+      "FR-007.4: Synchronize worksite model updates across all stakeholder interfaces (Site Manager, Tele-operator, Safety Manager) with bounded distribution latency.",
+      "FR-007.5: Prioritize safety-critical updates (SafetyAlert events) to meet latency bounds even under network congestion."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Network infrastructure supports dedicated low-latency channel for SafetyAlert (e.g., separate QoS class, priority queue, or physical link).",
+        "Vehicle can reliably detect and classify safety-critical events for fast-path routing.",
+        "Worksite model update semantics are idempotent and commutative (order-independent).",
+        "p95 ≤ 1.0 s latency is achievable with commodity network hardware and software.",
+        "Teleoperation module owns the full dual-path routing logic; Vehicle and Safety Services provide inputs but do not manage routing.",
+        "Network Link interface provides clear delivery guarantees (latency, ordering, reliability)."
+      ],
+      "open_risks": [
+        "Teleoperation module may become a bottleneck if worksite model update processing is CPU-intensive.",
+        "Tight coupling between Teleoperation and Network Link if network protocol details leak into model update logic.",
+        "Tight coupling between Teleoperation and Safety Services if SafetyAlert generation logic is embedded in Teleoperation.",
+        "Worksite model state consistency if updates arrive out-of-order or are duplicated.",
+        "SafetyAlert channel may not be available or may degrade under certain network conditions, causing safety-critical latency to exceed target."
+      ],
+      "evidence_needed": [
+        "Network latency baseline measurements (p50, p95, p99) for vehicle-to-worksite communication under nominal and degraded conditions.",
+        "Worksite model update processing time measurements (data ingestion, state integration, broadcast) under various load conditions.",
+        "Safety-critical event detection and classification accuracy (false positives, false negatives, latency).",
+        "Network QoS capabilities (dedicated channels, priority queues, latency guarantees) available in target deployment environment.",
+        "Idempotency and ordering guarantees for worksite model update semantics (e.g., timestamp-based or sequence-number-based).",
+        "Detailed specification of SafetyAlert channel characteristics and Telemetry/Tasking queue discipline."
+      ]
+    }
+  }
+}

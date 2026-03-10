@@ -1,0 +1,177 @@
+{
+  "refined_fr": {
+    "refined_fr": "Capture and represent worksite spatial features in a machine-readable model.",
+    "rationale": "The original FR conflates three distinct functional obligations: (1) terrain analysis, (2) obstacle identification, and (3) work-zone representation. Each is a separate concern with different data sources, processing logic, and stakeholder consumption patterns. The refined FR is solution-neutral (avoids 'mapping/modeling' terminology which implies implementation choice) and focuses on the core problem: making worksite geometry and features available in a structured, queryable form. Splitting into atomic sub-FRs allows independent DP selection and IM packaging.",
+    "verification_idea": "Confirm that a worksite model exists in a defined schema/format, contains spatial coordinates and feature classifications for all captured elements, and is accessible to downstream planning and execution functions per acceptance criteria.",
+    "sub_frs": [
+      "FR-NGHE-006.1: Acquire terrain elevation and surface properties across the worksite.",
+      "FR-NGHE-006.2: Identify and locate static obstacles (structures, vegetation, utilities) within the worksite boundary.",
+      "FR-NGHE-006.3: Define and represent active work zones and restricted areas.",
+      "FR-NGHE-006.4: Persist and retrieve worksite model data for planning and execution functions."
+    ],
+    "is_atomic": false,
+    "note": "The parent FR (CR-NGHE-006) is refined to be atomic and solution-neutral. The four sub-FRs are each atomic and can be independently mapped to DPs and IMs. This decomposition enables clear ownership, testability, and architectural modularity."
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Acquire spatial feature data through multi-modal sensing (vision, range, inertial) and fuse into a unified coordinate frame; store as a structured spatial graph with feature attributes (geometry, classification, safety constraints); expose via query interface for downstream planning/execution consumers.",
+      "DP2: Decompose worksite into discrete zones; assign zone-level feature inventories (obstacles, hazards, access points) via manual annotation or semi-automated detection; represent as hierarchical zone model with zone-to-zone connectivity; provide zone-based query API.",
+      "DP3: Capture worksite features as a continuous occupancy/cost field (e.g., grid-based or implicit function); encode safety constraints as field penalties; enable gradient-based planning queries without explicit feature enumeration.",
+      "DP4: Integrate external reference data (CAD, BIM, satellite imagery) with real-time observations; maintain dual representation (reference + delta) to support both planning (reference) and reactive execution (delta); reconcile via change detection and user curation.",
+      "DP5: Implement feature capture as a streaming pipeline: raw sensor data → feature extraction → temporal filtering/smoothing → model update; expose model state via versioned snapshots and incremental change feeds for asynchronous consumer subscription."
+    ],
+    "selected_dp": "DP1 + DP5 (hybrid): Acquire spatial features via multi-modal sensing and fuse into a unified coordinate frame, represented as a structured spatial graph with feature attributes (geometry, classification, safety constraints). Implement as a streaming pipeline with versioned snapshots and change feeds to support both synchronous query and asynchronous subscription by planning/execution consumers. This balances expressiveness (explicit feature representation), independence (decoupled sensor fusion from consumer logic), and operational flexibility (supports both real-time and batch planning).",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Tight coupling between sensor modality selection and feature extraction logic—mitigate by abstracting sensor input as normalized observations before fusion.",
+        "Coupling between coordinate frame definition and downstream planning assumptions—mitigate by explicitly documenting frame semantics (origin, axes, units) in model metadata.",
+        "Coupling between model update frequency and consumer query latency—mitigate by decoupling via versioned snapshots and change feeds; consumers choose sync/async strategy.",
+        "Coupling between feature classification taxonomy and safety policy interpretation—mitigate by separating feature geometry/raw attributes from policy-specific labels; allow policy layer to annotate.",
+        "Potential coupling if spatial graph structure assumes specific planning algorithms (e.g., graph connectivity for path planning)—mitigate by keeping graph structure generic (nodes = features, edges = spatial adjacency) and allowing consumers to derive algorithm-specific views."
+      ],
+      "notes": "DP1+DP5 avoids premature commitment to zone hierarchies (DP2) or field representations (DP3), which would couple the model to specific planning paradigms. Streaming pipeline (DP5) decouples acquisition cadence from consumer timing. Explicit coordinate frame and feature attributes support both safety policy and planning without tight binding."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Multi-modal sensor fusion is feasible and cost-effective for the target worksite scale and feature types. RISK: If sensor coverage is sparse or unreliable, feature gaps may violate safety plan requirements. MITIGATION: Define minimum coverage/confidence thresholds; flag uncertain regions in model.",
+      "ASSUMPTION: A unified coordinate frame can be established and maintained (e.g., via GNSS, fiducials, or odometry). RISK: Frame drift or loss of localization could invalidate spatial model. MITIGATION: Implement frame validation and re-calibration triggers; version frame definitions.",
+      "ASSUMPTION: Feature classification taxonomy is stable and agreed upon by safety/planning stakeholders. RISK: Misalignment between captured features and safety policy requirements could leave hazards undetected. MITIGATION: Validate taxonomy against safety plan; implement feedback loop for taxonomy refinement.",
+      "ASSUMPTION: Downstream planning/execution functions can tolerate model latency (snapshot update frequency). RISK: If model updates lag real-time changes (e.g., moving obstacles), execution safety is compromised. MITIGATION: Define acceptable model staleness; implement change-feed subscription for high-priority features.",
+      "ASSUMPTION: Spatial graph representation is sufficient for all planning/execution use cases (path planning, collision avoidance, task scheduling). RISK: Some use cases may require richer representations (e.g., semantic relationships, temporal dynamics). MITIGATION: Design graph schema to be extensible; allow consumers to augment with derived views.",
+      "ASSUMPTION: Safety constraints can be encoded as feature attributes and interpreted consistently by all consumers. RISK: Ambiguous or incomplete constraint specification could lead to unsafe execution. MITIGATION: Formalize constraint semantics; implement validation rules in model schema."
+    ],
+    "recommended_revision": "Refine FR to explicitly state: (1) Required feature types and classification taxonomy (e.g., obstacles, hazards, access points, equipment, personnel zones); (2) Acceptable model latency and update frequency for planning vs. execution; (3) Coordinate frame definition and localization assumptions; (4) Safety constraint encoding rules and validation requirements. This will enable tighter DP evaluation and reduce ambiguity in IM (module boundary) definition. Additionally, clarify whether the model must support dynamic features (moving obstacles, temporary hazards) or is primarily static; this affects streaming pipeline design and consumer subscription patterns."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "Centralized spatial perception and feature fusion pipeline that acquires multi-modal sensor data, performs real-time fusion into a unified coordinate frame, maintains a versioned spatial graph with feature attributes, and exposes both synchronous query and asynchronous subscription interfaces to downstream planning and execution consumers."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Ingests raw multi-modal sensor streams (LiDAR, camera, radar, IMU) from Vehicle; provides backpressure-aware streaming acquisition with quality-of-service negotiation."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Exposes synchronous spatial graph query API (point-cloud lookup, feature classification, constraint checking) and asynchronous change-feed subscription for planning/execution modules to consume versioned snapshots and incremental updates."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Emits safety constraint violations detected during fusion (e.g., obstacle proximity, no-go zones) to Safety Services for real-time intervention."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Optional: supports remote teleoperation scenarios where spatial graph snapshots and change feeds are transmitted to Teleoperation module for operator awareness; receives operator-injected constraints or manual corrections."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit. NGHE Solution is the natural home for perception, sensor fusion, and spatial reasoning. The streaming pipeline, versioned snapshots, and change-feed architecture are core to NGHE's role as the unified perception backbone. Minimal diffusion: safety constraint emission to SafetyAlert is a clean, narrow interface; query/subscription to Tasking consumers is decoupled via well-defined async contracts. The structured spatial graph with feature attributes is a canonical NGHE artifact."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor fit. Vehicle is a hardware abstraction layer for actuators and low-level sensor drivers, not a fusion or reasoning engine. Placing the spatial graph and fusion logic here would violate separation of concerns: Vehicle should expose raw sensor streams (via Telemetry), not consume and fuse them. High diffusion: planning and execution logic would need to reach into Vehicle to query spatial state, creating tight coupling and poor modularity."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Very poor fit. Teleoperation is a human-in-the-loop interface for remote operation, not a perception or fusion engine. The spatial graph, versioned snapshots, and streaming pipeline are orthogonal to teleoperation concerns. Placing fusion logic here would scatter perception across modules and force Vehicle, Safety Services, and planning consumers to depend on Teleoperation for spatial state—a severe architectural violation."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Weak fit. Safety Services is a consumer of spatial state (to check constraints and emit alerts), not the producer or maintainer of the spatial graph. While Safety Services will subscribe to the spatial graph change feed and evaluate constraints, the fusion pipeline, versioned snapshots, and coordinate-frame management belong upstream in NGHE Solution. Placing fusion logic in Safety Services would invert the dependency and couple safety evaluation to perception implementation details."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "The DP (multi-modal sensor fusion into a unified spatial graph with streaming pipeline and versioned snapshots) is a core perception and reasoning function that belongs in NGHE Solution. NGHE is the designated perception backbone; it owns the spatial model, manages sensor integration, and exposes both synchronous and asynchronous interfaces to downstream consumers (planning, execution, safety). The streaming pipeline with change feeds is a natural fit for NGHE's role as a real-time, event-driven perception engine. Safety Services and planning/execution modules are clean consumers of the spatial graph via Tasking and SafetyAlert interfaces, avoiding diffusion.",
+    "containment_risks": [
+      "Risk: If NGHE Solution becomes a monolithic perception service, it may accumulate unrelated concerns (e.g., sensor calibration, hardware diagnostics) that should remain in Vehicle. Mitigation: enforce strict interface boundaries; Vehicle owns raw sensor drivers and calibration; NGHE owns fusion and spatial reasoning.",
+      "Risk: Versioned snapshots and change feeds may create high memory/network overhead if not carefully managed (e.g., unbounded snapshot retention, high-frequency change events). Mitigation: implement retention policies, batching, and subscription filtering at the NGHE boundary.",
+      "Risk: If Teleoperation or Safety Services need to inject manual corrections or constraints into the spatial graph, the inbound interface from Network Link and SafetyAlert may become bidirectional, complicating the DP. Mitigation: design SafetyAlert and Network Link as unidirectional; use a separate constraint-injection interface if needed, or route corrections through Tasking.",
+      "Risk: Coordinate frame unification may require Vehicle-specific calibration data (e.g., sensor extrinsics). If Vehicle and NGHE are loosely coupled, calibration drift may not be detected. Mitigation: NGHE should subscribe to Vehicle telemetry that includes calibration metadata; implement periodic validation."
+    ],
+    "recommended_revision": "No revision to DP required. The DP is well-suited to NGHE Solution and does not require implementation-specific details. However, clarify the DP to explicitly state: (1) NGHE owns the spatial graph versioning and change-feed mechanism; (2) Vehicle provides raw sensor streams and calibration metadata via Telemetry; (3) Safety Services and planning/execution consumers subscribe to the spatial graph via Tasking and SafetyAlert; (4) constraint injection (if needed) is a separate, optional interface to be designed. This ensures the DP remains architecture-level and avoids diffusion across module boundaries."
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The FR ('Capture and represent worksite spatial features in a machine-readable model') is directly verifiable against the acceptance criterion 'A worksite model/map is generated and available to planning/execution functions for an agreed set of site features.' The IM boundary (NGHE Solution) exposes explicit Tasking interfaces (synchronous query API and asynchronous change-feed subscription) that enable planning/execution consumers to access the spatial model. Verification can be performed by: (1) confirming that the spatial graph is populated with agreed-upon feature types (geometry, classification, safety constraints); (2) validating that planning/execution modules successfully query and subscribe to the model; (3) testing that versioned snapshots and change feeds are delivered with acceptable latency and completeness.",
+      "allocation_clarity": "Excellent. The FR is unambiguously allocated to NGHE Solution (containment_score 0.92, diffusion_score 0.08). The IM boundary clearly owns the spatial graph, fusion pipeline, and versioned snapshots. External interfaces (Telemetry in, Tasking/SafetyAlert/Network Link out) are well-defined and establish clean separation between perception (NGHE), actuation (Vehicle), safety evaluation (Safety Services), and planning/execution (Tasking consumers). The allocation respects the 'Worksite safety plan and operational policies' constraint by explicitly routing safety constraint violations through SafetyAlert to Safety Services, ensuring safety-critical decisions remain decoupled from perception implementation."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Risk: Coordinate frame unification logic may inadvertently depend on Vehicle-specific calibration data (sensor extrinsics, mounting offsets). If calibration metadata is not explicitly versioned and tracked as part of the spatial graph, NGHE and Vehicle may drift out of sync, causing silent spatial errors. Mitigation: NGHE must subscribe to Vehicle telemetry that includes calibration metadata with version tags; implement periodic validation checks and emit alerts if calibration staleness exceeds thresholds.",
+        "Risk: Versioned snapshots and change feeds may accumulate unbounded memory overhead if retention policies are not enforced. If multiple planning/execution consumers subscribe at different rates, NGHE may be forced to buffer snapshots indefinitely. Mitigation: implement explicit retention policies (e.g., keep last N snapshots or snapshots within time window T); use subscription filtering to allow consumers to specify interest in specific feature types or spatial regions; document backpressure behavior.",
+        "Risk: If Safety Services or Teleoperation need to inject manual corrections or constraints into the spatial graph (e.g., operator marks a region as unsafe), the SafetyAlert and Network Link interfaces may become bidirectional, violating the clean producer-consumer pattern. This could create circular dependencies and complicate versioning semantics. Mitigation: design SafetyAlert and Network Link as strictly unidirectional (out only); if constraint injection is required, introduce a separate, explicitly-designed inbound interface (e.g., 'ConstraintInjection') with clear semantics for how manual corrections are merged into the spatial graph version history.",
+        "Risk: The streaming pipeline may accumulate unrelated concerns over time (e.g., sensor health monitoring, calibration diagnostics, feature-specific post-processing). These concerns may not belong in the core fusion logic and could diffuse across NGHE and Vehicle. Mitigation: enforce strict interface boundaries; Vehicle owns raw sensor drivers, health monitoring, and calibration; NGHE owns fusion, spatial reasoning, and graph versioning; use separate, optional interfaces for diagnostic telemetry if needed."
+      ],
+      "containment_notes": "Excellent containment. NGHE Solution is the natural and correct home for the DP. The module owns the full lifecycle of the spatial graph: acquisition (via Telemetry), fusion (multi-modal sensor integration into unified coordinate frame), representation (structured spatial graph with feature attributes), versioning (snapshots and change feeds), and exposure (Tasking query/subscription interfaces). The IM boundary is well-scoped and avoids diffusion across Vehicle (hardware abstraction), Safety Services (constraint evaluation), Teleoperation (human interface), or planning/execution consumers (logic). The streaming pipeline with backpressure-aware acquisition and asynchronous change feeds is architecturally sound and aligns with NGHE's role as a real-time, event-driven perception backbone. External interfaces are clean and unidirectional (with the caveat noted above regarding potential constraint injection). The containment score of 0.92 is justified; the diffusion score of 0.08 reflects only minor risks around calibration metadata coupling and potential future constraint-injection requirements, both of which are manageable with explicit interface design."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "The DP is well-formulated and directly addresses the FR. The DP specifies a concrete solution strategy: (1) acquire spatial features via multi-modal sensing (LiDAR, camera, radar, IMU); (2) fuse into a unified coordinate frame; (3) represent as a structured spatial graph with feature attributes (geometry, classification, safety constraints); (4) implement as a streaming pipeline with versioned snapshots and change feeds. This strategy satisfies the FR ('Capture and represent worksite spatial features in a machine-readable model') and aligns with the acceptance criterion ('A worksite model/map is generated and available to planning/execution functions for an agreed set of site features'). The DP balances three key concerns: expressiveness (explicit feature representation enables rich spatial reasoning), independence (decoupled sensor fusion from consumer logic via async interfaces), and operational flexibility (supports both synchronous query and asynchronous subscription). The DP is architecture-level (not implementation-specific) and avoids premature commitment to specific algorithms, data structures, or technologies. The hybrid DP1+DP5 formulation (acquisition + representation + exposure) is coherent and avoids false decomposition. No revision to the DP is required at this gate."
+    },
+    "recommended_revisions": [
+      "Clarify the DP to explicitly state the ownership boundaries: (1) NGHE Solution owns the spatial graph versioning, change-feed mechanism, and coordinate frame unification; (2) Vehicle provides raw sensor streams and calibration metadata via Telemetry interface; (3) Safety Services and planning/execution consumers are clean subscribers to the spatial graph via Tasking and SafetyAlert interfaces; (4) constraint injection (if required by operational policies) is a separate, optional interface to be designed with explicit semantics for merging manual corrections into the version history.",
+      "Add a sub-requirement to the DP addressing calibration metadata management: 'NGHE Solution shall subscribe to Vehicle telemetry that includes sensor calibration metadata (extrinsics, mounting offsets) with version tags; implement periodic validation to detect calibration drift; emit alerts if calibration staleness exceeds operational thresholds.' This ensures the coordinate frame unification remains valid over time.",
+      "Add a sub-requirement addressing retention and backpressure policies: 'NGHE Solution shall implement explicit retention policies for versioned snapshots (e.g., keep last N snapshots or snapshots within time window T); support subscription filtering to allow consumers to specify interest in specific feature types or spatial regions; document backpressure behavior and maximum buffering limits.' This prevents unbounded memory overhead and ensures predictable performance.",
+      "Add a sub-requirement clarifying the unidirectionality of external interfaces: 'SafetyAlert and Network Link interfaces shall be strictly unidirectional (out only). If constraint injection is required by operational policies, introduce a separate, explicitly-designed inbound interface (e.g., ConstraintInjection) with clear semantics for how manual corrections are merged into the spatial graph version history and how version consistency is maintained.' This prevents circular dependencies and simplifies versioning semantics.",
+      "Consider adding a non-functional requirement for spatial graph query latency and change-feed delivery latency to support planning/execution real-time constraints. This will inform the streaming pipeline design and help validate that the DP meets operational requirements."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The FR-DP-IM gate passes with high confidence (all three sub-gates pass). However, the recommended_revisions and diffusion_risks reveal critical architectural concerns that must be resolved before proceeding to detailed design. The primary issues are: (1) calibration metadata coupling between NGHE and Vehicle requires explicit sub-FR treatment to ensure coordinate frame validity; (2) retention and backpressure policies are non-trivial operational constraints that warrant dedicated sub-FRs; (3) constraint injection semantics (if required by safety policies) must be explicitly designed as a separate interface with clear versioning semantics; (4) latency requirements for spatial graph queries and change feeds are missing and must be captured as non-functional sub-FRs to validate real-time planning/execution feasibility. Given the high safety criticality of the worksite spatial model (it directly informs safety-critical planning and execution decisions), these concerns cannot be deferred to implementation. Decomposing the current FR into sub-FRs will force explicit architectural decisions on these concerns and create verifiable acceptance criteria for each. This approach respects the gate's pass status while addressing the identified diffusion risks and recommended revisions through structured decomposition.",
+    "next_level_sub_frs": [
+      "FR1.1: Maintain valid coordinate frame unification across multi-modal sensor streams and vehicle calibration state. [Addresses calibration metadata coupling risk; ensures NGHE and Vehicle remain synchronized on sensor extrinsics and mounting offsets; supports safety-critical spatial reasoning.]",
+      "FR1.2: Manage versioned spatial graph snapshots and change feeds with bounded memory overhead and predictable backpressure behavior. [Addresses unbounded retention risk; ensures planning/execution consumers can subscribe at heterogeneous rates without forcing NGHE to buffer indefinitely; supports operational scalability.]",
+      "FR1.3: Support injection of manual spatial constraints and corrections (e.g., operator-marked unsafe regions) into the spatial graph with explicit versioning semantics. [Addresses potential bidirectional constraint flow; ensures manual corrections are merged into version history with clear traceability; supports 'Worksite safety plan and operational policies' constraint.]",
+      "FR1.4: Deliver spatial graph queries and change-feed updates to planning/execution consumers within operational latency bounds. [Addresses missing non-functional requirement; ensures real-time planning and execution feasibility; validates that streaming pipeline meets safety-critical timing constraints.]",
+      "FR1.5: Validate spatial graph consistency and detect calibration drift or sensor health degradation that could compromise spatial reasoning. [Addresses silent spatial error risk; ensures safety-critical decisions are based on validated spatial data; supports continuous operational safety assurance.]"
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "The DP must be clarified to explicitly state ownership boundaries and address the four recommended revisions: (1) clarify that NGHE owns spatial graph versioning and coordinate frame unification, while Vehicle provides raw sensor streams with calibration metadata; (2) add explicit sub-DP for calibration metadata subscription and drift detection; (3) add explicit sub-DP for retention policies, subscription filtering, and backpressure semantics; (4) add explicit sub-DP for constraint injection as a separate, unidirectional inbound interface with versioning semantics; (5) add non-functional DP constraints for query and change-feed latency. These revisions will ensure the DP is sufficiently detailed to guide the sub-FR decomposition and prevent architectural drift during implementation."
+    },
+    "record": {
+      "assumptions": [
+        "Calibration metadata (sensor extrinsics, mounting offsets) is versioned and tracked as part of Vehicle telemetry; NGHE can subscribe to calibration updates and detect staleness.",
+        "Planning/execution consumers can tolerate asynchronous change-feed delivery with bounded latency (to be specified in FR1.4); synchronous query API is available for on-demand spatial reasoning.",
+        "Manual constraint injection (e.g., operator-marked unsafe regions) is a required operational capability; if not required, FR1.3 can be deferred or marked as optional.",
+        "Safety Services and planning/execution modules are external consumers of the spatial graph; they do not directly modify the graph (constraint injection, if required, flows through a separate inbound interface).",
+        "The spatial graph representation (feature types, attributes, coordinate frame) is agreed upon with planning/execution stakeholders before detailed design; NGHE does not unilaterally define the schema.",
+        "Versioned snapshots and change feeds are the primary mechanism for spatial graph distribution; alternative mechanisms (e.g., direct database access) are not required."
+      ],
+      "open_risks": [
+        "Calibration metadata coupling: If Vehicle calibration updates are not reliably delivered to NGHE, or if calibration staleness detection fails, the coordinate frame may silently drift, causing spatial errors that propagate to safety-critical planning decisions. Mitigation: FR1.1 and FR1.5 must establish explicit validation and alerting mechanisms.",
+        "Unbounded retention overhead: If retention policies are not enforced or subscription filtering is not implemented, NGHE may accumulate unbounded memory overhead, degrading performance or causing system failure. Mitigation: FR1.2 must specify concrete retention policies and backpressure semantics.",
+        "Constraint injection complexity: If manual constraint injection is required but not explicitly designed, SafetyAlert and Network Link interfaces may become bidirectional, creating circular dependencies and complicating versioning. Mitigation: FR1.3 must establish clear semantics for constraint merging and version consistency.",
+        "Latency requirements not specified: If planning/execution latency requirements are not captured, the streaming pipeline may be over-engineered or under-engineered, leading to operational failures or unnecessary cost. Mitigation: FR1.4 must establish concrete latency bounds and validate that the DP meets them.",
+        "Spatial graph consistency not validated: If consistency checks are not implemented, silent spatial errors may accumulate over time, compromising safety-critical reasoning. Mitigation: FR1.5 must establish explicit validation and alerting mechanisms."
+      ],
+      "evidence_needed": [
+        "Specification of planning/execution latency requirements (e.g., spatial graph query response time < 100ms, change-feed delivery latency < 500ms) to validate FR1.4.",
+        "Specification of retention policies and backpressure limits (e.g., keep last 100 snapshots, maximum buffer size 1GB) to validate FR1.2.",
+        "Specification of calibration metadata schema and staleness thresholds (e.g., calibration update frequency, maximum acceptable staleness) to validate FR1.1.",
+        "Specification of manual constraint injection semantics (if required): how are operator-marked regions merged into the spatial graph? How is version consistency maintained? To validate FR1.3.",
+        "Specification of spatial graph consistency checks and validation rules (e.g., feature geometry must be within worksite bounds, feature classification must match allowed types) to validate FR1.5.",
+        "Acceptance criteria for each sub-FR that are verifiable against the DP and IM boundaries (e.g., 'Calibration metadata is subscribed and validated with staleness alerts emitted within 10 seconds of drift detection').",
+        "Risk assessment for each sub-FR addressing safety criticality and potential failure modes (e.g., 'If calibration drift is not detected, spatial errors could cause vehicle collision with obstacles; mitigation: continuous validation with sub-second detection latency')."
+      ]
+    }
+  }
+}

@@ -1,0 +1,170 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and work-zone boundaries, with sufficient fidelity to support autonomous path planning and operator situational awareness.",
+    "rationale": "The original FR was vague on fidelity requirements, update frequency, and data sources. Refinement clarifies that the model must support both planning (path generation) and execution (real-time awareness), distinguishes static from dynamic content, and anchors acceptance to the stated constraint that the model be 'available to planning/execution functions.' High safety criticality demands explicit hazard representation.",
+    "verification_idea": "Acceptance test: (1) Worksite model generated within 5 minutes of survey data ingestion; (2) Terrain elevation accuracy ±0.5 m; (3) Obstacle detection coverage ≥95% for objects >0.3 m; (4) Model accessible via documented API to planning and execution subsystems; (5) Safety-critical hazards (personnel zones, exclusion areas) marked and propagated to Safety Services.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire worksite sensor data (LiDAR, camera, GNSS) and fuse into unified coordinate frame.",
+      "CR-NGHE-006.2: Classify and segment terrain, obstacles, and hazard zones from fused sensor data.",
+      "CR-NGHE-006.3: Maintain and update worksite model state in real-time as new sensor data arrives.",
+      "CR-NGHE-006.4: Expose worksite model via standardized interface to planning and execution functions.",
+      "CR-NGHE-006.5: Detect and alert on dynamic hazards (personnel intrusion, equipment proximity) and propagate to Safety Services."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Onboard multi-sensor fusion (LiDAR + stereo camera + GNSS) with local occupancy grid and voxel-based 3D model; periodic upload to cloud for archival and planning system access.",
+      "DP-B: Cloud-centric mapping: vehicle streams raw sensor telemetry to cloud; centralized SLAM and semantic segmentation; model served back to vehicle and planning systems via low-latency API.",
+      "DP-C: Hybrid edge-cloud: vehicle maintains local occupancy grid for real-time safety; cloud maintains high-fidelity semantic model for planning; bidirectional sync via Telemetry interface.",
+      "DP-D: Operator-assisted manual mapping: tele-operator marks obstacles and hazards on a base map; model updated via Tasking commands; minimal onboard sensing."
+    ],
+    "selected_dp": "DP-C: Hybrid edge-cloud architecture with local real-time occupancy grid on vehicle (for safety-critical hazard detection) and cloud-hosted semantic model (for planning and long-term site representation). Synchronization via Telemetry (vehicle → cloud) and Tasking (cloud → vehicle) interfaces.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between sensor fusion (onboard) and semantic segmentation (cloud) is decoupled via occupancy grid abstraction; both can evolve independently.",
+        "Coupling between Safety Services and worksite model is mediated through SafetyAlert interface (hazard events) and Telemetry (model state); clear separation of concerns.",
+        "Coupling between planning system and worksite model is via documented API; model schema is stable interface."
+      ],
+      "notes": "DP-C avoids tight coupling of safety-critical real-time processing to cloud latency (DP-B risk) and avoids duplication of sensor fusion logic across multiple vehicles (DP-A scalability risk). DP-D rejected due to high operator workload and poor scalability for large worksites."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Vehicle has sufficient onboard compute (GPU/FPGA) for real-time occupancy grid updates; if not, fallback to DP-B with strict latency SLA.",
+      "ASSUMPTION: Cloud infrastructure provides <500 ms round-trip latency for Telemetry and Tasking; if not, model sync will lag and planning may use stale data.",
+      "RISK: Occupancy grid and semantic model may diverge if sync fails; requires conflict resolution strategy and heartbeat monitoring.",
+      "RISK: Sensor fusion quality depends on calibration; miscalibration propagates to both local and cloud models; requires periodic recalibration protocol.",
+      "RISK: High safety criticality means any hazard detection failure (false negative) is unacceptable; requires redundant sensing or conservative occupancy thresholds."
+    ],
+    "recommended_revision": "Clarify latency and availability SLAs for cloud connectivity. Define conflict resolution strategy for edge-cloud model divergence. Specify sensor redundancy and fallback modes for safety-critical hazard detection (e.g., if LiDAR fails, stereo camera must maintain minimum detection capability). Add explicit requirement for model validation and ground-truth testing before deployment."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "The Vehicle module owns the onboard real-time occupancy grid generation, sensor fusion (LiDAR, camera, GNSS), and local hazard detection. It streams fused sensor telemetry and occupancy state to cloud via Telemetry interface and receives model updates/tasking commands via Tasking interface. The Vehicle module does NOT own the cloud semantic model or planning system; those are external consumers."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle → Cloud/Planning: Raw sensor data (LiDAR point clouds, camera frames, GNSS pose), fused occupancy grid state, detected dynamic hazards (personnel, equipment proximity). Frequency: 10 Hz for occupancy grid, 1 Hz for semantic updates."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Cloud/Planning → Vehicle: Model correction commands, sensor calibration updates, hazard zone definitions, mapping mode toggles (e.g., 'map this region', 'skip this area'). Frequency: event-driven, <100 ms latency required for safety-critical updates."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Vehicle → Safety Services: Real-time hazard alerts (personnel detected in work zone, equipment proximity warning, terrain instability detected). Frequency: event-driven, <50 ms latency required."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Vehicle ↔ Cloud: Underlying communication channel for Telemetry and Tasking; must support >10 Mbps uplink for sensor data, >1 Mbps downlink for model updates. Redundancy required (cellular + satellite fallback)."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Vehicle is the natural owner of onboard sensor fusion, real-time occupancy grid, and local hazard detection. These are tightly coupled to vehicle hardware (sensors, compute) and safety-critical real-time constraints. Minimal diffusion: only Telemetry/Tasking interfaces cross boundary. High containment justified by safety criticality and real-time requirements."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.65,
+        "diffusion_score": 0.35,
+        "notes": "NGHE Solution could own the entire mapping pipeline (onboard + cloud), but this would couple safety-critical real-time processing to planning system latency. Diffusion risk: mapping logic scattered across vehicle and cloud subsystems. Not recommended as primary owner; better as orchestrator."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.15,
+        "diffusion_score": 0.85,
+        "notes": "Teleoperation is a consumer of the worksite model (for operator situational awareness), not an owner. Assigning mapping to Teleoperation would create tight coupling between remote operator interface and sensor fusion logic. High diffusion risk. Rejected."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Safety Services consumes hazard alerts from the worksite model but does not own the model itself. Assigning mapping to Safety Services would blur the boundary between hazard detection (Vehicle) and hazard response (Safety Services). High diffusion risk. Rejected."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module is the optimal owner of real-time worksite mapping because: (1) Sensor hardware (LiDAR, camera, GNSS) is physically integrated into the vehicle; (2) Real-time occupancy grid generation is safety-critical and must not depend on cloud latency; (3) Local hazard detection (personnel, equipment proximity) must execute onboard for <50 ms response time; (4) Telemetry and Tasking interfaces provide clean boundaries for cloud integration without diffusion.",
+    "containment_risks": [
+      "RISK: Vehicle module may become overloaded if sensor fusion and occupancy grid algorithms are computationally expensive; requires careful resource budgeting and possible offload to edge compute (e.g., roadside unit). Mitigation: profile algorithms early; consider GPU acceleration.",
+      "RISK: Occupancy grid and cloud semantic model may diverge if Telemetry stream is lossy or delayed; requires explicit sync protocol and conflict resolution. Mitigation: add heartbeat and version tracking to Telemetry; define merge strategy for conflicting updates.",
+      "RISK: Sensor calibration drift over time will degrade occupancy grid accuracy; requires periodic recalibration. Mitigation: add self-calibration checks and alert operator if calibration confidence drops below threshold.",
+      "RISK: Vehicle module interface (Telemetry, Tasking) must be stable and well-documented; changes to schema will ripple to cloud and planning systems. Mitigation: version interfaces; use schema versioning (e.g., protobuf)."
+    ],
+    "recommended_revision": "Define detailed interface contracts for Telemetry (occupancy grid format, coordinate frame, update frequency) and Tasking (command schema, latency SLA). Specify sensor fusion algorithm (e.g., EKF SLAM, graph-based SLAM) and occupancy grid parameters (resolution, update rate, max range). Add explicit requirement for onboard compute capacity (e.g., 'GPU with ≥8 TFLOPS for real-time processing'). Define fallback behavior if cloud connectivity is lost (e.g., 'Vehicle continues local mapping and queues Telemetry for later upload')."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid edge-cloud) directly addresses all sub-FRs: (1) Sensor fusion on vehicle satisfies CR-NGHE-006.1; (2) Occupancy grid and semantic segmentation satisfy CR-NGHE-006.2; (3) Real-time model update via Telemetry satisfies CR-NGHE-006.3; (4) API exposure via cloud satisfies CR-NGHE-006.4; (5) Local hazard detection and SafetyAlert propagation satisfy CR-NGHE-006.5. DP-C is traceable, complete, and feasible. No coupling issues identified."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Occupancy grid format and Telemetry schema must be stable; changes require coordination across Vehicle, cloud, and planning systems. Mitigation: establish interface governance and versioning strategy.",
+        "Sensor fusion algorithms (onboard) and semantic segmentation (cloud) are logically separate but must produce consistent models; requires validation and testing. Mitigation: define ground-truth test cases and acceptance criteria.",
+        "SafetyAlert interface must have strict latency SLA (<50 ms); if Vehicle module cannot meet this, hazard detection must be offloaded or Safety Services must implement redundant detection. Mitigation: profile latency early; add monitoring and alerting."
+      ],
+      "containment_notes": "Vehicle module containment score of 0.92 is strong; diffusion is minimal and well-managed via Telemetry/Tasking/SafetyAlert interfaces. No evidence of scattered logic or ownership ambiguity. Recommended to proceed with Vehicle as primary owner."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible via: (1) Lab testing of sensor fusion and occupancy grid algorithms with synthetic and real sensor data; (2) Field testing on representative worksites with ground-truth measurements; (3) Integration testing with cloud and planning systems; (4) Safety validation (hazard detection false negative rate <0.1%). Acceptance criteria are measurable and testable.",
+      "allocation_clarity": "Allocation is clear: Vehicle owns onboard mapping; cloud owns semantic model and planning integration; Safety Services owns hazard response. Interfaces (Telemetry, Tasking, SafetyAlert) are well-defined. No ambiguity in responsibility or ownership."
+    },
+    "recommended_revisions": [
+      "Add explicit latency and availability SLAs to Telemetry and Tasking interfaces (e.g., 'Telemetry: 10 Hz, <100 ms latency; Tasking: <100 ms latency for safety-critical commands').",
+      "Define sensor fusion algorithm and occupancy grid parameters (resolution, update rate, max range) in DP specification.",
+      "Add requirement for onboard compute capacity and GPU acceleration to support real-time processing.",
+      "Define fallback behavior if cloud connectivity is lost (e.g., 'Vehicle continues local mapping and queues Telemetry for later upload').",
+      "Add explicit requirement for sensor calibration and recalibration protocol.",
+      "Define conflict resolution strategy for edge-cloud model divergence (e.g., 'Vehicle model is authoritative for real-time safety; cloud model is authoritative for planning')."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "CR-NGHE-006 is not atomic; it decomposes into five sub-FRs (sensor fusion, classification, model maintenance, API exposure, hazard detection). Each sub-FR requires further refinement and DP selection. The refined FR, selected DP (hybrid edge-cloud), and assigned IM (Vehicle) are sound and pass all gates, but the next level of decomposition is necessary to detail algorithms, interfaces, and implementation. Proceeding to decompose sub-FRs will clarify technical risks and enable detailed design.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire worksite sensor data (LiDAR, camera, GNSS) and fuse into unified coordinate frame.",
+      "CR-NGHE-006.2: Classify and segment terrain, obstacles, and hazard zones from fused sensor data.",
+      "CR-NGHE-006.3: Maintain and update worksite model state in real-time as new sensor data arrives.",
+      "CR-NGHE-006.4: Expose worksite model via standardized interface to planning and execution functions.",
+      "CR-NGHE-006.5: Detect and alert on dynamic hazards (personnel intrusion, equipment proximity) and propagate to Safety Services."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Vehicle has sufficient onboard compute (GPU/FPGA) for real-time occupancy grid updates.",
+        "Cloud infrastructure provides <500 ms round-trip latency for Telemetry and Tasking.",
+        "Sensor fusion quality is maintained via periodic recalibration.",
+        "Occupancy grid and semantic model can be synchronized via Telemetry/Tasking without unacceptable divergence.",
+        "Safety-critical hazard detection can be implemented onboard with <50 ms latency."
+      ],
+      "open_risks": [
+        "Occupancy grid and cloud semantic model divergence if sync fails; requires conflict resolution strategy.",
+        "Sensor fusion quality depends on calibration; miscalibration propagates to both local and cloud models.",
+        "High safety criticality means any hazard detection failure (false negative) is unacceptable; requires redundant sensing or conservative occupancy thresholds.",
+        "Vehicle module may become overloaded if sensor fusion and occupancy grid algorithms are computationally expensive.",
+        "Telemetry interface schema must be stable; changes will ripple to cloud and planning systems."
+      ],
+      "evidence_needed": [
+        "Detailed specification of sensor fusion algorithm (e.g., EKF SLAM, graph-based SLAM) and occupancy grid parameters.",
+        "Onboard compute capacity analysis and GPU acceleration feasibility study.",
+        "Latency and availability SLA validation for cloud connectivity.",
+        "Ground-truth test cases and acceptance criteria for occupancy grid accuracy.",
+        "Hazard detection false negative rate analysis and redundancy strategy.",
+        "Interface contract specification for Telemetry, Tasking, and SafetyAlert (schema, versioning, latency).",
+        "Conflict resolution strategy for edge-cloud model divergence.",
+        "Sensor calibration and recalibration protocol specification."
+      ]
+    }
+  }
+}

@@ -1,0 +1,157 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall achieve a measured p95 cycle time ≤ CT_target for the load→travel→dump cycle under the agreed duty cycle and site conditions, with cycle time performance monitored and reported via telemetry.",
+    "rationale": "CR-NGHE-002 is a KPI requirement that must be operationalized with measurable acceptance criteria (p95 percentile), explicit duty cycle definition, and telemetry-based verification. The refinement adds observability (telemetry reporting) and clarifies the statistical acceptance criterion (p95, not mean), which is critical for safety-critical systems where tail latency matters.",
+    "verification_idea": "Collect cycle time samples across ≥100 load→travel→dump cycles under defined duty cycle conditions; compute p95 percentile; compare against CT_target; validate via telemetry logs and site acceptance testing.",
+    "sub_frs": [
+      "FR-NGHE-002.1: The NGHE solution shall execute the load phase within time budget T_load.",
+      "FR-NGHE-002.2: The NGHE solution shall execute the travel phase within time budget T_travel.",
+      "FR-NGHE-002.3: The NGHE solution shall execute the dump phase within time budget T_dump.",
+      "FR-NGHE-002.4: The NGHE solution shall report cycle time telemetry (start, end, phase durations) to enable p95 computation and KPI verification."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Optimize vehicle hydraulic system response time and implement predictive load sequencing to minimize cycle duration.",
+      "DP-B: Implement real-time cycle time monitoring with adaptive task scheduling and operator feedback to maintain p95 ≤ CT_target.",
+      "DP-C: Decompose cycle into load, travel, dump sub-phases; allocate time budgets to each; implement phase-gated execution with telemetry checkpoints.",
+      "DP-D: Centralize cycle orchestration logic in a real-time controller with deterministic scheduling; integrate telemetry capture at phase boundaries."
+    ],
+    "selected_dp": "DP-D: Centralize cycle orchestration logic in a real-time controller with deterministic scheduling; integrate telemetry capture at phase boundaries. This DP provides the most direct control over cycle timing, enables phase-level observability, and supports both operator-driven and tele-operated modes. It decouples cycle logic from vehicle hardware variability and allows systematic time budget allocation and verification.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling to vehicle hydraulic response (DP-D depends on DP-A for hardware capability, but DP-D logic is independent of hydraulic tuning).",
+        "Coupling to telemetry infrastructure (DP-D requires Telemetry interface; this is a known interface and acceptable dependency).",
+        "Coupling to operator input latency (DP-D assumes operator or tele-operator can issue commands within time budget; this is a constraint, not a design coupling)."
+      ],
+      "notes": "DP-D is weakly coupled to vehicle hardware and strongly coupled to telemetry and control infrastructure. The coupling is acceptable because telemetry is a known interface and the control logic is localized. No circular dependencies detected."
+    },
+    "assumptions_risks": [
+      "Assumption: Vehicle hydraulic system can respond to phase transition commands within acceptable latency (e.g., <100 ms). Risk: If hydraulic response is slower, time budgets must be relaxed or hardware upgraded.",
+      "Assumption: Telemetry infrastructure has sufficient bandwidth and latency to capture phase timestamps without blocking cycle execution. Risk: If telemetry is slow, cycle performance may degrade.",
+      "Assumption: Operator or tele-operator can issue phase commands (load, travel, dump) within the time budget. Risk: If operator latency is high, p95 target may not be achievable.",
+      "Assumption: Site conditions (terrain, load mass, distance) remain within the agreed duty cycle envelope. Risk: If duty cycle is exceeded, p95 target may not be met."
+    ],
+    "recommended_revision": "Refine DP-D to explicitly specify: (1) phase transition logic (state machine or event-driven), (2) time budget allocation per phase, (3) telemetry checkpoint definitions, (4) fallback behavior if a phase exceeds its time budget (e.g., alert operator, log event, continue or abort). This will reduce ambiguity and support detailed design."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "The Vehicle module owns the cycle orchestration controller, phase execution logic, telemetry capture at phase boundaries, and integration with vehicle actuators (hydraulics, drivetrain). The Vehicle module is responsible for ensuring that each phase (load, travel, dump) executes within its allocated time budget and reports cycle telemetry."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle module outputs cycle time telemetry (phase start/end timestamps, phase durations, cycle duration) to enable p95 computation and KPI verification. Telemetry is consumed by Safety Services and external monitoring systems."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle module receives phase commands (load, travel, dump) from Teleoperation or operator interface. Tasking drives the state machine that orchestrates cycle execution."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Vehicle module outputs safety alerts if cycle time exceeds thresholds or if phase execution is anomalous (e.g., phase timeout, hydraulic failure). SafetyAlert is consumed by Safety Services."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "NGHE Solution is the top-level system boundary. Cycle orchestration logic could be placed here, but it would diffuse across Vehicle and Teleoperation modules. Containment is weak because cycle execution is inherently a Vehicle responsibility."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.95,
+        "diffusion_score": 0.05,
+        "notes": "Vehicle module is the natural owner of cycle orchestration, phase execution, and telemetry capture. The logic is tightly coupled to vehicle actuators and state. Containment is very strong; diffusion is minimal because the logic is localized to the vehicle controller."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Teleoperation module is responsible for operator interface and command transmission, not cycle execution. Placing cycle logic here would diffuse it across Teleoperation and Vehicle, violating separation of concerns. Containment is weak."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Safety Services is responsible for monitoring and alerting, not cycle execution. Placing cycle logic here would create a circular dependency (Safety Services would need to control Vehicle, which is architecturally unsound). Containment is weak."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module is the optimal owner of cycle orchestration logic because: (1) it directly controls vehicle actuators and can enforce time budgets, (2) it has access to phase execution state and can capture telemetry at phase boundaries, (3) it is decoupled from operator interface (Teleoperation) and safety monitoring (Safety Services), enabling clean separation of concerns, (4) it minimizes diffusion of cycle logic across multiple modules.",
+    "containment_risks": [
+      "Risk: If Vehicle module becomes too complex (cycle logic + actuator control + telemetry), it may violate single responsibility principle. Mitigation: Decompose Vehicle into sub-modules (e.g., CycleController, ActuatorDriver, TelemetryCollector) in the next level.",
+      "Risk: If cycle time budgets are not met due to vehicle hardware limitations, the DP may need to be revised (e.g., upgrade hydraulics, optimize control algorithms). Mitigation: Establish hardware performance baselines early and validate against time budgets.",
+      "Risk: If telemetry interface has high latency or low bandwidth, cycle performance may degrade. Mitigation: Ensure Telemetry interface is designed for real-time performance (e.g., low-latency, high-frequency sampling)."
+    ],
+    "recommended_revision": "Clarify the Vehicle module boundary to explicitly include: (1) cycle orchestration controller (state machine or event-driven logic), (2) phase execution drivers (load, travel, dump), (3) telemetry collection and buffering, (4) integration with Tasking (command reception) and Telemetry (data transmission). Define sub-module boundaries (CycleController, ActuatorDriver, TelemetryCollector) to manage complexity and enable parallel development."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-D (centralized cycle orchestration with deterministic scheduling and telemetry capture) directly addresses FR-NGHE-002 (achieve p95 cycle time ≤ CT_target). The DP provides a clear mechanism for phase-level time control and observability. No functional gaps detected. The DP is implementable and testable."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Diffusion risk: Cycle orchestration logic could leak into Teleoperation (operator interface) or Safety Services (monitoring). Mitigation: Enforce strict module boundaries; Teleoperation issues commands via Tasking interface; Safety Services consumes alerts via SafetyAlert interface.",
+        "Diffusion risk: Telemetry collection could be scattered across multiple modules (Vehicle, Teleoperation, Safety Services). Mitigation: Centralize telemetry capture in Vehicle module; other modules consume via Telemetry interface."
+      ],
+      "containment_notes": "Vehicle module has very high containment (0.95) for cycle orchestration logic. The three external interfaces (Tasking, Telemetry, SafetyAlert) are all known interfaces and provide clean boundaries. No new interfaces required. Ownership is clear: Vehicle owns cycle execution; Teleoperation owns command issuance; Safety Services owns alert consumption."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible via telemetry-based testing: collect cycle time samples, compute p95 percentile, compare against CT_target. Telemetry interface provides the necessary observability. Site acceptance testing can validate under real duty cycle conditions.",
+      "allocation_clarity": "Allocation is clear: Vehicle module is responsible for achieving p95 ≤ CT_target. Success criteria are measurable (p95 percentile). Acceptance is defined (p95 ≤ CT_target under agreed duty cycle). No ambiguity in allocation."
+    },
+    "recommended_revisions": [
+      "Refine DP-D to specify phase transition logic, time budget allocation, and telemetry checkpoint definitions.",
+      "Define Vehicle module sub-boundaries (CycleController, ActuatorDriver, TelemetryCollector) to manage complexity.",
+      "Establish hardware performance baselines (hydraulic response time, actuator latency) and validate against time budgets.",
+      "Ensure Telemetry interface is designed for real-time performance (low latency, high-frequency sampling).",
+      "Define fallback behavior if a phase exceeds its time budget (e.g., alert operator, log event, continue or abort)."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-NGHE-002 is not atomic; it decomposes into four sub-FRs (load phase, travel phase, dump phase, telemetry reporting). DP-D is sound and well-contained in the Vehicle module. The FR-DP-IM mapping passes all gates. However, the DP requires further refinement (phase transition logic, time budget allocation, telemetry checkpoints) and the Vehicle module requires sub-decomposition (CycleController, ActuatorDriver, TelemetryCollector) to manage complexity and enable parallel development. Proceeding to the next level of decomposition is justified.",
+    "next_level_sub_frs": [
+      "FR-NGHE-002.1: The NGHE solution shall execute the load phase within time budget T_load.",
+      "FR-NGHE-002.2: The NGHE solution shall execute the travel phase within time budget T_travel.",
+      "FR-NGHE-002.3: The NGHE solution shall execute the dump phase within time budget T_dump.",
+      "FR-NGHE-002.4: The NGHE solution shall report cycle time telemetry (start, end, phase durations) to enable p95 computation and KPI verification."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Vehicle hydraulic system can respond to phase transition commands within acceptable latency (<100 ms).",
+        "Telemetry infrastructure has sufficient bandwidth and latency to capture phase timestamps without blocking cycle execution.",
+        "Operator or tele-operator can issue phase commands within the time budget.",
+        "Site conditions (terrain, load mass, distance) remain within the agreed duty cycle envelope.",
+        "p95 percentile is the agreed acceptance criterion (not mean or p90).",
+        "Cycle time is measured from load start to dump completion, inclusive of all phase transitions."
+      ],
+      "open_risks": [
+        "Hardware performance risk: If vehicle hydraulic response is slower than assumed, time budgets may not be achievable.",
+        "Telemetry latency risk: If telemetry interface is slow, cycle performance may degrade or observability may be compromised.",
+        "Operator latency risk: If operator or tele-operator cannot issue commands within time budget, p95 target may not be met.",
+        "Duty cycle risk: If actual site conditions exceed the agreed duty cycle envelope, p95 target may not be achievable.",
+        "Complexity risk: Vehicle module may become too complex if cycle logic is not properly decomposed into sub-modules."
+      ],
+      "evidence_needed": [
+        "Hardware performance baselines: hydraulic response time, actuator latency, drivetrain acceleration.",
+        "Telemetry interface specification: bandwidth, latency, sampling frequency, data format.",
+        "Operator latency measurements: command issuance time, network latency (for tele-operation).",
+        "Duty cycle definition: terrain types, load mass range, travel distance, cycle frequency.",
+        "Acceptance test plan: sample size (≥100 cycles), test conditions, p95 computation method, pass/fail criteria."
+      ]
+    }
+  }
+}

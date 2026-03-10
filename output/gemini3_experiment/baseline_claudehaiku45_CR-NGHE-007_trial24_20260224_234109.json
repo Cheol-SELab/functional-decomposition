@@ -1,0 +1,167 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current equipment state, environmental conditions, and operational events within p95 ≤ 1.0 s latency for all supported update scenarios (teleoperation, autonomous operation, safety events).",
+    "rationale": "CR-NGHE-007 requires explicit scoping of what constitutes a 'worksite model update' (state data, sensor fusion, event propagation), identification of update scenarios (teleoperation commands, sensor telemetry, safety alerts), and clarification that p95 latency is the acceptance criterion. High safety criticality demands that latency failures are detectable and do not mask safety-critical events.",
+    "verification_idea": "Instrument the system with end-to-end latency probes (timestamp at source, timestamp at model store, timestamp at consumer). Measure p95 latency across representative scenarios: (1) teleoperation command → vehicle state update, (2) sensor telemetry → worksite model, (3) safety event → alert propagation. Validate against 1.0 s threshold under nominal and degraded network conditions.",
+    "sub_frs": [
+      "FR-007.1: Acquire and transmit equipment telemetry (position, orientation, sensor data) with bounded latency.",
+      "FR-007.2: Receive and process teleoperation commands with bounded latency.",
+      "FR-007.3: Fuse multi-source sensor data into a coherent worksite model representation.",
+      "FR-007.4: Propagate safety-critical updates (alerts, state changes) with priority handling.",
+      "FR-007.5: Monitor and report end-to-end latency metrics to enable detection of SLA violations."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized worksite model server with real-time database; all telemetry and commands routed through single ingestion pipeline; latency managed via connection pooling, query optimization, and network QoS.",
+      "DP-B: Distributed edge-local models synchronized via eventual-consistency protocol; each vehicle maintains local state; periodic sync to central model; latency bounded by local update + sync interval.",
+      "DP-C: Hybrid architecture with local vehicle state cache + central model; teleoperation and safety updates use low-latency direct path; non-critical telemetry batched; model consistency enforced via versioning and conflict resolution.",
+      "DP-D: Event-driven pub/sub architecture; telemetry and commands published to message broker; worksite model subscribers consume and update asynchronously; latency managed via broker tuning and consumer group optimization."
+    ],
+    "selected_dp": "DP-C: Hybrid architecture with local vehicle state cache + central model; teleoperation and safety updates use low-latency direct path; non-critical telemetry batched; model consistency enforced via versioning and conflict resolution.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between teleoperation latency requirement and network link quality (DP-C assumes reliable low-latency path for safety updates; network degradation could violate p95 SLA).",
+        "Coupling between local cache consistency and central model synchronization (version conflicts must be resolved deterministically to avoid model divergence).",
+        "Coupling between batching strategy and safety event propagation (batching non-critical telemetry must not delay safety alerts)."
+      ],
+      "notes": "DP-C decouples safety-critical updates (direct path) from non-critical telemetry (batched), reducing coupling to network latency for the critical path. Versioning and conflict resolution are explicit design controls. Acceptable coupling if network link SLA is defined and monitored."
+    },
+    "assumptions_risks": [
+      "Assumption: Network link provides p95 ≤ 500 ms latency for safety-critical updates (leaves 500 ms budget for local processing and model update).",
+      "Assumption: Vehicle local state cache is always available and synchronized with central model within acceptable drift bounds.",
+      "Risk: If network link degrades, safety-critical path latency may exceed 1.0 s, violating acceptance criterion.",
+      "Risk: Version conflicts between local cache and central model could cause inconsistent state if conflict resolution is not deterministic.",
+      "Risk: Batching non-critical telemetry introduces variable latency; if batch window is too large, model staleness could impact operational decisions."
+    ],
+    "recommended_revision": "Refine DP-C to explicitly define: (1) network latency budget allocation (e.g., 500 ms for network, 300 ms for local processing, 200 ms for model update), (2) conflict resolution strategy (e.g., last-write-wins with timestamp, or application-specific logic), (3) batching window for non-critical telemetry (e.g., 100 ms max), (4) monitoring and alerting for SLA violations."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "End-to-end worksite model update pipeline: ingestion (telemetry, commands, safety events), processing (fusion, conflict resolution, batching), storage (central model + local caches), and propagation (subscribers, alerts). Includes coordination across Vehicle, Teleoperation, and Safety Services modules."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Equipment state (position, orientation, sensor readings) from Vehicle module; ingested at variable rates; non-critical telemetry batched; safety-critical telemetry prioritized."
+      },
+      {
+        "name": "Tasking",
+        "direction": "inout",
+        "details": "Teleoperation commands from Teleoperation module (in); worksite model state updates to Teleoperation module for operator situational awareness (out)."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Safety-critical updates (alerts, state changes) propagated to Safety Services module with priority handling and low-latency guarantee."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Underlying network transport for all telemetry, commands, and alerts; latency SLA must be defined and monitored to ensure end-to-end p95 ≤ 1.0 s."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "NGHE Solution is the system-level integrator; worksite model update is a core system function. Containment is high because the entire pipeline (ingestion, processing, storage, propagation) is logically part of the solution. Minimal diffusion: only external interfaces to Vehicle, Teleoperation, Safety Services, and Network Link."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 30,
+        "diffusion_score": 70,
+        "notes": "Vehicle module is responsible for local state cache and telemetry generation, but not for central model management, conflict resolution, or propagation to other consumers. Assigning the entire DP to Vehicle would diffuse model update logic across vehicles, violating single-source-of-truth principle."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 25,
+        "diffusion_score": 75,
+        "notes": "Teleoperation module consumes worksite model updates for operator situational awareness and generates commands, but is not responsible for model storage, fusion, or consistency. Assigning DP to Teleoperation would couple operator interface to model management, reducing modularity."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Safety Services module consumes safety-critical updates and enforces safety policies, but is not responsible for model update pipeline. Assigning DP to Safety Services would conflate safety policy enforcement with model management."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "NGHE Solution owns the worksite model update pipeline as a system-level service. Vehicle, Teleoperation, and Safety Services are consumers/producers of model data via well-defined interfaces (Telemetry, Tasking, SafetyAlert). Network Link is the underlying transport layer. This assignment maintains separation of concerns: NGHE Solution manages model consistency and latency; Vehicle manages local state; Teleoperation manages operator interface; Safety Services manages safety policies.",
+    "containment_risks": [
+      "Risk: If NGHE Solution is not a distinct module but rather a logical aggregation, ownership and accountability for latency SLA may be unclear. Recommend explicit module definition with clear interface contracts.",
+      "Risk: Latency SLA depends on Network Link performance, which is outside NGHE Solution's direct control. Recommend defining network latency budget and monitoring as a prerequisite for system-level SLA.",
+      "Risk: If Vehicle, Teleoperation, or Safety Services modules are not properly isolated, model update logic could diffuse across modules, making latency optimization difficult. Recommend strict interface enforcement."
+    ],
+    "recommended_revision": "Define NGHE Solution as a distinct module with explicit ownership of: (1) worksite model data store, (2) ingestion pipeline (telemetry, commands, safety events), (3) processing logic (fusion, conflict resolution, batching), (4) propagation logic (subscribers, alerts). Define interface contracts for Telemetry (in), Tasking (inout), SafetyAlert (out), and Network Link (inout) with explicit latency budgets and SLA monitoring."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid architecture with local cache + central model, direct path for safety updates, batching for non-critical telemetry) directly addresses FR-007 (p95 ≤ 1.0 s latency). DP-C decouples safety-critical updates from non-critical telemetry, reducing latency variance. Versioning and conflict resolution ensure model consistency. Assumptions (network latency budget, local cache availability) are explicit and testable."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Risk: If NGHE Solution module is not clearly defined as a distinct architectural boundary, DP-C logic could diffuse across Vehicle, Teleoperation, and Safety Services modules. Recommend explicit module definition and interface enforcement.",
+        "Risk: Batching logic for non-critical telemetry could be implemented in Vehicle module (source) or NGHE Solution module (sink), leading to inconsistent behavior. Recommend centralizing batching logic in NGHE Solution to maintain single source of truth."
+      ],
+      "containment_notes": "NGHE Solution is the appropriate owner of DP-C because it is the system-level integrator responsible for model consistency and latency SLA. Vehicle, Teleoperation, and Safety Services are consumers/producers via well-defined interfaces. Containment score of 95 for NGHE Solution reflects high alignment between DP logic and module scope."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification of FR-007 is feasible via end-to-end latency instrumentation (timestamp at source, timestamp at model store, timestamp at consumer). Latency probes can be embedded in NGHE Solution module to measure p95 latency across representative scenarios. Network latency monitoring can be integrated via Network Link interface.",
+      "allocation_clarity": "Allocation of FR-007 to NGHE Solution is clear: NGHE Solution owns the worksite model update pipeline and is accountable for p95 ≤ 1.0 s latency SLA. Sub-FRs (FR-007.1 through FR-007.5) are allocated to specific functional areas (telemetry acquisition, command processing, sensor fusion, safety propagation, latency monitoring) and can be further decomposed in subsequent levels."
+    },
+    "recommended_revisions": [
+      "Refine DP-C to explicitly define network latency budget allocation (e.g., 500 ms for network, 300 ms for local processing, 200 ms for model update).",
+      "Define conflict resolution strategy for version conflicts between local cache and central model (e.g., last-write-wins with timestamp, or application-specific logic).",
+      "Define batching window for non-critical telemetry (e.g., 100 ms max) to balance latency and throughput.",
+      "Define monitoring and alerting for SLA violations (e.g., p95 latency exceeds 1.0 s).",
+      "Explicitly define NGHE Solution module boundary and interface contracts for Telemetry, Tasking, SafetyAlert, and Network Link."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-007 is not atomic; it encompasses multiple functional areas (telemetry acquisition, command processing, sensor fusion, safety propagation, latency monitoring). Sub-FRs (FR-007.1 through FR-007.5) require further decomposition to identify specific design parameters, implementation modules, and verification strategies. DP-C is sound at the system level but requires refinement at lower levels (e.g., batching strategy, conflict resolution, network latency budget). NGHE Solution is the appropriate owner, but sub-modules (Vehicle, Teleoperation, Safety Services) must be further analyzed to ensure proper allocation of sub-FRs and sub-DPs.",
+    "next_level_sub_frs": [
+      "FR-007.1: Acquire and transmit equipment telemetry (position, orientation, sensor data) with bounded latency.",
+      "FR-007.2: Receive and process teleoperation commands with bounded latency.",
+      "FR-007.3: Fuse multi-source sensor data into a coherent worksite model representation.",
+      "FR-007.4: Propagate safety-critical updates (alerts, state changes) with priority handling.",
+      "FR-007.5: Monitor and report end-to-end latency metrics to enable detection of SLA violations."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "DP-C requires refinement to explicitly define: (1) network latency budget allocation, (2) conflict resolution strategy, (3) batching window for non-critical telemetry, (4) monitoring and alerting for SLA violations. These refinements will enable more precise allocation of sub-DPs to sub-modules and clearer verification strategies."
+    },
+    "record": {
+      "assumptions": [
+        "Network link provides p95 ≤ 500 ms latency for safety-critical updates.",
+        "Vehicle local state cache is always available and synchronized with central model within acceptable drift bounds.",
+        "Batching non-critical telemetry does not delay safety-critical updates.",
+        "Version conflicts between local cache and central model are resolved deterministically.",
+        "NGHE Solution is a distinct module with clear ownership of worksite model update pipeline."
+      ],
+      "open_risks": [
+        "Network link degradation could cause safety-critical path latency to exceed 1.0 s SLA.",
+        "Version conflicts between local cache and central model could cause inconsistent state if conflict resolution is not deterministic.",
+        "Batching non-critical telemetry could introduce variable latency; if batch window is too large, model staleness could impact operational decisions.",
+        "If NGHE Solution module is not clearly defined, DP-C logic could diffuse across Vehicle, Teleoperation, and Safety Services modules.",
+        "Latency SLA depends on Network Link performance, which is outside NGHE Solution's direct control."
+      ],
+      "evidence_needed": [
+        "Network latency measurements under nominal and degraded conditions to validate 500 ms budget assumption.",
+        "Conflict resolution strategy definition and validation (e.g., simulation or prototype testing).",
+        "Batching window analysis to determine optimal balance between latency and throughput.",
+        "End-to-end latency instrumentation and measurement across representative scenarios.",
+        "Explicit NGHE Solution module definition with interface contracts and ownership clarity."
+      ]
+    }
+  }
+}

@@ -1,0 +1,176 @@
+{
+  "refined_fr": {
+    "refined_fr": "Enable measurement and reporting of material throughput in volumetric or mass units per unit time.",
+    "rationale": "The original FR conflates two distinct obligations: (1) the system's capability to measure/report throughput metrics, and (2) the achievement of a customer-defined target. The latter is a success criterion dependent on operational execution, not a system requirement. The refined FR isolates the system's functional obligation—providing visibility into throughput—which is solution-neutral and testable independent of whether a specific productivity target is met. The target itself belongs in acceptance criteria or KPI definitions, not in the FR.",
+    "verification_idea": "Demonstrate that the NGHE solution captures and reports material throughput (m³/h or ton/h) during representative operations. Verify data accuracy against independent measurement. Confirm reporting is accessible to Site Manager and Equipment Operator in real time or near-real time.",
+    "sub_frs": [
+      "Acquire material throughput data (volume or mass per time interval) during active operations.",
+      "Store throughput measurement data with sufficient fidelity and temporal resolution for analysis.",
+      "Report throughput metrics to authorized stakeholders in real time or near-real time."
+    ],
+    "is_atomic": false,
+    "note": "The refined FR is still composite (measurement + storage + reporting). If stricter atomicity is required, further decompose into three independent FRs corresponding to the sub_frs list. The refined FR as stated is atomic at the capability level but may be split further depending on design independence analysis."
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Continuous volumetric flow measurement via inline sensor with real-time signal conditioning and local accumulation logic",
+      "DP2: Periodic mass sampling with calibrated weighing and extrapolation to throughput rate over evaluation window",
+      "DP3: Hybrid dual-path measurement (volumetric primary + mass verification secondary) with cross-validation logic to detect sensor drift or blockage",
+      "DP4: Indirect throughput inference from upstream/downstream process state (e.g., conveyor speed, material density, fill-level delta) without direct flow measurement",
+      "DP5: Decoupled measurement acquisition (sensor data capture) from reporting logic (aggregation, unit conversion, acceptance criterion evaluation) via standardized data interface"
+    ],
+    "selected_dp": "DP5 (Decoupled measurement acquisition from reporting logic) combined with DP3 (Hybrid dual-path measurement) as the primary sensing strategy",
+    "rationale": "DP5 enforces architectural independence between data collection and business logic evaluation, reducing coupling and enabling independent evolution of sensor technology and reporting rules. DP3 provides robustness against single-point sensor failure and drift, critical for acceptance criterion validation. Together they satisfy the FR while maintaining solution neutrality and supporting modular implementation.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Tight coupling between sensor acquisition rate and reporting interval (mitigated by DP5's decoupled interface)",
+        "Dependency on material density assumptions in indirect inference methods (avoided by selecting direct measurement DPs)",
+        "Cross-validation logic in DP3 may introduce temporal coupling if secondary measurement lags primary (requires explicit synchronization specification in IM layer)",
+        "Unit conversion and acceptance criterion evaluation tightly coupled to reporting module (acceptable; DP5 isolates this from sensor layer)"
+      ],
+      "notes": "DP5's explicit separation of concerns (acquisition vs. reporting) decouples sensor technology choices from acceptance logic, enabling independent module ownership. DP3's dual-path approach introduces a validation dependency but is intentional for robustness. No fundamental FR-DP mapping violations detected."
+    },
+    "assumptions_risks": [
+      "Assumption: Material properties (density, particle size distribution) remain stable during evaluation period. Risk: Significant variation invalidates extrapolation in DP2 or cross-validation thresholds in DP3. Mitigation: Specify material homogeneity acceptance criteria.",
+      "Assumption: Sensor accuracy and drift rates are characterized and acceptable for the target productivity range. Risk: Uncalibrated or degraded sensors produce false acceptance/rejection. Mitigation: Require pre-evaluation sensor certification and drift monitoring protocol.",
+      "Assumption: Evaluation period is sufficiently long to average transient flow variations and startup/shutdown effects. Risk: Short windows may not represent steady-state throughput. Mitigation: Define minimum evaluation duration and exclude ramp-up/ramp-down phases.",
+      "Assumption: Worksite safety plan permits installation of measurement infrastructure (e.g., inline sensors, sampling stations) without disrupting operations. Risk: Operational constraints may force suboptimal sensor placement. Mitigation: Coordinate with safety and operations teams early; document placement rationale.",
+      "Assumption: Reported productivity is defined as cumulative throughput divided by elapsed time (not peak instantaneous rate). Risk: Ambiguity in acceptance criterion definition. Mitigation: Explicitly define productivity metric in acceptance criteria specification.",
+      "Assumption: DP3's cross-validation logic can tolerate brief measurement disagreement (e.g., during transients). Risk: Overly strict validation may trigger false alarms. Mitigation: Specify tolerance bands and validation window duration in IM specification."
+    ],
+    "recommended_revision": "Refine FR to explicitly state: (1) Measurement units (volumetric or mass, or both); (2) Required measurement accuracy (e.g., ±5% of target throughput); (3) Evaluation period duration and steady-state definition; (4) Handling of startup/shutdown transients; (5) Acceptable sensor drift rate and recalibration frequency. Decompose DP5 into two sub-DPs at the IM layer: IM-Acquisition (sensor data capture, buffering, timestamping) and IM-Reporting (aggregation, unit conversion, acceptance evaluation, logging). This explicit separation enables independent module ownership and testing. For DP3, specify cross-validation thresholds and alarm response procedures in operational policy documentation."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "Encapsulates all measurement acquisition hardware, dual-path sensing logic, and decoupled reporting mechanisms. Owns sensor interfaces, measurement fusion, and telemetry generation without embedding reporting policy."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle emits raw and fused measurement data to external consumers (Teleoperation, Safety Services) without embedding reporting logic or thresholds."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives measurement configuration and acquisition directives from Teleoperation or Safety Services, enabling decoupled control of sensing strategy."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Vehicle emits low-latency safety-critical measurements on dedicated path (DP3 hybrid dual-path) to Safety Services without routing through reporting logic."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Vehicle communicates measurement data and tasking commands over network; decoupling ensures measurement acquisition is not blocked by network latency."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent containment: Vehicle naturally owns all hardware sensors, measurement fusion logic, and dual-path acquisition (DP3). Decoupling (DP5) is realized by separating measurement generation from reporting policy—both reside in Vehicle but are logically isolated. Minimal diffusion: only Telemetry and SafetyAlert interfaces leak measurement data; reporting logic remains external (Safety Services, Teleoperation). Tasking interface allows external control without embedding policy."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.45,
+        "diffusion_score": 0.55,
+        "notes": "Poor containment: Safety Services is a policy/decision layer, not a measurement acquisition layer. Placing DP5+DP3 here would require Safety Services to own all sensor hardware and fusion logic, creating tight coupling to Vehicle hardware. Measurement acquisition would diffuse across Vehicle (hardware) and Safety Services (logic), violating separation of concerns. Not recommended."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Poor containment: Teleoperation is a user interface and command layer. Placing measurement acquisition and dual-path logic here would scatter hardware ownership across Vehicle and logic across Teleoperation. Decoupling intent (DP5) would be violated because reporting logic would be tightly bound to acquisition. High diffusion of measurement concerns."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor containment: NGHE Solution is a system-level orchestrator/integrator. Placing measurement acquisition and dual-path sensing here would create a monolithic god-object that owns all subsystem details. Decoupling (DP5) would be lost because reporting logic would be embedded in the same layer as acquisition. Extreme diffusion across all dependent modules."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module is the natural owner of DP5 (decoupled measurement acquisition from reporting logic) combined with DP3 (hybrid dual-path measurement). Vehicle owns the physical sensors and measurement hardware; it generates raw and fused data on two independent paths (safety-critical via SafetyAlert, general telemetry via Telemetry). Reporting policy, thresholds, and decision logic remain external (owned by Safety Services and Teleoperation), ensuring true decoupling. The Vehicle module exposes measurement data via standardized interfaces (Telemetry, SafetyAlert) and accepts measurement configuration via Tasking, enabling external consumers to apply their own reporting logic without modifying Vehicle internals.",
+    "containment_risks": [
+      "Risk: If Vehicle module grows to include reporting policy (e.g., threshold checks, alert generation), decoupling (DP5) is violated. Mitigation: Enforce architectural rule that Vehicle emits raw/fused data only; all policy decisions belong to Safety Services or Teleoperation.",
+      "Risk: If dual-path measurement logic (DP3) is not cleanly separated within Vehicle (e.g., both paths share state or timing), safety-critical path may be delayed by general telemetry. Mitigation: Implement dual-path as independent acquisition threads/processes with separate buffers and scheduling.",
+      "Risk: If Telemetry and SafetyAlert interfaces are not strictly defined, consumers may attempt to embed reporting logic in Vehicle via Tasking, creating hidden coupling. Mitigation: Define interface contracts clearly; Tasking accepts only measurement configuration (sampling rate, sensor selection), not reporting thresholds.",
+      "Risk: Network latency on Telemetry path may create pressure to embed reporting logic in Vehicle to reduce round-trip time. Mitigation: SafetyAlert path is reserved for low-latency safety-critical data; general reporting can tolerate network delay."
+    ],
+    "recommended_revision": "No revision to DP5+DP3 is needed. The selected DPs are well-suited to Vehicle ownership. However, clarify the DP boundary: DP5 should explicitly state 'Measurement acquisition logic is decoupled from reporting/decision logic by design; Vehicle owns acquisition and data generation; Safety Services and Teleoperation own reporting policy.' This ensures that future implementers do not conflate measurement with reporting and accidentally couple them within Vehicle."
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The Vehicle module owns all measurement acquisition hardware and dual-path sensing logic, enabling direct verification of throughput measurement accuracy and reporting latency via instrumentation of Telemetry and SafetyAlert interfaces. Acceptance criteria (reported productivity ≥ productivity_target) can be validated by comparing Vehicle-emitted measurement data against ground truth during representative operations. Network decoupling ensures measurement acquisition is not blocked by reporting delays, making latency attribution clear.",
+      "allocation_clarity": "Excellent. FR is allocated to Vehicle with clear ownership boundaries: Vehicle generates raw and fused throughput measurements on two independent paths (safety-critical via SafetyAlert, general via Telemetry). Reporting policy and threshold decisions remain external (Safety Services, Teleoperation), ensuring the FR (measurement and reporting capability) is decomposed into measurement generation (Vehicle) and reporting logic (external consumers). Interface contracts (Tasking, Telemetry, SafetyAlert, Network Link) explicitly separate configuration from policy."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP5 (decoupled measurement acquisition from reporting logic) and DP3 (hybrid dual-path measurement) directly address the FR. DP5 ensures measurement generation is independent of reporting policy, enabling flexible reporting strategies without modifying acquisition logic. DP3 provides dual-path sensing (safety-critical and general telemetry) to meet both low-latency safety requirements and standard throughput reporting. Combined, these DPs satisfy the FR requirement to enable measurement and reporting of material throughput in volumetric or mass units per unit time. No logical gaps detected."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Risk: Dual-path measurement logic (DP3) may diffuse if both safety-critical and general telemetry paths share state, buffers, or scheduling within Vehicle. Mitigation: Enforce strict separation—implement as independent acquisition threads with dedicated buffers, timing, and priority scheduling. Verify via code review and integration testing that SafetyAlert path is not delayed by Telemetry congestion.",
+        "Risk: Decoupling intent (DP5) may erode if Vehicle module is pressured to embed reporting thresholds or alert generation logic to reduce network round-trip time. Mitigation: Establish architectural rule: Vehicle emits raw/fused data only; all policy decisions (thresholds, alerts, reporting format) belong to Safety Services or Teleoperation. Enforce via interface contract validation and code review.",
+        "Risk: Tasking interface may become a hidden coupling vector if external consumers attempt to pass reporting policy (e.g., threshold values, alert conditions) disguised as measurement configuration. Mitigation: Define Tasking interface contract explicitly—accept only measurement parameters (sampling rate, sensor selection, fusion mode); reject policy parameters. Validate at interface boundary.",
+        "Risk: If Telemetry interface is not strictly versioned and documented, consumers may embed assumptions about reporting logic in Vehicle, creating tight coupling. Mitigation: Publish Telemetry interface schema and contract; version explicitly; communicate that Vehicle emits measurement data only, not reporting decisions."
+      ],
+      "containment_notes": "Excellent containment (0.92 score). Vehicle naturally owns all measurement acquisition hardware, dual-path sensing logic, and measurement generation. DP5 decoupling is realized by logical separation within Vehicle (measurement generation) and external ownership of reporting policy (Safety Services, Teleoperation). DP3 dual-path is contained within Vehicle's measurement acquisition subsystem. Minimal diffusion: only Telemetry and SafetyAlert interfaces leak measurement data; reporting logic remains external. Tasking interface enables external control without embedding policy. No alternative module (Safety Services, Teleoperation, NGHE Solution) provides better containment without violating separation of concerns."
+    },
+    "recommended_revisions": [
+      "Clarify DP5 boundary explicitly: 'Measurement acquisition logic is decoupled from reporting/decision logic by design. Vehicle owns acquisition, data generation, and dual-path transmission. Safety Services and Teleoperation own reporting policy, thresholds, and alert generation.' This prevents future implementers from conflating measurement with reporting.",
+      "Define Tasking interface contract in detail: specify that it accepts only measurement configuration parameters (sampling rate, sensor selection, fusion mode, calibration data) and explicitly rejects reporting policy parameters (thresholds, alert conditions, reporting format). Validate at interface boundary.",
+      "Implement DP3 dual-path as independent acquisition threads/processes with separate buffers, scheduling, and priority levels. Document timing guarantees for SafetyAlert path (e.g., max latency from sensor to interface). Verify via integration testing that general Telemetry congestion does not delay SafetyAlert.",
+      "Establish architectural rule: Vehicle module must not embed reporting logic, threshold checks, or alert generation. All such logic belongs to Safety Services or Teleoperation. Enforce via code review checklist and static analysis rules.",
+      "Version and publish Telemetry and SafetyAlert interface schemas explicitly. Document that Vehicle emits raw and fused measurement data only, not reporting decisions. Communicate to external consumers that reporting logic must be implemented externally.",
+      "Add acceptance criterion: 'Measurement acquisition latency (sensor to Telemetry interface) is ≤ [X] ms; SafetyAlert latency is ≤ [Y] ms (safety-critical threshold).' Verify via instrumentation during representative operations to ensure decoupling does not introduce unacceptable delays."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-IM, FR-DP, DP-IM) pass with high confidence and excellent containment (0.92 score). The FR is well-allocated to Vehicle with clear ownership boundaries, DPs logically satisfy the FR without gaps, and diffusion risks are identified and mitigatable through architectural rules and interface contracts. However, the recommended revisions reveal that critical implementation details—particularly the dual-path measurement logic (DP3) independence and the decoupling boundary (DP5)—require explicit sub-level decomposition to ensure they are realized correctly and verifiably. The high safety criticality of the throughput measurement (used for safety-critical SafetyAlert path) and the identified risk of policy/measurement conflation justify decomposing to the next level to specify: (1) independent acquisition threads for dual-path sensing, (2) explicit Tasking interface contract boundaries, (3) measurement latency guarantees, and (4) architectural enforcement rules. This decomposition will transform recommendations into verifiable sub-FRs and sub-DPs, reducing implementation ambiguity and enabling rigorous verification.",
+    "next_level_sub_frs": [
+      "FR5.1: Acquire and transmit material throughput measurements via safety-critical path with latency ≤ [Y] ms and guaranteed independence from general telemetry congestion.",
+      "FR5.2: Acquire and transmit material throughput measurements via general telemetry path with latency ≤ [X] ms, decoupled from reporting policy and threshold logic.",
+      "FR5.3: Accept measurement configuration parameters (sampling rate, sensor selection, fusion mode, calibration) via Tasking interface while rejecting reporting policy parameters (thresholds, alert conditions, reporting format).",
+      "FR5.4: Fuse raw sensor data (mass flow, volumetric flow, time-series samples) into a unified throughput measurement representation accessible to both safety-critical and general telemetry paths without state coupling or shared mutable buffers."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "Recommended revisions clarify DP5 (decoupling) and DP3 (dual-path) boundaries but require explicit sub-level DPs to specify realization details: (1) independent acquisition threads with separate buffers and priority scheduling for DP3, (2) Tasking interface contract validation logic for DP5, (3) measurement latency guarantees and instrumentation for verification, (4) architectural enforcement rules (code review checklist, static analysis). These sub-DPs will make the design intent verifiable and reduce the risk of policy/measurement conflation during implementation. Current DP statements are logically sound but lack sufficient detail to guide implementation in a safety-critical context."
+    },
+    "record": {
+      "assumptions": [
+        "Vehicle module has exclusive ownership of all measurement acquisition hardware (mass flow sensors, volumetric flow sensors, time-series sampling logic) and can enforce independent thread/process scheduling.",
+        "Safety Services and Teleoperation modules are external to Vehicle and will not attempt to embed reporting policy or threshold logic within Vehicle's measurement acquisition subsystem.",
+        "Tasking interface can be strictly validated at the boundary to reject policy parameters; external callers will not circumvent this validation by encoding policy in measurement configuration.",
+        "Network infrastructure (Telemetry, SafetyAlert, Network Link) provides sufficient bandwidth and latency guarantees to support dual-path measurement transmission without blocking safety-critical path.",
+        "Measurement latency requirements [X] ms (general telemetry) and [Y] ms (safety-critical) are defined and achievable with the selected sensor hardware and acquisition logic.",
+        "Code review and static analysis tools are available and will be enforced to prevent embedding of reporting logic in Vehicle module."
+      ],
+      "open_risks": [
+        "Risk: Dual-path measurement logic may share state (e.g., sensor calibration data, fusion algorithm state) between safety-critical and general telemetry paths, creating hidden coupling. Mitigation: Decompose to FR5.1 and FR5.2 to explicitly specify independent acquisition and transmission; implement with separate data structures and synchronization primitives.",
+        "Risk: Tasking interface contract may be violated by external callers attempting to pass reporting policy disguised as measurement configuration (e.g., 'sampling_mode: alert_on_threshold'). Mitigation: Decompose to FR5.3 to specify explicit parameter validation logic; implement as interface adapter with strict schema validation.",
+        "Risk: Measurement latency may exceed safety-critical threshold [Y] ms if general telemetry path congestion blocks SafetyAlert path. Mitigation: Decompose to FR5.1 to specify latency guarantee and independence; implement with priority scheduling and dedicated buffers; verify via integration testing.",
+        "Risk: Fused measurement representation may be inconsistent between safety-critical and general telemetry paths if fusion algorithm state is not properly synchronized. Mitigation: Decompose to FR5.4 to specify fusion logic and state management; implement with immutable data structures or explicit synchronization.",
+        "Risk: Architectural rule (Vehicle must not embed reporting logic) may erode over time if not enforced via code review checklist and static analysis. Mitigation: Establish and document enforcement rules at next decomposition level; integrate into CI/CD pipeline."
+      ],
+      "evidence_needed": [
+        "Detailed specification of Tasking interface contract: list of accepted measurement configuration parameters (sampling_rate, sensor_selection, fusion_mode, calibration_data) and explicitly rejected policy parameters (thresholds, alert_conditions, reporting_format). Validate via interface adapter implementation and unit tests.",
+        "Architecture decision record (ADR) documenting the decoupling boundary: Vehicle owns measurement acquisition and data generation; Safety Services and Teleoperation own reporting policy, thresholds, and alert generation. Enforce via code review checklist.",
+        "Implementation design for dual-path measurement acquisition: specify independent threads/processes, separate buffers, priority scheduling, and synchronization primitives. Verify via code review and integration testing that SafetyAlert path latency is ≤ [Y] ms under representative load.",
+        "Measurement latency acceptance criteria and instrumentation plan: define [X] ms (general telemetry) and [Y] ms (safety-critical) thresholds; implement latency measurement at sensor-to-interface boundary; validate during representative operations.",
+        "Fused measurement representation specification: define data structure, fusion algorithm, state management, and consistency guarantees between safety-critical and general telemetry paths. Verify via unit tests and integration tests.",
+        "Static analysis rules and code review checklist to prevent embedding of reporting logic in Vehicle module. Integrate into CI/CD pipeline and enforce on all commits.",
+        "Telemetry and SafetyAlert interface schema documentation with explicit versioning and contract statement: 'Vehicle emits raw and fused measurement data only; reporting logic must be implemented externally.' Communicate to external consumers."
+      ]
+    }
+  }
+}

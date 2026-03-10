@@ -1,0 +1,174 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation communication quality within the customer-defined packet loss acceptance criterion.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting teleoperation capability and (2) meeting a specific quality metric (packet loss limit). The refined FR isolates the quality obligation as a single, atomic requirement in the problem domain. It removes the implicit 'how' (e.g., 'support teleoperation') and focuses on the measurable constraint that must be satisfied. The phrase 'customer-defined' preserves solution neutrality by avoiding hard-coded thresholds; the actual limit (e.g., ≤1%) is a design input, not part of the FR itself.",
+    "verification_idea": "Conduct end-to-end teleoperation communication testing under agreed network conditions (latency, bandwidth, interference profiles). Measure packet loss rate across representative operational scenarios (e.g., equipment movement, sensor streaming, command transmission). Confirm measured packet loss does not exceed the customer-defined acceptance criterion.",
+    "sub_frs": [
+      "The NGHE solution shall enable remote operation of equipment via teleoperation interface.",
+      "The NGHE solution shall maintain teleoperation communication quality within the customer-defined packet loss acceptance criterion."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Implement adaptive packet prioritization and selective retransmission based on real-time loss detection and network state feedback",
+      "DP2: Establish redundant communication paths with automatic failover and load balancing across independent network routes",
+      "DP3: Apply forward error correction (FEC) encoding with configurable redundancy ratio to tolerate packet loss without retransmission",
+      "DP4: Enforce quality-of-service (QoS) reservation and traffic shaping at network ingress to guarantee minimum bandwidth allocation for teleoperation streams",
+      "DP5: Implement hybrid approach combining selective retransmission for critical control frames and FEC for non-critical telemetry with dynamic switching based on observed loss rate"
+    ],
+    "selected_dp": "DP5: Implement hybrid approach combining selective retransmission for critical control frames and FEC for non-critical telemetry with dynamic switching based on observed loss rate",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between loss detection mechanism and retransmission policy (mitigated by decoupling detection from decision logic via configurable thresholds)",
+        "Coupling between FEC encoder/decoder and packet classification logic (acceptable: classification is stateless and reusable)",
+        "Dependency on network monitoring module to feed loss metrics (acceptable: monitoring is a separate concern with well-defined interface)"
+      ],
+      "notes": "DP5 avoids tight coupling to specific network topology or protocol stack. The hybrid strategy allows independent tuning of retransmission and FEC parameters. Decoupling is achieved by: (1) separating loss detection from remediation strategy, (2) using configurable thresholds for dynamic switching, (3) maintaining clear interfaces between packet classification, FEC, and retransmission modules. Risk: complexity of state management during mode transitions is manageable via explicit state machine design."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Network loss is primarily random packet drops, not sustained congestion or burst errors. RISK: If loss is bursty, FEC alone may be insufficient; mitigation requires adaptive FEC redundancy or hybrid with buffering.",
+      "ASSUMPTION: Latency budget permits retransmission overhead for critical frames. RISK: If round-trip latency is very high (>500ms), retransmission may violate operator responsiveness; mitigation: pre-compute acceptable latency bounds and validate against worksite network profile.",
+      "ASSUMPTION: Teleoperation stream can be partitioned into critical (control) and non-critical (telemetry) classes. RISK: Misclassification of frame priority could degrade safety; mitigation: explicit safety analysis and operator training on frame types.",
+      "ASSUMPTION: Dynamic switching between retransmission and FEC modes does not introduce transient loss during transitions. RISK: Mode switching glitches could spike packet loss; mitigation: implement hysteresis and graceful transition logic.",
+      "ASSUMPTION: Customer-defined acceptance criterion (≤1% loss) is achievable under agreed network conditions. RISK: If baseline network loss exceeds 1%, no DP can meet requirement; mitigation: conduct pre-deployment network characterization and establish SLA with network provider."
+    ],
+    "recommended_revision": "FR should be refined to explicitly state: (1) definition of 'agreed network conditions' (e.g., latency range, baseline loss rate, bandwidth), (2) measurement window for packet loss (e.g., per-session, rolling 5-minute average), (3) distinction between control-critical and telemetry frames with separate loss targets if applicable, (4) acceptable latency overhead introduced by loss mitigation (e.g., max additional delay from retransmission or FEC decoding). Additionally, clarify whether the 1% criterion applies to all packets or only to safety-critical control frames. This will enable tighter DP validation and reduce ambiguity in IM design."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Encapsulates all remote operation logic including command transmission, telemetry reception, and adaptive link management for both critical control and non-critical data streams"
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives operator commands and control directives that determine which frames are critical vs. non-critical"
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Outputs received telemetry data (both FEC-protected and retransmitted) to consumers; also monitors incoming telemetry loss rates to drive dynamic switching"
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Signals safety-critical transmission failures or unrecoverable loss conditions detected during hybrid protocol operation"
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Bidirectional interface for frame transmission (with selective retransmission logic) and reception (with FEC decoding); observes link quality metrics to inform loss-rate-based switching"
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit: Teleoperation owns the end-to-end command-response cycle and link adaptation logic. Hybrid retransmission/FEC strategy is intrinsic to remote operation reliability. Loss-rate monitoring and dynamic switching are core teleoperation concerns. Minor diffusion: safety-critical failure signaling must propagate to Safety Services via SafetyAlert."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor fit: Safety Services should validate outcomes, not implement transmission protocols. The hybrid protocol is a communication mechanism, not a safety function. Placing DP5 here would scatter teleoperation logic across modules and violate separation of concerns."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Very poor fit: Vehicle module owns vehicle state and actuation, not remote link management. DP5 is fundamentally about operator-to-vehicle communication, not vehicle internals. Significant diffusion: would require Vehicle to manage network protocols and loss detection, breaking cohesion."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.15,
+        "diffusion_score": 0.85,
+        "notes": "Very poor fit: NGHE Solution is a top-level system container, not an implementation module. Placing DP5 here would bypass architectural layering and prevent proper ownership assignment. Extreme diffusion: would obscure which subsystem is responsible for link adaptation."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the natural owner of DP5 because it is responsible for maintaining reliable bidirectional communication between operator and vehicle under variable network conditions. The hybrid retransmission/FEC strategy is a core mechanism for achieving teleoperation reliability. Loss-rate observation and dynamic protocol switching are intrinsic to the teleoperation control loop. The module interfaces cleanly with Tasking (command source), Network Link (transmission/reception), Telemetry (output), and SafetyAlert (failure escalation).",
+    "containment_risks": [
+      "Loss-rate metrics must be computed reliably; if Network Link interface does not expose sufficient quality-of-service data, Teleoperation may need to infer loss rates indirectly, increasing coupling.",
+      "Dynamic switching logic must respond quickly to loss-rate changes; if Teleoperation cannot access real-time link statistics, switching decisions may lag, reducing effectiveness.",
+      "Safety-critical frame identification (which frames require retransmission vs. FEC) depends on Tasking semantics; if Tasking interface does not clearly mark criticality, Teleoperation must infer it, increasing coupling and risk of misclassification.",
+      "FEC encoding/decoding may be computationally intensive; if Teleoperation module is resource-constrained, performance may degrade under high loss conditions."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP5 (hybrid retransmission + FEC with dynamic switching) directly addresses the FR requirement to maintain packet loss within customer-defined acceptance criterion (≤1%). The DP is solution-complete: it specifies both the mechanism (selective retransmission for critical frames, FEC for non-critical telemetry) and the adaptation logic (loss-rate-based dynamic switching). The DP is verifiable against the packet loss acceptance criterion through network simulation and field testing under agreed conditions."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Loss-rate metric computation: If Network Link interface does not expose real-time QoS statistics (packet loss rate, latency variance), Teleoperation module must infer loss rates indirectly (e.g., via timeout counters or ACK analysis), increasing coupling to Network Link implementation details and risking metric staleness.",
+        "Frame criticality classification: Tasking interface must clearly mark which commands/frames are safety-critical vs. non-critical. If this semantic is ambiguous or implicit in the command protocol, Teleoperation will be forced to infer criticality heuristically (e.g., based on command type), increasing misclassification risk and violating the principle of explicit contract.",
+        "FEC computational load: FEC encoding/decoding under high loss conditions may consume significant CPU/memory. If Teleoperation module is co-located with other latency-sensitive functions (e.g., real-time control loops), resource contention may degrade switching responsiveness, violating the dynamic adaptation requirement.",
+        "Safety-critical failure escalation: SafetyAlert interface must define clear thresholds for 'unrecoverable loss' that trigger safety escalation. If thresholds are not pre-agreed or if SafetyAlert consumer (Safety Services) does not respond deterministically, Teleoperation may hold responsibility for safety decisions it cannot fully control."
+      ],
+      "containment_notes": "Teleoperation module achieves 0.92 containment score and is the clear ownership candidate. The module boundary is well-scoped: it owns the end-to-end command-response cycle, link quality observation, and protocol adaptation logic. All four external interfaces (Tasking, Telemetry, SafetyAlert, Network Link) are appropriate and necessary. Minor diffusion (0.08) is acceptable because safety-critical failure signaling must propagate out-of-band via SafetyAlert; this is proper separation of concerns (Teleoperation detects and reports, Safety Services decides). No alternative module (Safety Services, Vehicle, NGHE Solution) is suitable; placing DP5 elsewhere would scatter teleoperation logic and violate cohesion."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The FR acceptance criterion (packet loss ≤1% under agreed network conditions) is measurable and testable. Verification can be conducted via: (1) controlled network simulation with injected loss rates, (2) field trials under representative worksite conditions, (3) packet capture and loss analysis during teleoperation sessions. The DP5 implementation (hybrid retransmission/FEC with dynamic switching) is observable: retransmission counts, FEC overhead, switching events, and end-to-end loss rates can all be logged and analyzed. Worksite safety plan and operational policies provide context for 'agreed network conditions' and criticality classification.",
+      "allocation_clarity": "Clear. Teleoperation module is unambiguously assigned ownership of DP5. Interfaces to Tasking (command source), Network Link (transmission/reception), Telemetry (output), and SafetyAlert (failure escalation) are explicitly defined. However, allocation clarity depends on three preconditions: (1) Network Link interface must expose real-time loss-rate metrics; (2) Tasking interface must explicitly mark frame criticality; (3) SafetyAlert thresholds for 'unrecoverable loss' must be pre-agreed. If any precondition is unmet, allocation clarity degrades and diffusion risk increases."
+    },
+    "recommended_revisions": [
+      "Refine Network Link interface specification to mandate exposure of real-time QoS metrics (packet loss rate, latency percentiles, jitter) at a frequency sufficient for dynamic switching decisions (e.g., loss-rate update every 100–500 ms). Define fallback behavior if metrics are unavailable.",
+      "Extend Tasking interface contract to include explicit frame criticality marking (e.g., a 'criticality' field in command messages: CRITICAL, NON_CRITICAL, or BEST_EFFORT). Define rules for Teleoperation to handle unmarked or ambiguous frames (e.g., default to CRITICAL for safety).",
+      "Define SafetyAlert escalation thresholds in the FR or acceptance criteria (e.g., 'trigger SafetyAlert if packet loss exceeds 5% for >10 seconds' or 'if retransmission queue overflows'). Ensure thresholds are consistent with worksite safety plan.",
+      "Add a performance constraint to the FR or DP: specify maximum acceptable latency for dynamic switching (e.g., 'loss-rate-based protocol switch must occur within 500 ms of loss-rate change'). This ensures Teleoperation can respond quickly enough to maintain the ≤1% loss criterion.",
+      "Document the FEC algorithm and computational budget in DP5 (e.g., 'Reed-Solomon (255,223) with <10% CPU overhead on target hardware'). Verify that Teleoperation module has sufficient resources to execute FEC under worst-case loss conditions without starving other functions.",
+      "Add a traceability note linking DP5 to the customer-defined packet loss acceptance criterion and worksite operational policies. Ensure that 'agreed network conditions' are explicitly documented (e.g., 'WiFi 5GHz, 50–100 m range, typical industrial interference')."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass with high confidence. DP5 is solution-complete, Teleoperation module is the clear ownership candidate (0.92 containment), and the FR acceptance criterion is measurable and testable. However, the DP-IM gate identifies four material diffusion risks that are not design flaws but rather preconditions for successful realization. These preconditions must be decomposed into sub-FRs to ensure they are explicitly owned, contractually defined, and verifiable. Proceeding to next-level decomposition will: (1) make interface contracts explicit (Network Link QoS metrics, Tasking frame criticality marking, SafetyAlert thresholds), (2) allocate ownership of these contracts to upstream/downstream modules, (3) establish verification criteria for each precondition, and (4) reduce diffusion risk from 0.08 to near-zero by eliminating implicit dependencies. Given high safety criticality, explicit contractual clarity at the next level is essential.",
+    "next_level_sub_frs": [
+      "FR5.1: Expose real-time network quality-of-service metrics (packet loss rate, latency percentiles, jitter) from Network Link to Teleoperation module at a frequency sufficient for dynamic protocol switching decisions (update interval ≤500 ms). Acceptance criterion: QoS metrics are available and accurate within ±5% of ground truth (measured via packet capture) under representative worksite network conditions.",
+      "FR5.2: Classify each command/frame received by Teleoperation as safety-critical, non-critical, or best-effort based on explicit semantic marking in the Tasking interface. Acceptance criterion: 100% of inbound commands carry unambiguous criticality marking; Teleoperation correctly interprets criticality with zero misclassification under normal operation.",
+      "FR5.3: Define and communicate SafetyAlert escalation thresholds (e.g., packet loss >5% for >10 seconds, retransmission queue overflow, FEC decode failure rate >2%) such that Teleoperation module can deterministically trigger safety escalation and Safety Services can respond with agreed latency. Acceptance criterion: Thresholds are documented in worksite safety plan, agreed by all stakeholders, and SafetyAlert consumer (Safety Services) acknowledges receipt and commits to response SLA (e.g., <2 second decision latency).",
+      "FR5.4: Ensure Teleoperation module has sufficient computational resources (CPU, memory, I/O bandwidth) to execute hybrid retransmission + FEC protocol adaptation without resource starvation of co-located latency-sensitive functions. Acceptance criterion: FEC encoding/decoding overhead is <10% of target hardware CPU budget under worst-case loss conditions (e.g., 10% packet loss); dynamic switching decision latency is <500 ms; no timeout or dropped frames attributable to Teleoperation resource exhaustion.",
+      "FR5.5: Maintain traceability between DP5 (hybrid retransmission + FEC with dynamic switching), the customer-defined packet loss acceptance criterion (≤1%), and worksite operational policies (network conditions, safety plan, criticality rules). Acceptance criterion: Traceability matrix is complete and reviewed by customer and safety authority; 'agreed network conditions' are explicitly documented (e.g., WiFi 5GHz, 50–100 m range, typical industrial interference); any deviation from agreed conditions triggers re-verification."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "DP5 is logically sound but incomplete in its specification of external dependencies. Revise DP5 to explicitly state the four preconditions as contractual requirements on upstream/downstream interfaces: (1) Network Link must expose QoS metrics with defined frequency and accuracy; (2) Tasking must mark frame criticality explicitly; (3) SafetyAlert thresholds must be pre-agreed and documented; (4) Teleoperation must be allocated sufficient computational budget. This revision transforms DP5 from a self-contained algorithm specification into a complete system-level design that acknowledges and allocates responsibility for all critical dependencies. Revised DP5 should read: 'Implement hybrid retransmission + FEC with dynamic switching, contingent on: (a) Network Link interface providing real-time loss-rate metrics (update ≤500 ms), (b) Tasking interface marking frame criticality explicitly, (c) SafetyAlert thresholds pre-agreed and documented, (d) Teleoperation module allocated <10% CPU budget for FEC under worst-case loss. If any precondition is unmet, escalate to architecture review before implementation.'"
+    },
+    "record": {
+      "assumptions": [
+        "Network Link interface can be extended to expose real-time QoS metrics without breaking backward compatibility or introducing unacceptable latency overhead.",
+        "Tasking interface can be extended to include explicit frame criticality marking without requiring changes to upstream command sources (e.g., operator console, autonomous planner).",
+        "SafetyAlert thresholds can be pre-agreed with customer and safety authority before Teleoperation implementation begins.",
+        "Teleoperation module will be deployed on hardware with sufficient CPU/memory headroom to execute FEC under worst-case loss conditions.",
+        "Worksite network conditions (WiFi 5GHz, 50–100 m range, typical industrial interference) remain stable during teleoperation sessions; significant deviations (e.g., new RF sources, extended range) trigger re-verification.",
+        "Safety Services module is responsive and deterministic in its handling of SafetyAlert escalations; no cascading failures or deadlocks occur at the SafetyAlert interface."
+      ],
+      "open_risks": [
+        "Network Link interface may not expose loss-rate metrics in real-time; if metrics are only available post-hoc (e.g., via log analysis), Teleoperation cannot adapt dynamically and must fall back to static protocol selection, degrading performance.",
+        "Tasking interface may not support explicit frame criticality marking; if criticality is implicit or inferred heuristically, misclassification risk is high, potentially causing non-critical frames to consume retransmission budget and critical frames to be dropped.",
+        "SafetyAlert thresholds may be ambiguous or contested; if stakeholders disagree on 'unrecoverable loss' definition, Teleoperation may escalate too early (false positives, operator fatigue) or too late (safety violation).",
+        "FEC computational load may be underestimated; if actual CPU overhead exceeds 10% under worst-case loss, Teleoperation may starve other functions (e.g., real-time control loops), violating latency requirements and creating secondary safety hazards.",
+        "Worksite network conditions may deviate from 'agreed conditions' (e.g., new RF interference, extended range); if re-verification is not triggered, DP5 may fail to maintain ≤1% loss criterion in the field.",
+        "SafetyAlert consumer (Safety Services) may not respond deterministically; if response latency is unpredictable or if Safety Services is overloaded, Teleoperation's escalation may be ignored or delayed, creating a safety gap."
+      ],
+      "evidence_needed": [
+        "Network Link interface specification (current and proposed) showing QoS metric exposure, update frequency, accuracy, and fallback behavior.",
+        "Tasking interface specification (current and proposed) showing frame criticality marking scheme, default rules for unmarked frames, and impact on upstream command sources.",
+        "Worksite safety plan and operational policies documenting agreed network conditions, criticality rules, and SafetyAlert escalation thresholds.",
+        "FEC algorithm selection and computational budget analysis (e.g., Reed-Solomon (255,223) with measured CPU/memory overhead on target hardware under 1%, 5%, 10% loss conditions).",
+        "SafetyAlert interface specification showing escalation thresholds, response SLA, and Safety Services acknowledgment of responsibility.",
+        "Traceability matrix linking DP5, FR acceptance criterion (≤1% loss), and worksite operational policies.",
+        "Field trial plan documenting network conditions, loss injection scenarios, and verification methodology for ≤1% loss criterion.",
+        "Resource allocation plan for Teleoperation module showing CPU/memory budget, co-located functions, and contention analysis."
+      ]
+    }
+  }
+}

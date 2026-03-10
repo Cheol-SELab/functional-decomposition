@@ -1,0 +1,166 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current equipment state, environmental conditions, and operational events with p95 latency ≤ 1.0 s for all supported update scenarios (teleoperation, autonomous operation, sensor fusion, safety events).",
+    "rationale": "CR-NGHE-007 requires explicit scoping of what constitutes a 'worksite model update' (state, environment, events), identification of update sources (teleoperation commands, sensor data, safety alerts), and clear latency measurement boundaries (sensor acquisition to model persistence). High safety criticality demands that latency targets apply uniformly across all operational modes and that safety-critical updates (e.g., obstacle detection, emergency stop) are not deprioritized.",
+    "verification_idea": "Instrument the worksite model update pipeline with timestamped events at ingestion, processing, and persistence stages. Collect p95 latency metrics across update scenarios (teleoperation, autonomous, sensor fusion, safety event) in representative network and computational load conditions. Validate that all supported scenarios meet the 1.0 s target.",
+    "sub_frs": [
+      "FR-NGHE-007.1: The NGHE solution shall ingest worksite update events (telemetry, tasking, safety alerts) from vehicle, teleoperation, and safety services modules.",
+      "FR-NGHE-007.2: The NGHE solution shall process and fuse ingested events into a unified worksite model representation.",
+      "FR-NGHE-007.3: The NGHE solution shall persist the updated worksite model with deterministic latency guarantees.",
+      "FR-NGHE-007.4: The NGHE solution shall prioritize safety-critical updates (SafetyAlert events) to meet latency targets even under high computational or network load."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized event-driven worksite model service with asynchronous ingestion (Telemetry, Tasking, SafetyAlert), in-memory model cache, and periodic persistence to durable store; prioritize SafetyAlert events via dedicated queue.",
+      "DP-B: Distributed worksite model replicas on vehicle, teleoperation, and safety services modules with eventual consistency synchronization; each module updates its local model and broadcasts changes.",
+      "DP-C: Real-time streaming pipeline (Kafka/Pulsar) ingesting all update events, applying transformations, and writing to time-series database with sub-100ms commit latency; worksite model reconstructed on-demand from event log.",
+      "DP-D: Hybrid approach: vehicle maintains local operational model (low latency), teleoperation and safety services maintain read-only replicas synchronized via change-data-capture (CDC) from vehicle; central model reconciliation on demand."
+    ],
+    "selected_dp": "DP-A: Centralized event-driven worksite model service with asynchronous ingestion (Telemetry, Tasking, SafetyAlert), in-memory model cache, and periodic persistence to durable store; prioritize SafetyAlert events via dedicated queue.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between worksite model update latency and network link reliability: if Telemetry or SafetyAlert ingestion is delayed due to network congestion, model update latency increases. Mitigation: implement network-aware buffering and prioritization.",
+        "Coupling between worksite model update latency and vehicle/teleoperation/safety services event generation rates: high event rates can overwhelm the ingestion queue. Mitigation: implement backpressure and adaptive batching.",
+        "Coupling between in-memory cache size and model update latency: large models may incur GC pauses. Mitigation: profile memory usage and tune GC parameters."
+      ],
+      "notes": "DP-A decouples the worksite model update logic from the physical distribution of update sources (vehicle, teleoperation, safety services) by centralizing ingestion and processing. This reduces architectural complexity and enables deterministic latency control via queue prioritization and resource allocation. The design assumes that a single centralized service can handle the aggregate event rate and that network latency to the service is acceptable."
+    },
+    "assumptions_risks": [
+      "Assumption: Network latency from vehicle, teleoperation, and safety services to the centralized worksite model service is < 100 ms (p95). Risk: If network latency is higher, the p95 model update latency target may be unachievable. Mitigation: measure network latency in representative deployments; consider edge caching if latency is high.",
+      "Assumption: The centralized worksite model service can be deployed with sufficient compute and memory resources to handle peak event rates without queueing delays. Risk: Resource constraints may cause queueing and latency spikes. Mitigation: capacity planning and load testing.",
+      "Assumption: SafetyAlert events can be reliably distinguished from other update events and prioritized without introducing race conditions or model inconsistencies. Risk: Incorrect prioritization logic could delay non-safety updates indefinitely. Mitigation: formal verification of prioritization logic.",
+      "Assumption: Periodic persistence to durable store does not block model updates (asynchronous writes). Risk: Synchronous persistence could introduce latency spikes. Mitigation: use asynchronous I/O and monitor write latency."
+    ],
+    "recommended_revision": "Refine DP-A to explicitly specify: (1) the event ingestion queue architecture (single queue with priority levels vs. separate queues for SafetyAlert); (2) the in-memory model representation (data structure, size bounds); (3) the persistence strategy (write-ahead log, periodic snapshots, or event sourcing); (4) the latency measurement methodology (end-to-end from event generation to model persistence); (5) network link assumptions and fallback strategies if network latency exceeds thresholds."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "The NGHE Solution module owns the centralized worksite model service, including event ingestion (Telemetry, Tasking, SafetyAlert), model processing and fusion, in-memory cache, and persistence. The module is responsible for meeting the p95 ≤ 1.0 s latency target across all supported update scenarios."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Ingests equipment state and environmental sensor data from Vehicle module. Expected frequency: 10–100 Hz depending on sensor type. Latency contribution: network + ingestion queue processing."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Ingests operational commands and task updates from Teleoperation module. Expected frequency: 1–10 Hz. Latency contribution: network + ingestion queue processing."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "in",
+        "details": "Ingests safety-critical events (obstacle detection, emergency stop, anomaly detection) from Safety Services module. Expected frequency: 0.1–10 Hz depending on operational context. Latency contribution: network + prioritized ingestion queue processing."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Provides network connectivity for Telemetry, Tasking, and SafetyAlert ingestion. Latency and reliability of Network Link directly impact worksite model update latency. NGHE Solution must account for network jitter and packet loss."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "NGHE Solution is the natural owner of the centralized worksite model service. The module has clear ownership of the model data structure, ingestion logic, processing pipeline, and persistence. Diffusion risk is minimal: only the external interfaces (Telemetry, Tasking, SafetyAlert, Network Link) cross module boundaries. Internal implementation details (queue architecture, cache management, persistence strategy) are fully contained."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Vehicle module could host a local worksite model replica, but this would violate the centralized design pattern (DP-A) and introduce distributed consistency challenges. Assigning the worksite model update responsibility to Vehicle would diffuse the latency control logic across multiple modules and make it difficult to enforce uniform latency targets."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 15,
+        "diffusion_score": 85,
+        "notes": "Teleoperation module is a consumer of worksite model updates, not a producer or owner. Assigning model update responsibility to Teleoperation would create a circular dependency (Teleoperation sends Tasking events to NGHE Solution, which updates the model, which Teleoperation consumes). This violates separation of concerns."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 25,
+        "diffusion_score": 75,
+        "notes": "Safety Services module generates SafetyAlert events but should not own the worksite model update logic. Assigning model update responsibility to Safety Services would couple safety event generation with model management, making it difficult to evolve the model schema independently of safety logic."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "The NGHE Solution module is the optimal owner of the centralized worksite model service. It has clear ownership of the model data, ingestion logic, and persistence, with minimal diffusion of responsibilities across other modules. External interfaces (Telemetry, Tasking, SafetyAlert, Network Link) are well-defined and stable.",
+    "containment_risks": [
+      "Risk: If the NGHE Solution module becomes a bottleneck (high event rate, limited compute resources), latency targets may be unachievable. Mitigation: implement horizontal scaling (multiple instances with load balancing) or edge caching strategies.",
+      "Risk: If the worksite model schema evolves frequently, the NGHE Solution module may require frequent updates, impacting stability. Mitigation: use a flexible model representation (e.g., JSON, protobuf) and version the schema.",
+      "Risk: If external modules (Vehicle, Teleoperation, Safety Services) generate events at unpredictable rates, the NGHE Solution module may experience queueing delays. Mitigation: implement adaptive backpressure and rate limiting."
+    ],
+    "recommended_revision": "Clarify the deployment topology of the NGHE Solution module: is it a single centralized service, a set of replicated instances behind a load balancer, or an edge service co-located with Vehicle/Teleoperation/Safety Services? The deployment topology directly impacts network latency and fault tolerance. Additionally, specify the SLA for Network Link (latency, jitter, packet loss) to ensure that the p95 ≤ 1.0 s target is achievable."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-A (centralized event-driven worksite model service) directly addresses FR-NGHE-007 by providing a clear mechanism to ingest, process, and persist worksite model updates with deterministic latency control. The design explicitly prioritizes SafetyAlert events to meet latency targets under high load. The coupling analysis identifies potential sources of latency (network, event rate, resource constraints) and proposes mitigations. The design is feasible and testable."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Diffusion Risk 1: If the NGHE Solution module is deployed as a single centralized service, it becomes a single point of failure. Network latency to the service could exceed the p95 ≤ 1.0 s target if the service is geographically distant from Vehicle, Teleoperation, or Safety Services modules. Mitigation: evaluate edge deployment or replication strategies.",
+        "Diffusion Risk 2: The NGHE Solution module depends on three external interfaces (Telemetry, Tasking, SafetyAlert) and one infrastructure interface (Network Link). If any of these interfaces is unreliable or high-latency, the worksite model update latency target is unachievable. Mitigation: establish SLAs for each interface and implement fallback strategies (e.g., local caching, graceful degradation)."
+      ],
+      "containment_notes": "The NGHE Solution module has high containment (95/100) for the worksite model update logic. The module owns the ingestion queue, processing pipeline, in-memory cache, and persistence layer. External interfaces are well-defined and stable. The only diffusion risk is the dependency on external modules (Vehicle, Teleoperation, Safety Services) for event generation and on Network Link for connectivity. This is acceptable because the NGHE Solution module cannot control event generation rates or network conditions; it can only optimize its internal processing to meet latency targets."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The p95 ≤ 1.0 s latency target is measurable and testable. Instrumentation of the worksite model update pipeline (timestamped events at ingestion, processing, and persistence stages) enables collection of latency metrics. Load testing with representative event rates and network conditions can validate that the target is achievable.",
+      "allocation_clarity": "High. The NGHE Solution module has clear ownership of the worksite model update responsibility. The sub-FRs (FR-NGHE-007.1 through FR-NGHE-007.4) map directly to components of DP-A (event ingestion, processing, persistence, prioritization). The allocation is unambiguous and testable."
+    },
+    "recommended_revisions": [
+      "Revision 1: Refine the latency measurement methodology. Specify whether the p95 ≤ 1.0 s target includes network latency from event generation (e.g., sensor acquisition on Vehicle) to model persistence, or only the latency within the NGHE Solution module. This affects the feasibility of the target and the allocation of responsibility.",
+      "Revision 2: Establish SLAs for external interfaces (Telemetry, Tasking, SafetyAlert, Network Link). Specify expected event rates, latency bounds, and reliability targets. This enables the NGHE Solution module to design its ingestion and processing pipeline with appropriate capacity and buffering.",
+      "Revision 3: Define the worksite model schema and update semantics. Specify what constitutes a 'worksite model update' (e.g., equipment position, sensor reading, task status) and how updates are merged (e.g., last-write-wins, conflict resolution). This affects the complexity of the processing pipeline and the achievability of latency targets.",
+      "Revision 4: Specify the deployment topology and fault tolerance strategy. Clarify whether the NGHE Solution module is a single centralized service or a set of replicated instances. This affects network latency, scalability, and resilience."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-NGHE-007 is not atomic and requires further decomposition into sub-FRs (FR-NGHE-007.1 through FR-NGHE-007.4) to address event ingestion, processing, persistence, and prioritization separately. The selected DP-A is sound and well-coupled to the refined FR, and the assigned IM (NGHE Solution) has high containment and clear ownership. However, the sub-FRs require detailed design at the next level to specify the ingestion queue architecture, processing pipeline, persistence strategy, and prioritization logic. Additionally, several assumptions and risks (network latency, event rate, resource constraints) require validation through detailed design and testing.",
+    "next_level_sub_frs": [
+      "FR-NGHE-007.1: The NGHE solution shall ingest worksite update events (telemetry, tasking, safety alerts) from vehicle, teleoperation, and safety services modules with < 50 ms ingestion latency (p95).",
+      "FR-NGHE-007.2: The NGHE solution shall process and fuse ingested events into a unified worksite model representation with < 300 ms processing latency (p95).",
+      "FR-NGHE-007.3: The NGHE solution shall persist the updated worksite model to durable storage with < 200 ms persistence latency (p95) and zero data loss.",
+      "FR-NGHE-007.4: The NGHE solution shall prioritize safety-critical updates (SafetyAlert events) to meet latency targets even under high computational or network load, with SafetyAlert ingestion latency < 20 ms (p95)."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "The selected DP-A requires refinement to specify: (1) the event ingestion queue architecture (single queue with priority levels vs. separate queues for SafetyAlert); (2) the in-memory model representation (data structure, size bounds); (3) the persistence strategy (write-ahead log, periodic snapshots, or event sourcing); (4) the latency measurement methodology (end-to-end from event generation to model persistence); (5) network link assumptions and fallback strategies if network latency exceeds thresholds. These details are necessary to validate that DP-A can achieve the p95 ≤ 1.0 s latency target and to guide implementation."
+    },
+    "record": {
+      "assumptions": [
+        "Assumption 1: Network latency from vehicle, teleoperation, and safety services to the centralized worksite model service is < 100 ms (p95).",
+        "Assumption 2: The centralized worksite model service can be deployed with sufficient compute and memory resources to handle peak event rates without queueing delays.",
+        "Assumption 3: SafetyAlert events can be reliably distinguished from other update events and prioritized without introducing race conditions or model inconsistencies.",
+        "Assumption 4: Periodic persistence to durable store does not block model updates (asynchronous writes).",
+        "Assumption 5: The worksite model schema is stable and does not require frequent updates.",
+        "Assumption 6: External modules (Vehicle, Teleoperation, Safety Services) generate events at predictable rates that do not exceed the ingestion capacity of the NGHE Solution module."
+      ],
+      "open_risks": [
+        "Risk 1: Network latency from event sources to the centralized worksite model service exceeds 100 ms, making the p95 ≤ 1.0 s target unachievable.",
+        "Risk 2: The centralized worksite model service becomes a bottleneck due to high event rates or limited compute resources, causing queueing delays and latency spikes.",
+        "Risk 3: Incorrect prioritization logic for SafetyAlert events causes race conditions or model inconsistencies.",
+        "Risk 4: Synchronous persistence to durable store blocks model updates and introduces latency spikes.",
+        "Risk 5: The worksite model schema evolves frequently, requiring frequent updates to the NGHE Solution module and impacting stability.",
+        "Risk 6: External modules generate events at unpredictable rates, causing queueing delays and latency spikes."
+      ],
+      "evidence_needed": [
+        "Evidence 1: Network latency measurements from vehicle, teleoperation, and safety services to the centralized worksite model service in representative deployments.",
+        "Evidence 2: Load testing results showing the ingestion capacity of the NGHE Solution module and latency under peak event rates.",
+        "Evidence 3: Formal verification or testing of the prioritization logic for SafetyAlert events.",
+        "Evidence 4: Persistence latency measurements (asynchronous writes) under various load conditions.",
+        "Evidence 5: Worksite model schema stability analysis and versioning strategy.",
+        "Evidence 6: Event rate analysis from vehicle, teleoperation, and safety services modules to validate capacity planning assumptions."
+      ]
+    }
+  }
+}

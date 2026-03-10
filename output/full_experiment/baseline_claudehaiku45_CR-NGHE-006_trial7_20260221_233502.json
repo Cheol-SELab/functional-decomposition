@@ -1,0 +1,173 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and designated work zones with sufficient fidelity to support autonomous path planning and operator situational awareness.",
+    "rationale": "The original FR was vague on scope (what constitutes 'area analysis') and lacked specificity on fidelity requirements, update frequency, and consumer functions. Refinement clarifies that the worksite model must be dynamic, multi-layered (terrain + obstacles + hazards + zones), and directly consumable by planning/execution and safety functions. High safety criticality demands explicit hazard representation.",
+    "verification_idea": "Acceptance: (1) Model generated within 5 minutes of site entry; (2) Terrain elevation accuracy ±0.5 m over 95% of mapped area; (3) Static obstacles detected with 90% recall; (4) Dynamic hazards updated at ≥2 Hz; (5) Model accessible via standardized interface to planning and safety modules; (6) Operator can visualize model with <500 ms latency.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire terrain elevation data via onboard sensors (LiDAR/stereo/radar) and fuse into elevation map.",
+      "CR-NGHE-006.2: Detect and classify static obstacles (rocks, structures, vegetation) and represent in 3D occupancy grid.",
+      "CR-NGHE-006.3: Detect and track dynamic hazards (personnel, equipment) in real-time with position/velocity estimates.",
+      "CR-NGHE-006.4: Define and manage work-zone boundaries (geofences) and represent operational constraints.",
+      "CR-NGHE-006.5: Publish worksite model via standardized interface to planning, execution, and safety consumers.",
+      "CR-NGHE-006.6: Validate model consistency and flag anomalies (e.g., conflicting obstacle reports, zone boundary violations)."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized onboard perception pipeline (LiDAR + stereo fusion) → occupancy grid + elevation map + dynamic tracker, published via REST/gRPC API.",
+      "DP-B: Distributed sensor fusion: Vehicle sensors feed to cloud-based mapping service; model cached locally on Vehicle; updates via Network Link.",
+      "DP-C: Hybrid: Vehicle acquires raw sensor data; Teleoperation module performs fusion and model generation; model pushed back to Vehicle and Safety Services.",
+      "DP-D: Operator-in-the-loop: Tele-operator manually annotates terrain/obstacles via telemetry stream; model built incrementally from operator input + onboard sensors."
+    ],
+    "selected_dp": "DP-A: Centralized onboard perception pipeline (LiDAR + stereo fusion) → occupancy grid + elevation map + dynamic tracker, published via standardized API (Telemetry interface for model updates; Tasking interface for zone definitions).",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Sensor fusion algorithm couples terrain mapping to dynamic hazard detection (shared occupancy grid); mitigation: modular sensor drivers and pluggable fusion strategies.",
+        "Model publication couples perception to planning/safety consumers; mitigation: standardized Telemetry interface decouples producer from consumer logic.",
+        "Zone definition (Tasking input) couples operational planning to model representation; mitigation: zone data structure is independent of terrain/obstacle data."
+      ],
+      "notes": "DP-A is preferred because it localizes perception logic onboard (low latency, high autonomy) and decouples via well-defined interfaces. DP-B introduces cloud dependency and latency risk (unacceptable for safety-critical hazard detection). DP-C distributes logic across Vehicle and Teleoperation, increasing complexity and diffusion. DP-D is operator-dependent and does not scale to autonomous operation."
+    },
+    "assumptions_risks": [
+      "Assumption: Vehicle is equipped with LiDAR and/or stereo cameras with sufficient range and resolution for terrain/obstacle detection.",
+      "Assumption: Onboard compute (GPU/CPU) is sufficient for real-time fusion at ≥2 Hz.",
+      "Risk: Sensor degradation (mud, rain, dust) may reduce perception fidelity; mitigation: sensor health monitoring and graceful degradation modes.",
+      "Risk: Fusion algorithm may produce false positives (phantom obstacles) or false negatives (missed hazards); mitigation: validation layer and operator override capability.",
+      "Risk: Model update latency may exceed safety requirements if fusion is CPU-bound; mitigation: prioritize dynamic hazard detection over terrain refinement."
+    ],
+    "recommended_revision": "Clarify sensor suite specification (LiDAR range, stereo baseline, update frequency) and define acceptable model fidelity degradation modes (e.g., reduced obstacle recall in poor visibility). Specify maximum latency for dynamic hazard detection (recommend ≤500 ms end-to-end)."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "Onboard perception and worksite modeling subsystem: sensor drivers (LiDAR, stereo), sensor fusion pipeline (occupancy grid, elevation map, dynamic tracker), model validation, and model publication via Telemetry and Tasking interfaces. Includes real-time compute kernel and local model cache."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle publishes worksite model updates (terrain elevation, obstacle occupancy, dynamic hazard positions/velocities, model timestamp, confidence metrics) to planning/execution and safety consumers."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives work-zone definitions (geofence boundaries, operational constraints, priority zones) from planning module; integrates into model representation."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Vehicle publishes safety-critical anomalies (e.g., unexpected obstacle in work zone, dynamic hazard near equipment) to Safety Services for real-time intervention."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Vehicle may receive remote sensor data or model updates from Teleoperation or cloud services (optional, for hybrid scenarios); primarily used for telemetry uplink and tasking downlink."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "Perception pipeline is naturally onboard (sensors are on Vehicle). Model generation is compute-intensive and latency-critical, favoring local execution. Telemetry/Tasking/SafetyAlert interfaces are well-defined. Minor diffusion: model validation logic could be shared with Safety Services, but validation is tightly coupled to perception and should remain onboard for real-time response."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Teleoperation is a consumer of the worksite model (for operator situational awareness), not a producer. Placing perception logic in Teleoperation would require streaming raw sensor data over Network Link (high bandwidth, latency), then pushing model back to Vehicle. This violates locality and introduces unnecessary coupling. Not recommended."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 15,
+        "diffusion_score": 85,
+        "notes": "Safety Services is a consumer of the worksite model and safety alerts. Placing perception logic in Safety Services would decouple hazard detection from Vehicle control, introducing latency and dependency on external compute. Safety-critical hazard detection must be onboard for immediate response. Not recommended."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 10,
+        "diffusion_score": 90,
+        "notes": "NGHE Solution is the system-level container. Assigning IM to NGHE Solution without specifying a concrete module (Vehicle, Teleoperation, Safety Services) leaves ownership ambiguous and prevents clear interface definition. Not recommended as a concrete IM boundary."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The worksite modeling function is best contained within the Vehicle module because: (1) sensors are onboard; (2) perception algorithms are compute-intensive and latency-critical, requiring local execution; (3) dynamic hazard detection is safety-critical and must respond in <500 ms; (4) model publication via Telemetry/Tasking/SafetyAlert interfaces cleanly decouples perception from consumers (planning, safety, teleoperation). Vehicle owns the perception pipeline and model generation; Safety Services and Teleoperation consume the model via well-defined interfaces.",
+    "containment_risks": [
+      "Risk: Vehicle compute capacity may be insufficient for real-time fusion + model publication + other onboard functions (e.g., motion control, obstacle avoidance). Mitigation: conduct compute budget analysis; prioritize hazard detection; offload non-critical model refinement to post-processing.",
+      "Risk: Model validation logic may need to be shared with Safety Services (e.g., to detect conflicting hazard reports). Mitigation: define validation rules in Vehicle; Safety Services consumes validated model and applies domain-specific safety policies.",
+      "Risk: Teleoperation may need to inject manual annotations or corrections into the model (e.g., operator marks a false positive obstacle). Mitigation: define a Tasking sub-interface for model corrections; Vehicle integrates corrections into local model with timestamp and confidence decay.",
+      "Risk: Network Link may be unavailable or high-latency, preventing remote model updates or telemetry uplink. Mitigation: Vehicle operates with local model; Telemetry is best-effort; Safety Services has fallback policies for degraded connectivity."
+    ],
+    "recommended_revision": "Specify Vehicle compute budget (CPU/GPU allocation to perception vs. other functions). Define model validation rules and error handling (e.g., what happens if fusion produces conflicting hazard reports). Clarify whether Teleoperation can inject manual corrections and how they are integrated (e.g., with lower confidence, time-limited). Specify Network Link bandwidth and latency requirements for Telemetry uplink."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-A (centralized onboard perception pipeline) directly addresses the refined FR: it generates a real-time worksite model with terrain, obstacles, hazards, and zones. The DP is specific (LiDAR + stereo fusion, occupancy grid, dynamic tracker), implementable, and verifiable. Coupling is acceptable (sensor fusion is inherent to the problem; interfaces decouple consumers). Assumptions and risks are documented and mitigatable."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Diffusion Risk 1: Sensor drivers (LiDAR, stereo) may be shared with other Vehicle functions (e.g., obstacle avoidance). Mitigation: define sensor driver API; perception pipeline consumes via API; other functions share same drivers.",
+        "Diffusion Risk 2: Model validation logic may overlap with Safety Services validation. Mitigation: Vehicle performs real-time validation (fast, onboard); Safety Services performs policy-level validation (slow, offline); clear separation of concerns.",
+        "Diffusion Risk 3: Telemetry interface may be used by multiple producers (Vehicle perception, Vehicle motion control, Vehicle diagnostics). Mitigation: define Telemetry schema with clear message types; perception publishes model updates; other functions publish their own telemetry."
+      ],
+      "containment_notes": "Vehicle is the clear owner of perception and model generation. Interfaces (Telemetry, Tasking, SafetyAlert, Network Link) are well-defined and decouple Vehicle from consumers. No significant diffusion expected if interfaces are enforced."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible: (1) Model generation can be tested in simulation (synthetic sensor data) and on test vehicles (real sensors). (2) Fidelity metrics (elevation accuracy, obstacle recall, hazard detection latency) are measurable. (3) Interface compliance can be validated via integration tests with planning and safety modules. (4) Operator visualization can be tested with human-in-the-loop trials.",
+      "allocation_clarity": "Allocation is clear: Vehicle owns perception and model generation. Planning/execution and Safety Services own model consumption and decision-making. Teleoperation owns operator visualization and manual corrections. Interfaces are explicit and testable."
+    },
+    "recommended_revisions": [
+      "Revision 1: Specify Vehicle compute budget and performance requirements (e.g., fusion latency ≤200 ms, model update frequency ≥2 Hz, occupancy grid resolution ≤0.1 m).",
+      "Revision 2: Define sensor suite specification (LiDAR range/resolution, stereo baseline, update frequency) and acceptable degradation modes (e.g., reduced fidelity in poor visibility).",
+      "Revision 3: Clarify model validation rules and error handling (e.g., how to handle conflicting hazard reports, false positives, sensor failures).",
+      "Revision 4: Specify Telemetry schema for model updates (message format, frequency, confidence metrics, timestamp).",
+      "Revision 5: Define Tasking sub-interface for work-zone definitions and model corrections (e.g., operator-provided annotations).",
+      "Revision 6: Specify SafetyAlert criteria and latency requirements (e.g., hazard in work zone triggers alert within 500 ms)."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The refined FR is decomposable into six atomic sub-FRs (sensor acquisition, obstacle detection, hazard tracking, zone management, model publication, validation). DP-A is sound and well-matched to Vehicle IM. However, the sub-FRs require further decomposition to define concrete algorithms, sensor drivers, and interface contracts. Proceeding to the next level will clarify compute allocation, sensor specifications, and validation rules, reducing implementation risk.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire terrain elevation data via onboard sensors (LiDAR/stereo/radar) and fuse into elevation map.",
+      "CR-NGHE-006.2: Detect and classify static obstacles (rocks, structures, vegetation) and represent in 3D occupancy grid.",
+      "CR-NGHE-006.3: Detect and track dynamic hazards (personnel, equipment) in real-time with position/velocity estimates.",
+      "CR-NGHE-006.4: Define and manage work-zone boundaries (geofences) and represent operational constraints.",
+      "CR-NGHE-006.5: Publish worksite model via standardized interface to planning, execution, and safety consumers.",
+      "CR-NGHE-006.6: Validate model consistency and flag anomalies (e.g., conflicting obstacle reports, zone boundary violations)."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Vehicle is equipped with LiDAR and/or stereo cameras with sufficient range and resolution.",
+        "Onboard compute (GPU/CPU) is sufficient for real-time fusion at ≥2 Hz.",
+        "Sensor fusion algorithms can achieve terrain accuracy ±0.5 m and obstacle recall ≥90%.",
+        "Telemetry, Tasking, SafetyAlert, and Network Link interfaces are available and can be extended for model updates.",
+        "Planning/execution and Safety Services modules are ready to consume worksite model via Telemetry interface.",
+        "Operator visualization is handled by Teleoperation module (not in scope of CR-NGHE-006)."
+      ],
+      "open_risks": [
+        "Sensor degradation (mud, rain, dust) may reduce perception fidelity; mitigation strategy needed.",
+        "Fusion algorithm may produce false positives/negatives; validation and operator override required.",
+        "Model update latency may exceed safety requirements if compute is CPU-bound; prioritization strategy needed.",
+        "Network Link unavailability may prevent telemetry uplink; fallback policies needed.",
+        "Compute budget conflict with other Vehicle functions (motion control, diagnostics); allocation strategy needed."
+      ],
+      "evidence_needed": [
+        "Sensor suite specification (LiDAR range/resolution, stereo baseline, update frequency).",
+        "Vehicle compute budget and performance requirements (fusion latency, model update frequency, occupancy grid resolution).",
+        "Fusion algorithm design and validation results (accuracy, recall, latency benchmarks).",
+        "Telemetry schema for model updates (message format, frequency, confidence metrics).",
+        "Tasking sub-interface specification for work-zone definitions and model corrections.",
+        "SafetyAlert criteria and latency requirements.",
+        "Integration test plan with planning, safety, and teleoperation modules.",
+        "Operator visualization and manual correction workflow (Teleoperation module responsibility)."
+      ]
+    }
+  }
+}

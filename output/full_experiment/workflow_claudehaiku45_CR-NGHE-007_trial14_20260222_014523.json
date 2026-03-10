@@ -1,0 +1,187 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current operational state within the customer-defined latency target.",
+    "rationale": "The original FR conflates two concerns: (1) the obligation to update the model, and (2) the obligation to meet a timeliness criterion. The refined FR isolates the functional requirement (what must be updated and when) from the acceptance criterion (p95 ≤ 1.0 s), which is a constraint on the DP/IM realization. The phrase 'operational use' is vague and solution-laden; 'current operational state' is more precise and domain-neutral. The FR now clearly states the problem: keep the worksite model synchronized with reality within a defined latency envelope, without prescribing how (sensor fusion, communication protocol, update frequency, etc.).",
+    "verification_idea": "Measure end-to-end latency from a state change in the physical worksite (e.g., equipment position, obstacle detection, task status) to the corresponding update reflected in the worksite model accessible to all stakeholders. Verify that p95 latency meets the customer-defined target across supported update scenarios (e.g., equipment movement, sensor input, operator command feedback).",
+    "sub_frs": [
+      "FR-NGHE-007.1: The NGHE solution shall capture current worksite state from all relevant sensors and data sources.",
+      "FR-NGHE-007.2: The NGHE solution shall transmit worksite state updates to the worksite model with minimal delay.",
+      "FR-NGHE-007.3: The NGHE solution shall integrate received updates into the worksite model without loss of fidelity.",
+      "FR-NGHE-007.4: The NGHE solution shall make the updated worksite model available to authorized stakeholders within the customer-defined latency target."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Synchronous update pipeline with direct model mutation on event receipt, blocking until persistence confirms",
+      "DP2: Asynchronous event-driven architecture with eventual consistency: capture operational events, queue them, process through a state machine, update model in-memory, persist asynchronously, and expose versioned snapshots",
+      "DP3: Hybrid dual-path model: fast in-memory cache layer (optimistic update on event) + background reconciliation with authoritative source (safety-critical state), with conflict resolution rules",
+      "DP4: Polling-based state synchronization: periodically query operational systems at fixed intervals, compute delta against cached model, apply updates with timestamp-based conflict detection",
+      "DP5: Change-data-capture (CDC) pattern: subscribe to operational system change logs, transform into domain events, apply to model via event sourcing with replay capability"
+    ],
+    "selected_dp": "DP2: Asynchronous event-driven architecture with eventual consistency: capture operational events, queue them, process through a state machine, update model in-memory, persist asynchronously, and expose versioned snapshots",
+    "rationale_for_selection": {
+      "latency_alignment": "In-memory model updates decouple from persistence latency; event queuing absorbs burst load; p95 ≤ 1.0s achievable for model visibility (read path) independent of write durability",
+      "independence": "Event capture, queueing, processing, and persistence are logically separable; allows independent scaling and failure isolation",
+      "safety_compatibility": "Event sourcing provides audit trail and replay capability for safety plan compliance; versioned snapshots enable rollback and forensic analysis",
+      "operational_flexibility": "Eventual consistency model is explicit; allows customer to define acceptable staleness windows per update scenario; supports graceful degradation"
+    },
+    "coupling_check": {
+      "assessment": "Fail",
+      "potential_sources": [
+        "Event schema coupling: if operational system event formats are tightly bound to model schema, changes in either ripple across the pipeline",
+        "Ordering dependency: state machine correctness depends on event ordering guarantees; if queue does not preserve order per entity, model corruption risk",
+        "Snapshot consistency: in-memory model and persisted snapshots can diverge if reconciliation logic is incomplete; requires explicit consistency protocol",
+        "Conflict resolution coupling: if multiple operational sources feed the same model entity, conflict rules must be centralized and versioned"
+      ],
+      "notes": "DP2 introduces critical coupling points at the data contract, consistency, and conflict resolution layers that must be resolved before implementation. Mitigation required: define explicit event schema versioning, enforce per-entity ordering guarantees, implement deterministic conflict resolution with audit logging, and establish consistency protocol between in-memory model and persisted snapshots."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Operational events are reliably emitted by source systems; if events are lost or delayed unpredictably, model staleness may exceed p95 target. RISK: Requires SLA on event delivery from operational systems.",
+      "ASSUMPTION: Event processing latency (capture → queue → state machine → in-memory update) is sub-100ms; if processing is slower, p95 target is at risk. RISK: Requires performance testing and capacity planning for peak event rates.",
+      "ASSUMPTION: In-memory model fits within available RAM and does not require external lookups for every update; if model is very large or requires cross-system joins, latency will increase. RISK: May require caching strategy or model partitioning.",
+      "ASSUMPTION: Eventual consistency is acceptable to customers for all update scenarios; if any scenario requires strict consistency (e.g., safety-critical state changes), DP2 alone is insufficient. RISK: May require hybrid approach (DP3) for critical paths.",
+      "ASSUMPTION: Event queue has sufficient throughput and latency SLA to support peak operational load; if queue becomes bottleneck, p95 target fails. RISK: Requires queue capacity planning and monitoring.",
+      "ASSUMPTION: Persistence layer (async writes) does not block model updates; if persistence fails, model remains in-memory but unrecovered on restart. RISK: Requires durable event log or write-ahead logging to prevent data loss."
+    ],
+    "recommended_revision": "Refine FR to explicitly state: (1) which update scenarios require strict consistency vs. eventual consistency (e.g., safety-critical state changes may need synchronous confirmation), (2) acceptable staleness window for each scenario, (3) recovery requirements (e.g., model must be reconstructible from event log after restart), and (4) peak event rate and model size constraints. This will enable selection between DP2 (pure async) and DP3 (hybrid) and inform IM packaging decisions (e.g., whether event log is a separate module or co-located with model)."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "Enterprise-level event-driven backbone that captures, queues, processes, and persists operational events with eventual consistency guarantees across all connected vehicles and teleoperation sessions"
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Inbound operational events from Vehicle and Teleoperation modules; raw sensor and state change events fed into event queue"
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Outbound versioned snapshots and state machine outcomes to Vehicle and Teleoperation for command execution and UI updates"
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "Bidirectional safety event ingestion and alert emission; safety-critical state transitions trigger alerts; safety constraints inform state machine transitions"
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Asynchronous persistence layer for durable event log and snapshot storage; handles network latency and eventual consistency synchronization"
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "Excellent fit. NGHE Solution is the system-level orchestration layer designed to integrate heterogeneous subsystems. Event-driven architecture, state machine, in-memory model, asynchronous persistence, and versioned snapshots are all enterprise-scale concerns that belong at this boundary. Minimal diffusion: only external interfaces (Telemetry in, Tasking out, SafetyAlert inout, Network Link inout) cross the boundary."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 25,
+        "diffusion_score": 75,
+        "notes": "Poor fit. Vehicle is a physical/logical entity representing a single autonomous platform. An event-driven architecture with eventual consistency and versioned snapshots is a system-wide concern, not vehicle-specific. Placing this DP in Vehicle would require duplicating the entire event queue, state machine, and persistence logic per vehicle, causing severe diffusion across Teleoperation and Safety Services."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 30,
+        "diffusion_score": 70,
+        "notes": "Poor fit. Teleoperation is a subsystem for remote human control and monitoring. While it consumes versioned snapshots and may emit tasking events, it does not own the event-driven backbone, state machine, or persistence layer. Placing DP2 here would fragment the architecture and prevent other modules (Vehicle, Safety Services) from accessing the unified event stream."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 35,
+        "diffusion_score": 65,
+        "notes": "Poor fit. Safety Services is a specialized subsystem for safety validation and alert generation. While it must participate in the state machine (e.g., safety constraints on transitions) and consume/emit SafetyAlert events, it does not own the overall event-driven architecture, queuing, or persistence. Placing DP2 here would isolate safety logic from operational events and create coupling with Vehicle and Teleoperation."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "The asynchronous event-driven architecture with eventual consistency is a system-level integration pattern that must span all operational domains (Vehicle, Teleoperation, Safety Services). NGHE Solution, as the top-level orchestration layer, is the natural owner. It receives Telemetry events from Vehicle and Teleoperation, processes them through a unified state machine, updates an in-memory operational model, persists asynchronously via Network Link, and exposes versioned snapshots back to Vehicle, Teleoperation, and Safety Services via Tasking and SafetyAlert interfaces. This containment avoids duplication, ensures consistency, and maintains clear separation of concerns.",
+    "containment_risks": [
+      "Risk: NGHE Solution may become a bottleneck if event throughput is very high. Mitigation: design the event queue and state machine for horizontal scalability (e.g., partitioned event streams, distributed state machine).",
+      "Risk: Eventual consistency may introduce latency in safety-critical decisions. Mitigation: Safety Services must define acceptable consistency windows; safety-critical transitions may require synchronous validation before state machine commit.",
+      "Risk: Versioned snapshots may grow unbounded if not pruned. Mitigation: implement snapshot retention policies and archival strategies within NGHE Solution.",
+      "Risk: Network Link interface may fail, blocking persistence. Mitigation: implement circuit breaker and fallback strategies to ensure in-memory model remains available even if persistence is temporarily unavailable."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP2 (asynchronous event-driven architecture with eventual consistency) is a logically sound solution to FR (update worksite model within customer-defined latency target). The DP correctly addresses the functional requirement by: (1) capturing operational events in real-time, (2) queuing them to decouple ingestion from processing, (3) processing through a state machine to maintain consistency, (4) updating an in-memory model for low-latency reads, and (5) persisting asynchronously to avoid blocking. Versioned snapshots enable consumers to access consistent views. The eventual consistency model is appropriate for non-safety-critical operational state updates, provided safety-critical transitions are validated synchronously (see containment risks). No logical gaps detected between FR and DP."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Risk: Event queue and state machine logic may diffuse across Vehicle, Teleoperation, and Safety Services if module boundaries are not enforced. Mitigation: NGHE Solution must own the event queue, state machine, and in-memory model as a single cohesive module. Vehicle, Teleoperation, and Safety Services interact only via well-defined interfaces (Telemetry in, Tasking out, SafetyAlert inout).",
+        "Risk: Versioned snapshot generation and retention logic may scatter across multiple consumers if not centralized. Mitigation: NGHE Solution must own snapshot versioning, retention policies, and archival. Consumers receive read-only snapshots via Tasking interface.",
+        "Risk: Persistence layer (Network Link) may become a diffusion point if asynchronous write logic is duplicated across modules. Mitigation: NGHE Solution must own the asynchronous persistence contract; Network Link interface is a single point of integration.",
+        "Risk: Safety-critical state transitions may bypass the state machine if Safety Services implements its own validation logic. Mitigation: Safety Services must participate in the state machine (e.g., as a validator or constraint provider) rather than implementing parallel logic.",
+        "Risk: Event schema and versioning may diverge if Telemetry and Tasking interfaces are not tightly coupled. Mitigation: NGHE Solution must define and enforce a canonical event schema; all producers and consumers must conform."
+      ],
+      "containment_notes": "NGHE Solution achieves 95% containment score with minimal diffusion (5%). The module boundary is well-scoped as an enterprise-level event-driven backbone. All core DP2 responsibilities (event capture, queuing, state machine, in-memory model, asynchronous persistence, versioned snapshots) are contained within NGHE Solution. External interfaces are clean and unidirectional (Telemetry in, Tasking out) or bidirectional with clear semantics (SafetyAlert, Network Link). Vehicle (25% containment, 75% diffusion), Teleoperation (30% containment, 70% diffusion), and Safety Services (35% containment, 65% diffusion) are correctly excluded from owning DP2, avoiding severe duplication and coupling. Ownership allocation is sound."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The FR acceptance criterion (p95 latency ≤ 1.0 s for worksite model updates) is measurable and testable. Verification strategy: (1) Instrument NGHE Solution to measure end-to-end latency from event ingestion (Telemetry interface) to in-memory model update and snapshot exposure (Tasking interface). (2) Run load tests with realistic event throughput and network conditions. (3) Measure p95 latency across supported update scenarios (e.g., vehicle state change, teleoperation command, safety alert). (4) Validate that eventual consistency windows do not violate safety constraints (requires coordination with Safety Services). (5) Monitor Network Link persistence latency separately to ensure asynchronous writes do not block in-memory updates. Acceptance criteria are achievable with proper design (e.g., event queue partitioning, state machine optimization, in-memory indexing).",
+      "allocation_clarity": "High. The allocation of DP2 to NGHE Solution is clear and unambiguous. NGHE Solution is explicitly defined as the 'enterprise-level event-driven backbone' with responsibility for event capture, queuing, processing, and persistence. Interfaces are well-defined: Telemetry (in), Tasking (out), SafetyAlert (inout), Network Link (inout). Module containment scores and diffusion analysis confirm that NGHE Solution is the natural owner. No ambiguity regarding which module owns the event queue, state machine, in-memory model, or persistence layer. Recommended next step: decompose NGHE Solution into sub-modules (e.g., EventQueue, StateMachine, InMemoryModel, PersistenceAdapter) and define their internal interfaces to ensure DP2 is fully realized without further diffusion."
+    },
+    "recommended_revisions": [
+      "Revision 1: Explicitly define the event schema and versioning strategy. NGHE Solution must publish a canonical event schema (e.g., JSON Schema, Protocol Buffers) that all producers (Vehicle, Teleoperation, Safety Services) must conform to. Include version numbers and backward compatibility rules to prevent schema drift.",
+      "Revision 2: Clarify the safety-critical path. Define which state transitions are safety-critical and require synchronous validation before commit. Safety Services must be integrated into the state machine as a validator (e.g., via a SafetyValidator interface) rather than as a post-hoc consumer. This ensures safety constraints are enforced before the in-memory model is updated.",
+      "Revision 3: Specify the eventual consistency window. Define the maximum acceptable delay between in-memory model update and Network Link persistence. For non-safety-critical updates, this window may be seconds; for safety-critical updates, it should be milliseconds or synchronous. Document the consistency guarantees (e.g., 'at-least-once delivery', 'exactly-once processing') for each event type.",
+      "Revision 4: Design for horizontal scalability. If event throughput is high (e.g., >10k events/sec), partition the event queue by vehicle or operational domain to avoid bottlenecks. Document the partitioning strategy and how the state machine maintains consistency across partitions.",
+      "Revision 5: Define snapshot retention and archival policies. Specify how long versioned snapshots are retained in-memory, when they are archived to Network Link, and how consumers query historical snapshots. This prevents unbounded memory growth and supports audit/replay use cases.",
+      "Revision 6: Add a circuit breaker and fallback strategy for Network Link failures. If persistence is temporarily unavailable, the in-memory model must remain available and continue processing events. Document the fallback behavior (e.g., in-memory queue with bounded size, eventual sync when Network Link recovers).",
+      "Revision 7: Decompose NGHE Solution into sub-modules with explicit internal interfaces. Candidate sub-modules: EventQueue (manages event ingestion and buffering), StateMachine (processes events and updates model), InMemoryModel (stores current operational state), SnapshotManager (generates and manages versioned snapshots), PersistenceAdapter (handles asynchronous writes to Network Link). Define the internal contracts between these sub-modules to ensure DP2 is fully realized without diffusion."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass with high confidence. The DP2 (asynchronous event-driven architecture with eventual consistency) is logically sound, the NGHE Solution module boundary is well-scoped with 95% containment, and verification is feasible. However, the recommended_revisions and diffusion_risks reveal that DP2 cannot be fully realized without explicit sub-module decomposition. Specifically: (1) the event schema and versioning strategy must be designed as a sub-FR; (2) the safety-critical path requires a dedicated sub-FR to ensure synchronous validation is architecturally enforced; (3) the eventual consistency window and persistence contract need explicit sub-FRs to prevent diffusion into Vehicle, Teleoperation, and Safety Services; (4) snapshot retention and archival policies require a sub-FR to avoid unbounded memory growth; (5) the circuit breaker and fallback strategy for Network Link failures is a critical sub-FR for resilience. These sub-FRs are not optional refinements—they are necessary to contain DP2 within NGHE Solution and prevent the 5% diffusion risk from materializing. The high safety criticality tailoring factor elevates the importance of the safety-critical path sub-FR. Proceeding to next-level decomposition is the correct path forward.",
+    "next_level_sub_frs": [
+      "FR2.1: Enforce canonical event schema and versioning across all producers (Vehicle, Teleoperation, Safety Services) to prevent schema drift and ensure NGHE Solution can process heterogeneous event types without diffusion.",
+      "FR2.2: Validate safety-critical state transitions synchronously before committing to the in-memory model, ensuring Safety Services constraints are enforced within the state machine rather than as post-hoc consumers.",
+      "FR2.3: Define and enforce the eventual consistency window (maximum delay between in-memory model update and Network Link persistence) with explicit consistency guarantees (at-least-once, exactly-once) per event type.",
+      "FR2.4: Manage versioned snapshot lifecycle (generation, retention, archival, historical query) to prevent unbounded memory growth and support audit/replay use cases without diffusion to consumers.",
+      "FR2.5: Implement circuit breaker and fallback strategy for Network Link failures to maintain in-memory model availability and eventual consistency recovery when persistence is temporarily unavailable.",
+      "FR2.6: Partition the event queue and state machine horizontally (by vehicle, operational domain, or other key) to support high-throughput scenarios (>10k events/sec) without bottlenecks, while maintaining consistency guarantees."
+    ],
+    "revise": {
+      "target": null,
+      "why": "No revisions to FR, DP, or IM are required at the current level. All three gates pass. The recommended_revisions in the gate results are design guidance for the next level of decomposition, not corrections to the current DP2 or NGHE Solution allocation. Proceeding directly to sub-FR derivation is appropriate."
+    },
+    "record": {
+      "assumptions": [
+        "NGHE Solution is the sole owner of the event queue, state machine, in-memory model, and asynchronous persistence layer. No other module duplicates these responsibilities.",
+        "Vehicle, Teleoperation, and Safety Services are producers/consumers only; they do not implement event processing logic.",
+        "The eventual consistency model is acceptable for non-safety-critical operational state updates, provided safety-critical transitions are validated synchronously.",
+        "Network Link is a reliable persistence interface; transient failures are handled by NGHE Solution's circuit breaker, not by consumers.",
+        "Event throughput is manageable with a single event queue; if >10k events/sec, partitioning is required (sub-FR2.6).",
+        "Versioned snapshots are retained in-memory for a bounded time window; archival to Network Link is asynchronous and does not block in-memory updates."
+      ],
+      "open_risks": [
+        "Risk: Safety-critical state transitions may bypass the state machine if Safety Services implements parallel validation logic. Mitigation: FR2.2 must define the synchronous validation contract and enforce it architecturally (e.g., via a SafetyValidator interface that Safety Services implements).",
+        "Risk: Event schema may diverge if producers are not tightly coupled to a canonical schema. Mitigation: FR2.1 must define the schema versioning strategy and enforce conformance via code generation or schema validation at ingestion.",
+        "Risk: Eventual consistency window may be violated if persistence latency is not monitored and bounded. Mitigation: FR2.3 must define explicit SLOs for persistence latency and include monitoring/alerting.",
+        "Risk: Snapshot retention may grow unbounded if archival policies are not enforced. Mitigation: FR2.4 must define retention windows and automated archival/deletion logic.",
+        "Risk: Network Link failures may cause in-memory model to diverge from persistent state. Mitigation: FR2.5 must define recovery semantics (e.g., replay from Network Link on recovery) and test failure scenarios.",
+        "Risk: High-throughput scenarios may cause event queue bottleneck. Mitigation: FR2.6 must define partitioning strategy and consistency guarantees across partitions."
+      ],
+      "evidence_needed": [
+        "Event schema specification (JSON Schema, Protocol Buffers, or equivalent) with version numbers and backward compatibility rules.",
+        "Safety-critical state transition matrix: which transitions require synchronous validation, which can be eventually consistent.",
+        "Eventual consistency window SLO: maximum acceptable delay between in-memory update and Network Link persistence, per event type.",
+        "Snapshot retention policy: in-memory retention window, archival schedule, historical query interface.",
+        "Circuit breaker design: failure detection, fallback behavior, recovery semantics.",
+        "Throughput and latency benchmarks: p50, p95, p99 latencies for event ingestion, state machine processing, and persistence under realistic load.",
+        "Partitioning strategy (if applicable): partition key, consistency guarantees across partitions, rebalancing logic.",
+        "Integration test plan: verify that Vehicle, Teleoperation, and Safety Services conform to event schema and do not implement parallel event processing logic."
+      ]
+    }
+  }
+}

@@ -1,0 +1,185 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and designated work zones with sufficient fidelity to support autonomous path planning and operator situational awareness.",
+    "rationale": "The original FR was vague on scope (what constitutes 'area analysis') and lacked specificity on fidelity requirements, update frequency, and consumer functions. Refinement clarifies that the worksite model must be dynamic, multi-layered (terrain + obstacles + hazards + zones), and directly consumable by planning and execution subsystems. High safety criticality demands explicit hazard representation.",
+    "verification_idea": "Acceptance: (1) Model generated within 5 minutes of site entry; (2) Terrain elevation accuracy ±0.5 m over 95% of mapped area; (3) Static obstacles detected with >90% recall; (4) Dynamic hazards updated at ≥2 Hz; (5) Work zones editable by Site Manager and persisted; (6) Model accessible to planning and execution functions via standardized interface.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire and fuse multi-sensor data (LiDAR, camera, IMU, GNSS) to construct terrain and obstacle point clouds.",
+      "CR-NGHE-006.2: Classify and segment terrain, static obstacles, dynamic hazards, and work zones from sensor data.",
+      "CR-NGHE-006.3: Maintain and update worksite model state in real-time with sensor observations and operator inputs.",
+      "CR-NGHE-006.4: Expose worksite model to planning and execution subsystems via standardized query/subscription interface.",
+      "CR-NGHE-006.5: Enforce safety constraints on model content (e.g., no work zones overlapping hazard regions without explicit override)."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized perception pipeline (sensor fusion → 3D reconstruction → semantic segmentation) running on vehicle compute, publishing model updates to shared data store accessible by planning/execution.",
+      "DP-B: Distributed perception (each subsystem runs its own sensor processing) with eventual consistency via message bus; no single source of truth.",
+      "DP-C: Tele-operator-driven manual mapping (operator marks obstacles/zones via UI) with minimal onboard sensing; model stored in cloud backend.",
+      "DP-D: Hybrid: onboard perception generates draft model; tele-operator refines and validates; final model stored locally and synced to cloud."
+    ],
+    "selected_dp": "DP-A: Centralized perception pipeline with real-time sensor fusion (LiDAR + camera + proprioceptive sensors) running on vehicle compute platform, generating a unified 3D worksite model (terrain mesh, obstacle voxel grid, hazard tracks, work-zone polygons) persisted in a local model database. Model updates published asynchronously to planning and execution subsystems via Tasking interface (model query/subscription). Safety constraints enforced at model update time.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling to vehicle compute platform (DP assumes sufficient onboard compute; if unavailable, must offload to edge/cloud).",
+        "Coupling to sensor suite (DP assumes LiDAR + camera availability; degradation if sensors fail).",
+        "Coupling to planning/execution subsystems (DP assumes they can consume model via Tasking interface; if they expect different schema, rework needed)."
+      ],
+      "notes": "DP-A is decoupled from tele-operation and safety services at the logical level; those are separate FRs. Centralized approach minimizes data inconsistency and simplifies model versioning. Risk: single point of failure in perception pipeline; mitigation via sensor redundancy and fallback to operator input."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Vehicle has sufficient onboard compute (GPU/CPU) to run real-time perception pipeline at ≥2 Hz.",
+      "ASSUMPTION: LiDAR and camera sensors are available and calibrated.",
+      "ASSUMPTION: Planning and execution subsystems can be modified to consume model via Tasking interface.",
+      "RISK: Perception pipeline failure (e.g., sensor occlusion, compute overload) leaves model stale; mitigation: operator override and manual model update capability.",
+      "RISK: Model fidelity insufficient for safety-critical path planning; mitigation: validation against ground truth and operator sign-off before execution.",
+      "RISK: Real-time update latency exceeds planning cycle time; mitigation: predictive model extrapolation and conservative safety margins."
+    ],
+    "recommended_revision": "Clarify compute platform specifications (GPU type, memory, power budget) and sensor suite (LiDAR range/resolution, camera specs). Define model update frequency SLA and fallback behavior if perception fails. Specify model schema and Tasking interface contract explicitly."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "The Vehicle module owns the perception pipeline (sensor acquisition, fusion, 3D reconstruction, semantic segmentation) and the worksite model database. It publishes model updates to external consumers (planning, execution, tele-operation, safety services) via standardized interfaces. The Vehicle module is responsible for model consistency, real-time update cadence, and graceful degradation on sensor failure."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Vehicle publishes worksite model updates (terrain mesh, obstacle voxel grid, hazard tracks, work-zone polygons) and responds to model queries from planning and execution subsystems. Schema: {model_version, timestamp, terrain_mesh, obstacles, hazards, work_zones, confidence_map}."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Vehicle receives sensor telemetry (LiDAR point clouds, camera frames, IMU, GNSS) from onboard sensors and fuses them into the worksite model."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Vehicle publishes safety alerts if model detects hazards (e.g., personnel in work zone, obstacle in planned path) that require immediate operator/safety service attention."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Vehicle may sync model to cloud backend or receive operator-provided model refinements via Network Link (optional, for DP-D hybrid scenario; not required for DP-A baseline)."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.95,
+        "diffusion_score": 0.05,
+        "notes": "Vehicle is the natural home for perception pipeline and model generation. Sensors are vehicle-mounted; compute is vehicle-resident. Model is generated onboard and published outbound. High containment, minimal diffusion."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.15,
+        "diffusion_score": 0.85,
+        "notes": "Teleoperation is a consumer of the worksite model (for operator situational awareness) and a potential source of manual model refinements (DP-D hybrid). Not a primary owner of model generation. High diffusion if perception logic scattered across tele-op UI and vehicle."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Safety Services consumes model to enforce safety constraints (e.g., no work in hazard zones). Not a primary owner of model generation. Could own safety constraint enforcement logic, but model itself should reside in Vehicle."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.1,
+        "diffusion_score": 0.9,
+        "notes": "NGHE Solution is the system-level container. Worksite model is a subsystem artifact, not a solution-level concern. Assigning to NGHE Solution would diffuse ownership and obscure module boundaries."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module is the optimal owner of the worksite mapping/modeling DP because: (1) sensors are vehicle-mounted; (2) perception compute is vehicle-resident; (3) model generation is a core vehicle capability; (4) model is published outbound to consumers (planning, execution, tele-op, safety). Containment score 0.95 reflects tight coupling of DP to Vehicle's physical and computational assets.",
+    "containment_risks": [
+      "RISK: If vehicle compute is insufficient, perception pipeline must offload to edge/cloud, fragmenting ownership between Vehicle and external compute. Mitigation: specify compute SLA upfront; if unmet, revise DP to distributed/cloud-based approach.",
+      "RISK: Tele-operator may need to manually refine model (DP-D hybrid); this introduces a secondary ownership boundary in Teleoperation module. Mitigation: define clear interface contract (Tasking) for model updates; Teleoperation publishes refinements, Vehicle merges them.",
+      "RISK: Safety Services may need to enforce constraints on model content; this could blur ownership if Safety Services modifies model directly. Mitigation: Safety Services publishes constraints/alerts via SafetyAlert; Vehicle enforces them at model update time."
+    ],
+    "recommended_revision": "Confirm that Vehicle module has sufficient compute capacity (GPU/CPU, memory, power) to run perception pipeline at required fidelity and update frequency. Define model schema and Tasking interface contract explicitly. Clarify whether tele-operator manual refinement (DP-D hybrid) is in scope; if yes, define merge/conflict resolution logic. Specify fallback behavior if perception fails (e.g., operator manual override, conservative safety margins)."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-A (centralized perception pipeline) directly addresses the refined FR: it generates a real-time worksite model with terrain, obstacles, hazards, and work zones, and exposes it to planning/execution via Tasking interface. DP is logically sound, decoupled from tele-operation and safety services, and supports the high safety criticality via explicit hazard representation and constraint enforcement. No logical contradictions or missing mappings."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "DIFFUSION RISK: If vehicle compute is insufficient, perception logic may leak into Teleoperation (operator-driven mapping) or cloud backend (offloaded processing). Mitigation: enforce compute SLA and define clear ownership boundaries.",
+        "DIFFUSION RISK: Model refinement by tele-operator (DP-D hybrid) introduces secondary ownership in Teleoperation. Mitigation: define Tasking interface contract for model updates; Teleoperation publishes refinements, Vehicle merges them.",
+        "DIFFUSION RISK: Safety constraint enforcement could be split between Vehicle (model update) and Safety Services (constraint checking). Mitigation: Vehicle enforces constraints at model update time; Safety Services publishes alerts only."
+      ],
+      "containment_notes": "Vehicle module achieves 0.95 containment score. Perception pipeline (sensor fusion, 3D reconstruction, segmentation) is tightly coupled to vehicle compute and sensors. Model database is vehicle-resident. Model updates are published outbound via Tasking interface. Ownership is clear and well-bounded. External interfaces (Telemetry in, Tasking/SafetyAlert out, Network Link optional) are well-defined and minimize diffusion."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible: (1) Model generation can be tested in simulation (synthetic sensor data) and field trials (real sensors). (2) Fidelity metrics (terrain accuracy, obstacle recall, hazard update frequency) are measurable. (3) Interface compliance (Tasking schema, update latency) is testable. (4) Safety constraints can be validated via scenario testing.",
+      "allocation_clarity": "Allocation is clear: Vehicle module owns perception pipeline and model generation. Planning and execution subsystems consume model via Tasking interface. Tele-operation and safety services consume model via Tasking interface and publish refinements/alerts via SafetyAlert. No ambiguity in responsibility or interface ownership."
+    },
+    "recommended_revisions": [
+      "Specify vehicle compute platform (GPU/CPU type, memory, power budget) and confirm it meets perception pipeline SLA.",
+      "Define worksite model schema (terrain mesh format, obstacle voxel grid resolution, hazard track structure, work-zone polygon schema) and publish as part of Tasking interface contract.",
+      "Clarify whether tele-operator manual model refinement (DP-D hybrid) is in scope for this level; if yes, define merge/conflict resolution logic and update IM assignment.",
+      "Specify fallback behavior if perception pipeline fails (e.g., operator manual override, conservative safety margins, model staleness threshold).",
+      "Define model update frequency SLA (e.g., ≥2 Hz) and latency budget for planning/execution consumers.",
+      "Confirm that planning and execution subsystems can be modified to consume model via Tasking interface; if not, revise DP or interface contract."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The refined FR is well-scoped and decomposable into five sub-FRs (sensor acquisition, classification, model maintenance, exposure, safety constraints). The selected DP is logically sound and tightly coupled to the Vehicle IM. However, the sub-FRs are not yet atomic and require further decomposition to reach implementation-ready specifications. Specifically, CR-NGHE-006.1 (sensor fusion) and CR-NGHE-006.2 (semantic segmentation) are complex and require detailed algorithm/architecture decisions. CR-NGHE-006.4 (model exposure) requires detailed interface specification. Proceeding to the next decomposition level will clarify these details and reduce implementation risk.",
+    "justification_detail": "Gate review passes all three checks (FR-DP, DP-IM, FR-IM), indicating logical soundness and architectural feasibility. However, the sub-FRs are not yet ready for implementation assignment. Specifically: (1) CR-NGHE-006.1 requires selection of sensor fusion algorithm (Kalman filter, particle filter, deep learning) and specification of compute requirements. (2) CR-NGHE-006.2 requires selection of segmentation approach (classical computer vision, neural network, hybrid) and training data strategy. (3) CR-NGHE-006.4 requires detailed Tasking interface schema and query/subscription protocol. (4) CR-NGHE-006.5 requires specification of safety constraint rules and enforcement logic. Decomposing these sub-FRs will yield atomic FRs ready for DP selection and IM assignment at the next level.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1.1: Acquire LiDAR point clouds at ≥10 Hz with range ≥100 m and angular resolution ≥0.1°.",
+      "CR-NGHE-006.1.2: Acquire camera frames at ≥30 Hz with resolution ≥1920×1080 and field-of-view ≥90°.",
+      "CR-NGHE-006.1.3: Acquire proprioceptive telemetry (IMU, GNSS, wheel odometry) at ≥100 Hz with specified accuracy.",
+      "CR-NGHE-006.1.4: Fuse multi-sensor observations into a unified coordinate frame using Kalman filter or equivalent, with latency <100 ms.",
+      "CR-NGHE-006.2.1: Classify terrain (ground, vegetation, water, pavement) from LiDAR and camera data with >90% accuracy.",
+      "CR-NGHE-006.2.2: Detect and segment static obstacles (rocks, structures, trees) with >90% recall and <10% false positive rate.",
+      "CR-NGHE-006.2.3: Track dynamic hazards (personnel, other equipment) with >95% recall and <5% false positive rate.",
+      "CR-NGHE-006.3.1: Maintain terrain mesh with <0.5 m elevation error over 95% of mapped area.",
+      "CR-NGHE-006.3.2: Update obstacle voxel grid in real-time (≥2 Hz) with new sensor observations.",
+      "CR-NGHE-006.3.3: Maintain hazard track history with temporal resolution ≥0.5 s and spatial resolution ≥0.1 m.",
+      "CR-NGHE-006.4.1: Define Tasking interface schema for model query (e.g., terrain elevation at (x,y), obstacles in region, hazards in zone).",
+      "CR-NGHE-006.4.2: Implement model subscription mechanism for planning/execution subsystems to receive model updates asynchronously.",
+      "CR-NGHE-006.5.1: Define safety constraint rules (e.g., no work zones overlapping hazard regions, minimum clearance from obstacles).",
+      "CR-NGHE-006.5.2: Enforce safety constraints at model update time and publish violations via SafetyAlert interface."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Vehicle has sufficient onboard compute (GPU/CPU, memory, power) to run perception pipeline at ≥2 Hz.",
+        "LiDAR and camera sensors are available, calibrated, and mounted on vehicle.",
+        "Planning and execution subsystems can be modified to consume worksite model via Tasking interface.",
+        "Tele-operator manual model refinement is out of scope for this level (DP-A baseline; DP-D hybrid is optional future enhancement).",
+        "Safety constraint enforcement is owned by Vehicle module at model update time; Safety Services publishes alerts only.",
+        "Worksite model is generated onboard and published to local consumers; cloud sync is optional (Network Link interface).",
+        "Model update frequency of ≥2 Hz is sufficient for planning/execution cycle times.",
+        "Terrain elevation accuracy of ±0.5 m is acceptable for autonomous path planning."
+      ],
+      "open_risks": [
+        "RISK: Vehicle compute capacity insufficient for real-time perception pipeline. Mitigation: specify compute SLA upfront; if unmet, revise DP to offload processing to edge/cloud.",
+        "RISK: Perception pipeline failure (sensor occlusion, compute overload) leaves model stale. Mitigation: operator override and manual model update capability; define staleness threshold.",
+        "RISK: Model fidelity insufficient for safety-critical path planning. Mitigation: validation against ground truth; operator sign-off before execution; conservative safety margins.",
+        "RISK: Real-time update latency exceeds planning cycle time. Mitigation: predictive model extrapolation; asynchronous update mechanism.",
+        "RISK: Tele-operator needs to manually refine model (DP-D hybrid). Mitigation: define Tasking interface contract for model updates; Vehicle merges operator refinements.",
+        "RISK: Safety Services needs to enforce constraints on model content. Mitigation: Vehicle enforces constraints at model update time; Safety Services publishes alerts only.",
+        "RISK: Planning/execution subsystems expect different model schema or interface. Mitigation: define Tasking interface contract explicitly; validate compatibility early."
+      ],
+      "evidence_needed": [
+        "Vehicle compute platform specification (GPU/CPU type, memory, power budget) and confirmation of perception pipeline SLA.",
+        "Sensor suite specification (LiDAR range/resolution, camera specs, IMU/GNSS accuracy) and calibration data.",
+        "Worksite model schema (terrain mesh format, obstacle voxel grid resolution, hazard track structure, work-zone polygon schema).",
+        "Tasking interface contract (model query/subscription protocol, schema, latency SLA).",
+        "Safety constraint rules and enforcement logic specification.",
+        "Planning and execution subsystem interface requirements (model schema, update frequency, latency tolerance).",
+        "Field trial data demonstrating perception pipeline fidelity (terrain accuracy, obstacle recall, hazard detection rate) in representative worksite conditions.",
+        "Operator feedback on model visualization and usability for situational awareness and manual refinement (if DP-D hybrid is in scope)."
+      ]
+    }
+  }
+}

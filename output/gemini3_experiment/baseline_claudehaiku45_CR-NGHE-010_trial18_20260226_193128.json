@@ -1,0 +1,164 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation link availability ≥ 0.999 (99.9%) over the agreed evaluation period, measured as the ratio of time the bidirectional command-and-telemetry link is operational to total evaluation time.",
+    "rationale": "CR-NGHE-010 requires quantification of the availability target and clarification of measurement scope. Link availability is a system-level quality attribute that depends on network infrastructure, redundancy mechanisms, and fault detection/recovery. The refined FR explicitly defines the metric (availability ratio), threshold (≥0.999), and measurement period to enable objective verification.",
+    "verification_idea": "Continuous monitoring of link state transitions (up/down) during the evaluation period; calculation of cumulative downtime; comparison against 0.999 threshold. Requires instrumentation of link health status and timestamped event logging.",
+    "sub_frs": [
+      "FR-NGHE-010.1: The teleoperation system shall detect link failures within [X] milliseconds.",
+      "FR-NGHE-010.2: The teleoperation system shall initiate failover or graceful degradation upon link loss.",
+      "FR-NGHE-010.3: The teleoperation system shall log link state events with timestamps for availability calculation.",
+      "FR-NGHE-010.4: The network infrastructure shall provide redundant connectivity paths to achieve ≥0.999 availability."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Implement dual-path network architecture (primary + backup) with automatic failover and continuous link health monitoring at the Teleoperation module.",
+      "DP-B: Implement network redundancy at the infrastructure layer (carrier-grade dual links) with link aggregation and transparent failover.",
+      "DP-C: Implement application-level heartbeat and timeout mechanisms with manual operator intervention upon link loss.",
+      "DP-D: Implement hybrid approach combining network-level redundancy (DP-B) with application-level health monitoring and graceful degradation (DP-A subset)."
+    ],
+    "selected_dp": "DP-D: Implement hybrid dual-path network architecture with automatic failover at the network layer, combined with application-level link health monitoring, heartbeat detection, and graceful degradation logic. This approach decouples network resilience (infrastructure responsibility) from application-level fault awareness (software responsibility), enabling both rapid failover and intelligent operator feedback.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between network failover timing and application timeout thresholds—must be coordinated to avoid false-positive link-loss detection.",
+        "Coupling between Teleoperation module and Safety Services for link-loss safety actions (e.g., emergency stop).",
+        "Coupling between Vehicle control logic and Teleoperation link state—vehicle must handle link loss gracefully (e.g., hold position, reduce speed)."
+      ],
+      "notes": "DP-D is decoupled from specific network vendor or topology, allowing flexibility in infrastructure selection. However, it introduces a dependency on coordinated timing between network layer and application layer. This is manageable via interface contracts (e.g., failover completion time SLA, heartbeat interval specification)."
+    },
+    "assumptions_risks": [
+      "Assumption: Dual network paths (primary + backup) are available and can be provisioned by the customer's site infrastructure.",
+      "Assumption: Network failover latency is ≤ [X] ms, sufficient to prevent command/telemetry loss during transition.",
+      "Risk: If failover latency exceeds application timeout, link-loss events will be detected despite successful failover, causing unnecessary safety actions.",
+      "Risk: Heartbeat mechanism overhead may impact real-time control responsiveness if not carefully tuned.",
+      "Risk: Operator awareness of link degradation (e.g., reduced bandwidth) requires clear UI feedback; absence of feedback may lead to unsafe operation."
+    ],
+    "recommended_revision": "Refine DP-D to explicitly specify: (1) failover latency target (e.g., ≤100 ms), (2) heartbeat interval and timeout thresholds (e.g., 500 ms interval, 2 s timeout), (3) graceful degradation modes (e.g., reduced command rate, telemetry sampling), and (4) operator notification mechanism for link state changes. These parameters must be validated against vehicle dynamics and safety requirements."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "The Teleoperation module owns the application-level link health monitoring, heartbeat logic, failover coordination, and graceful degradation behavior. It interfaces with the network infrastructure (via Network Link) to detect and respond to link state changes, and with Safety Services to trigger safety actions upon link loss. It does not own the physical network infrastructure (dual paths, failover hardware) but assumes their availability and SLA compliance."
+    },
+    "external_interfaces": [
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Bidirectional communication channel for command transmission (out: Tasking) and telemetry reception (in: Telemetry). Teleoperation module monitors link state and receives failover notifications from network layer."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Operator commands transmitted to Vehicle via Network Link. Teleoperation module buffers or queues commands during link degradation."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Vehicle state and sensor data received from Vehicle via Network Link. Teleoperation module uses telemetry to detect link loss (absence of heartbeat) and inform operator."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Link-loss safety alerts transmitted to Safety Services. Teleoperation module triggers SafetyAlert upon link failure detection to initiate emergency stop or safe shutdown."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.95,
+        "diffusion_score": 0.05,
+        "notes": "Teleoperation is the natural owner of application-level link health monitoring and failover coordination. The module directly interfaces with Network Link and Safety Services. Minimal diffusion: heartbeat logic and timeout handling are localized within Teleoperation. Minor diffusion risk: Vehicle module must also implement link-loss response (e.g., hold position), but this is a separate concern (vehicle safety logic) not part of link availability monitoring."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Safety Services could own link-loss safety actions (e.g., emergency stop), but link availability monitoring itself (heartbeat, failover coordination) is not a safety service responsibility. High diffusion risk: mixing link availability logic with safety logic would couple two distinct concerns and complicate testing/certification."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Vehicle module owns vehicle control and dynamics, not teleoperation link management. Assigning link availability to Vehicle would create high diffusion and coupling. Vehicle should respond to link-loss commands from Teleoperation/Safety Services, not manage link state itself."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.1,
+        "diffusion_score": 0.9,
+        "notes": "NGHE Solution is the system-level container. Assigning link availability monitoring to the system level (rather than a specific module) would diffuse responsibility and complicate ownership. Link availability is a Teleoperation-specific concern."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the optimal owner of DP-D (hybrid dual-path network architecture with application-level health monitoring). It has direct visibility into link state, owns the heartbeat and timeout logic, and interfaces with both Network Link (for failover coordination) and Safety Services (for link-loss alerts). Containment score of 0.95 reflects high cohesion and minimal diffusion.",
+    "containment_risks": [
+      "Risk: If network failover is slower than application timeout, Teleoperation will detect link loss even though failover is in progress. Mitigation: Coordinate failover latency SLA with heartbeat timeout thresholds; implement exponential backoff in timeout logic to avoid false positives.",
+      "Risk: Vehicle module must also respond to link loss (e.g., hold position, reduce speed). If Vehicle does not implement link-loss response, Teleoperation's failover logic will be ineffective. Mitigation: Define clear interface contract (SafetyAlert) and ensure Vehicle module implements corresponding safety actions.",
+      "Risk: Operator awareness of link state is critical for safety. If Teleoperation does not provide clear UI feedback, operator may continue sending commands during link loss. Mitigation: Teleoperation must emit link-state notifications (e.g., via Telemetry or a dedicated UI interface) to inform operator."
+    ],
+    "recommended_revision": "Clarify the boundary between Teleoperation and Vehicle regarding link-loss response: Teleoperation owns link detection and alert generation (SafetyAlert); Vehicle owns the safety action execution (e.g., emergency stop). Define the SafetyAlert interface contract explicitly (e.g., message format, latency requirement). Additionally, specify the operator notification mechanism (e.g., UI indicator, audible alarm) as part of Teleoperation's responsibility."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-D (hybrid dual-path network architecture with application-level health monitoring) directly addresses FR-NGHE-010 (achieve ≥0.999 link availability). The DP specifies both the mechanism (dual paths + failover) and the monitoring logic (heartbeat, timeout) needed to achieve and verify the availability target. No independence violations detected; the DP is a coherent solution to the FR."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Diffusion risk: Vehicle module must implement link-loss response (e.g., hold position, emergency stop). This is a separate FR (vehicle safety logic) but is tightly coupled to Teleoperation's link-loss detection. Mitigation: Define clear SafetyAlert interface contract and ensure Vehicle module is assigned corresponding sub-FRs.",
+        "Diffusion risk: Network infrastructure (dual paths, failover hardware) is outside Teleoperation module scope but is critical to DP-D success. Mitigation: Teleoperation assumes Network Link interface provides failover capability; network infrastructure is owned by a separate module or external system."
+      ],
+      "containment_notes": "Teleoperation module contains the application-level logic (heartbeat, timeout, failover coordination, graceful degradation). Network infrastructure (dual paths, failover hardware) is external to Teleoperation but accessed via Network Link interface. This separation of concerns is appropriate: Teleoperation owns the software logic, network infrastructure is owned by the site/customer. Containment score of 0.95 reflects this clean boundary."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification of FR-NGHE-010 is feasible via continuous monitoring of link state during the evaluation period. Teleoperation module can log link state transitions (up/down) with timestamps, enabling calculation of availability ratio. Verification requires: (1) instrumentation of link health status in Teleoperation, (2) timestamped event logging, (3) post-evaluation analysis of downtime. This is a standard approach for availability verification.",
+      "allocation_clarity": "Allocation of FR-NGHE-010 to Teleoperation module is clear. Teleoperation owns the mechanisms (heartbeat, timeout, failover coordination) that directly impact link availability. The module's external interfaces (Network Link, Tasking, Telemetry, SafetyAlert) provide the necessary touchpoints for link monitoring and safety action. No ambiguity in allocation."
+    },
+    "recommended_revisions": [
+      "Refine DP-D to specify failover latency target (e.g., ≤100 ms) and heartbeat parameters (interval, timeout). These parameters must be validated against vehicle dynamics and safety requirements.",
+      "Define the SafetyAlert interface contract explicitly (message format, latency requirement, safety action semantics).",
+      "Clarify the operator notification mechanism for link state changes (e.g., UI indicator, audible alarm). This is critical for operator awareness and safe operation.",
+      "Assign sub-FRs to Vehicle module for link-loss response (e.g., hold position, emergency stop). Ensure Vehicle module implements corresponding safety actions.",
+      "Document assumptions about network infrastructure (dual paths, failover capability, SLA compliance). These assumptions must be validated with the customer's site infrastructure."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-NGHE-010 is not atomic; it requires decomposition into sub-FRs addressing link failure detection, failover coordination, graceful degradation, and safety actions. The refined FR identifies four sub-FRs (FR-NGHE-010.1 through FR-NGHE-010.4) that must be further decomposed and allocated to specific modules (Teleoperation, Vehicle, Safety Services, network infrastructure). Proceeding to the next decomposition level is necessary to establish clear ownership, interface contracts, and verification criteria for each sub-FR.",
+    "next_level_sub_frs": [
+      "FR-NGHE-010.1: The teleoperation system shall detect link failures within [X] milliseconds of link loss occurrence.",
+      "FR-NGHE-010.2: The teleoperation system shall initiate failover to backup network path or graceful degradation upon link loss detection.",
+      "FR-NGHE-010.3: The teleoperation system shall log link state events (up/down transitions) with timestamps for availability calculation and post-evaluation analysis.",
+      "FR-NGHE-010.4: The network infrastructure shall provide redundant connectivity paths (primary + backup) with automatic failover capability to support ≥0.999 availability target."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "DP-D requires refinement to specify concrete parameters: (1) failover latency target (e.g., ≤100 ms), (2) heartbeat interval and timeout thresholds (e.g., 500 ms interval, 2 s timeout), (3) graceful degradation modes (e.g., reduced command rate, telemetry sampling), and (4) operator notification mechanism. These parameters must be derived from vehicle dynamics, safety requirements, and network SLA assumptions. Refinement of DP-D will enable more precise allocation of sub-FRs and clearer interface contracts."
+    },
+    "record": {
+      "assumptions": [
+        "Dual network paths (primary + backup) are available and can be provisioned by the customer's site infrastructure.",
+        "Network failover latency is ≤ [X] ms (to be determined), sufficient to prevent command/telemetry loss during transition.",
+        "Vehicle module implements link-loss response (e.g., hold position, emergency stop) upon receiving SafetyAlert from Teleoperation.",
+        "Operator is informed of link state changes via UI feedback (e.g., indicator, alarm) provided by Teleoperation module.",
+        "Evaluation period is ≥ [Y] hours (to be determined by customer), sufficient to achieve statistical confidence in availability measurement."
+      ],
+      "open_risks": [
+        "Risk: Failover latency exceeds application timeout, causing false-positive link-loss detection despite successful failover. Mitigation: Coordinate failover SLA with heartbeat timeout thresholds; implement exponential backoff in timeout logic.",
+        "Risk: Vehicle module does not implement link-loss response, rendering Teleoperation's failover logic ineffective. Mitigation: Assign explicit sub-FRs to Vehicle module for link-loss response; verify implementation during integration testing.",
+        "Risk: Operator is not aware of link degradation (e.g., reduced bandwidth), leading to unsafe operation. Mitigation: Teleoperation must provide clear UI feedback for link state changes; operator training must emphasize link state awareness.",
+        "Risk: Network infrastructure does not meet failover latency or availability SLA, making system-level availability target unachievable. Mitigation: Validate network infrastructure SLA with customer; consider alternative network providers or redundancy mechanisms if SLA is not met."
+      ],
+      "evidence_needed": [
+        "Network infrastructure specification: dual paths, failover mechanism, latency SLA, availability guarantee.",
+        "Vehicle dynamics and control response time: required to determine safe heartbeat timeout thresholds.",
+        "Safety requirements: link-loss safety actions (e.g., emergency stop), latency requirements, operator notification requirements.",
+        "Operator interface design: link state indicators, alarm mechanisms, operator training materials.",
+        "Evaluation plan: evaluation period duration, measurement methodology, acceptance criteria, statistical confidence level."
+      ]
+    }
+  }
+}

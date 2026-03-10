@@ -1,0 +1,169 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current equipment state, environmental conditions, and operational events within p95 ≤ 1.0 s latency for all supported update scenarios, ensuring operational decisions are based on timely information.",
+    "rationale": "CR-NGHE-007 addresses a critical operational requirement: decision-making quality depends on model freshness. Refining to include 'supported update scenarios' acknowledges that not all updates have identical latency requirements (e.g., safety-critical alerts vs. non-critical telemetry). The p95 metric is explicit and measurable. High safety criticality demands that latency failures are detectable and do not silently degrade safety.",
+    "verification_idea": "Instrument the worksite model update pipeline with end-to-end latency measurement from sensor/event ingestion to model state commit. Collect p95 latency across representative scenarios (equipment position updates, safety alerts, operator commands, environmental changes). Validate against customer-defined target (default 1.0 s). Measure under nominal and degraded network conditions.",
+    "sub_frs": [
+      "FR-007-A: Acquire real-time telemetry and event data from equipment and environment with minimal collection latency.",
+      "FR-007-B: Transmit telemetry and event data to worksite model service with bounded network latency.",
+      "FR-007-C: Process and validate incoming telemetry/events and update worksite model state with minimal computation latency.",
+      "FR-007-D: Detect and alert when worksite model update latency exceeds acceptable threshold.",
+      "FR-007-E: Provide fallback or degraded-mode operation if update latency cannot be maintained."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-007-1: Centralized worksite model service with direct telemetry ingestion, real-time event processing, and synchronous model state updates; latency managed via optimized data structures, caching, and network prioritization.",
+      "DP-007-2: Distributed edge-local model replicas with asynchronous eventual-consistency synchronization to a central authority; latency hidden by local reads, but consistency guarantees weaker.",
+      "DP-007-3: Hybrid architecture: local equipment maintains shadow model state; central worksite model receives batched updates at fixed intervals with interpolation; latency bounded by batch interval and interpolation error.",
+      "DP-007-4: Event-driven streaming pipeline (Kafka/Pulsar) with model update subscribers; latency determined by stream processing SLA and subscriber throughput."
+    ],
+    "selected_dp": "DP-007-1: Centralized worksite model service with direct telemetry ingestion, real-time event processing, and synchronous model state updates; latency managed via optimized data structures, caching, and network prioritization.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between telemetry acquisition (FR-007-A) and model update (FR-007-C): both depend on data schema and serialization format. Mitigation: define canonical telemetry schema early.",
+        "Coupling between network transmission (FR-007-B) and model update latency: network jitter directly impacts p95. Mitigation: implement adaptive batching and QoS prioritization.",
+        "Coupling between model update logic and safety alert generation (FR-007-D): safety alerts must not be delayed by model update processing. Mitigation: decouple alert path via interrupt-driven or priority queue."
+      ],
+      "notes": "DP-007-1 is preferred because it provides direct control over end-to-end latency and allows explicit measurement and tuning. Distributed approaches (DP-007-2, DP-007-3) trade latency predictability for consistency or complexity. Event-streaming (DP-007-4) introduces additional broker latency and is harder to bound."
+    },
+    "assumptions_risks": [
+      "Assumption: Network link between equipment and central worksite model service is reliable and has sufficient bandwidth. Risk: network congestion or packet loss will violate latency SLA. Mitigation: implement network monitoring and fallback to edge-local model.",
+      "Assumption: Worksite model service can be scaled horizontally to handle peak telemetry ingestion rate. Risk: single-point bottleneck if model service is not designed for parallelism. Mitigation: partition model state by equipment or zone; use read replicas for queries.",
+      "Assumption: Telemetry data is time-stamped at source with synchronized clocks. Risk: clock skew will cause incorrect event ordering and model inconsistency. Mitigation: implement NTP or GPS-based clock synchronization.",
+      "Assumption: Safety-critical alerts are not blocked by non-critical model updates. Risk: latency of routine telemetry processing delays safety alerts. Mitigation: implement priority queues and separate processing paths for safety vs. non-safety updates."
+    ],
+    "recommended_revision": "Refine DP-007-1 to explicitly separate safety-critical update path (low-latency, high-priority) from non-critical telemetry path (batched, lower priority). Define SLA for each path independently. Specify caching strategy (in-memory, distributed cache, or database) to minimize model lookup latency."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "The NGHE Solution module is the top-level system boundary that integrates all subsystems (Vehicle, Teleoperation, Safety Services) and owns the worksite model update pipeline. This module is responsible for orchestrating telemetry ingestion, model state management, and latency monitoring across all update scenarios."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Inbound telemetry stream from Vehicle and Teleoperation modules. Carries equipment state (position, orientation, sensor readings), environmental data, and operational events. Must support high-frequency updates (e.g., 10–100 Hz for position, 1 Hz for environmental). Latency contribution: network transmission + serialization/deserialization."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Outbound tasking commands from NGHE Solution to Vehicle and Teleoperation modules. May include model-derived guidance (e.g., collision avoidance, path planning). Latency-sensitive if model-driven control is required. Latency contribution: model query + command generation."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Outbound safety alerts from NGHE Solution (via Safety Services) to operators and site manager. Triggered by model state changes (e.g., proximity violations, equipment faults). Must not be delayed by non-critical model updates. Latency contribution: model update + alert generation + transmission."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Underlying network connectivity for all telemetry, tasking, and alert messages. Latency contribution: network propagation, congestion, and QoS handling. Must be monitored and managed to meet p95 ≤ 1.0 s SLA."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "NGHE Solution is the natural top-level owner of the worksite model update pipeline. It integrates telemetry from Vehicle and Teleoperation, processes updates, and distributes alerts and tasking. Minimal diffusion: all latency-critical logic is contained within this module's scope. External dependencies are well-defined interfaces (Telemetry, Tasking, SafetyAlert, Network Link)."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Vehicle module is responsible for equipment-level telemetry acquisition and local state management, but does not own the worksite-level model or latency SLA. Assigning worksite model update to Vehicle would scatter responsibility and make latency monitoring difficult. Vehicle is a data source, not the model owner."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 25,
+        "diffusion_score": 75,
+        "notes": "Teleoperation module handles remote operator interface and command transmission, but does not own the worksite model or latency SLA. Assigning worksite model update to Teleoperation would couple operator interface logic with model management, violating separation of concerns. Teleoperation is a consumer of model state, not the owner."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 40,
+        "diffusion_score": 60,
+        "notes": "Safety Services module is responsible for safety policy enforcement and alert generation, but does not own the worksite model or latency SLA for general updates. Safety Services consumes model state to detect violations, but the model update pipeline itself is owned by NGHE Solution. Assigning worksite model update to Safety Services would conflate safety-specific logic with general model management."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "The NGHE Solution module owns the worksite model update pipeline, including telemetry ingestion, model state management, latency monitoring, and alert/tasking distribution. Vehicle, Teleoperation, and Safety Services are consumers of model state and sources of telemetry, but do not own the model or latency SLA. This assignment ensures clear ownership, measurable latency accountability, and minimal diffusion of update logic.",
+    "containment_risks": [
+      "Risk: NGHE Solution becomes a monolithic bottleneck if not designed for scalability. Mitigation: partition worksite model by equipment or zone; use asynchronous processing for non-critical updates; implement caching and read replicas.",
+      "Risk: Latency SLA is difficult to meet if network link is unreliable or congested. Mitigation: implement network monitoring, QoS prioritization, and fallback to edge-local model.",
+      "Risk: Safety-critical alerts are delayed by non-critical model updates. Mitigation: implement separate processing paths with priority queues; ensure safety path is not blocked by routine telemetry.",
+      "Risk: Model state consistency is compromised if updates are lost or reordered. Mitigation: implement idempotent update logic, event sourcing, or transactional semantics."
+    ],
+    "recommended_revision": "Refine NGHE Solution module boundary to explicitly separate the worksite model service (core state management) from the telemetry ingestion pipeline and alert/tasking distribution logic. Define internal module interfaces (e.g., ModelUpdate, ModelQuery, AlertTrigger) to enable independent scaling and testing. Specify latency budgets for each internal component (e.g., telemetry ingestion ≤ 100 ms, model update ≤ 200 ms, alert generation ≤ 100 ms, network transmission ≤ 500 ms) to ensure p95 ≤ 1.0 s end-to-end."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-007-1 (centralized worksite model service with real-time processing) directly addresses FR-007 (worksite model update latency ≤ 1.0 s). The DP provides explicit control over end-to-end latency via optimized data structures, caching, and network prioritization. The DP is implementable and measurable. No fundamental mismatch between requirement and solution concept."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Risk: Telemetry ingestion logic is scattered across Vehicle and Teleoperation modules, making it difficult to optimize end-to-end latency. Mitigation: define canonical telemetry schema and ingestion interface; centralize schema validation in NGHE Solution.",
+        "Risk: Model update processing is coupled with safety alert generation, potentially delaying alerts. Mitigation: implement separate processing paths with priority queues; ensure safety path is not blocked by routine telemetry.",
+        "Risk: Network link management is not explicitly owned by any module, making QoS and latency monitoring difficult. Mitigation: assign Network Link interface management to NGHE Solution; implement network monitoring and adaptive QoS."
+      ],
+      "containment_notes": "NGHE Solution is the clear owner of the worksite model update pipeline. Vehicle and Teleoperation are data sources; Safety Services is a consumer. The assignment minimizes diffusion and ensures clear accountability for latency SLA. External interfaces (Telemetry, Tasking, SafetyAlert, Network Link) are well-defined and measurable."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Latency SLA is measurable via end-to-end instrumentation of the worksite model update pipeline. Verification can be performed in lab (controlled network conditions) and field (real-world conditions). Acceptance criteria are explicit: p95 ≤ 1.0 s for supported update scenarios. Verification is feasible with standard performance testing tools and network simulation.",
+      "allocation_clarity": "Ownership of worksite model update latency is clearly allocated to NGHE Solution. Latency budgets can be allocated to sub-components (telemetry ingestion, model update, alert generation, network transmission) and assigned to responsible teams. Interfaces are explicit and measurable. No ambiguity in allocation."
+    },
+    "recommended_revisions": [
+      "Refine FR-007 to define 'supported update scenarios' explicitly (e.g., equipment position update, safety alert, operator command, environmental change). Assign latency budgets to each scenario independently if they differ.",
+      "Refine DP-007-1 to specify caching strategy, data structure choices, and network prioritization mechanism. Define SLA for safety-critical vs. non-critical update paths separately.",
+      "Refine NGHE Solution module boundary to separate worksite model service from telemetry ingestion and alert/tasking distribution. Define internal module interfaces and latency budgets for each component.",
+      "Add verification plan to FR-007: specify instrumentation points, measurement methodology, test scenarios, and acceptance criteria. Define fallback or degraded-mode operation if latency SLA cannot be met."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-007 is not atomic and requires further decomposition into sub-FRs (FR-007-A through FR-007-E) to address specific latency contributors (telemetry acquisition, network transmission, model processing, latency detection, fallback). DP-007-1 is sound and implementable, but requires refinement to specify caching strategy, data structure choices, and separate processing paths for safety-critical vs. non-critical updates. NGHE Solution is the correct IM owner, but requires internal module structure definition. Proceeding to next decomposition level will clarify latency budgets, interface specifications, and implementation strategy.",
+    "next_level_sub_frs": [
+      "FR-007-A: Acquire real-time telemetry and event data from equipment and environment with minimal collection latency (target: ≤ 100 ms p95).",
+      "FR-007-B: Transmit telemetry and event data to worksite model service with bounded network latency (target: ≤ 500 ms p95, dependent on network link quality).",
+      "FR-007-C: Process and validate incoming telemetry/events and update worksite model state with minimal computation latency (target: ≤ 200 ms p95).",
+      "FR-007-D: Detect and alert when worksite model update latency exceeds acceptable threshold (target: detection latency ≤ 50 ms).",
+      "FR-007-E: Provide fallback or degraded-mode operation if update latency cannot be maintained (e.g., switch to edge-local model, reduce update frequency, alert operator)."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "DP-007-1 requires refinement to specify: (1) caching strategy (in-memory, distributed cache, or database) to minimize model lookup latency; (2) data structure choices (e.g., spatial indexing for proximity queries, event log for consistency); (3) separate processing paths for safety-critical updates (low-latency, high-priority) vs. non-critical telemetry (batched, lower priority); (4) network prioritization mechanism (QoS, traffic shaping) to ensure safety alerts are not delayed by routine telemetry; (5) fallback strategy if latency SLA cannot be met (e.g., edge-local model, reduced update frequency). These refinements will enable implementable sub-DPs for each sub-FR."
+    },
+    "record": {
+      "assumptions": [
+        "Network link between equipment and central worksite model service is reliable and has sufficient bandwidth to support p95 ≤ 1.0 s latency.",
+        "Worksite model service can be scaled horizontally to handle peak telemetry ingestion rate without bottlenecks.",
+        "Telemetry data is time-stamped at source with synchronized clocks (NTP or GPS-based).",
+        "Safety-critical alerts are not blocked by non-critical model updates (separate processing paths required).",
+        "Customer-defined latency target is 1.0 s p95 (or will be specified during requirements refinement).",
+        "Supported update scenarios are defined and latency budgets are allocated to each scenario."
+      ],
+      "open_risks": [
+        "Network congestion or packet loss will violate latency SLA. Mitigation: implement network monitoring, QoS prioritization, and fallback to edge-local model.",
+        "Worksite model service becomes a monolithic bottleneck. Mitigation: partition model state by equipment or zone; use read replicas for queries.",
+        "Safety-critical alerts are delayed by non-critical model updates. Mitigation: implement separate processing paths with priority queues.",
+        "Model state consistency is compromised if updates are lost or reordered. Mitigation: implement idempotent update logic, event sourcing, or transactional semantics.",
+        "Latency SLA is difficult to meet in field conditions (real-world network variability). Mitigation: implement adaptive fallback strategy; define degraded-mode operation."
+      ],
+      "evidence_needed": [
+        "Network latency characterization: measure p50, p95, p99 latency under nominal and degraded conditions (congestion, packet loss, jitter).",
+        "Telemetry ingestion rate and data volume: specify peak rate (e.g., 100 Hz for position, 1 Hz for environmental) and payload size.",
+        "Worksite model complexity: specify number of equipment, environmental features, and model state size to estimate processing latency.",
+        "Safety-critical update scenarios: define which updates are safety-critical (e.g., proximity violations, equipment faults) and which are non-critical (e.g., routine telemetry).",
+        "Customer-defined latency target: confirm p95 ≤ 1.0 s or obtain customer-specific target.",
+        "Fallback strategy: define acceptable degraded-mode operation (e.g., edge-local model, reduced update frequency, operator alert)."
+      ]
+    }
+  }
+}

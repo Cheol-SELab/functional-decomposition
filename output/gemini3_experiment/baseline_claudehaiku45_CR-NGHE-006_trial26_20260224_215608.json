@@ -1,0 +1,167 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and work-zone boundaries, with sufficient fidelity to support autonomous path planning and operator situational awareness.",
+    "rationale": "The original FR was vague on fidelity requirements, update frequency, and use-case binding. Refinement clarifies that the model must serve both planning (offline) and execution (real-time) functions, must distinguish static from dynamic features, and must be safety-critical (high criticality tailoring). This enables downstream DP selection to address sensing, fusion, and distribution architecture.",
+    "verification_idea": "Acceptance test: (1) Worksite model generated within 5 minutes of site entry; (2) Terrain elevation accuracy ±0.5 m over 95% of mapped area; (3) Obstacle detection sensitivity ≥95% for objects >0.3 m; (4) Model available to planning and execution subsystems via agreed interface; (5) Safety-critical features (hazard zones) marked with confidence metadata.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire worksite sensor data (LiDAR, camera, IMU) from vehicle platform.",
+      "CR-NGHE-006.2: Fuse multi-modal sensor data into unified 3D terrain and obstacle representation.",
+      "CR-NGHE-006.3: Classify and label worksite features (terrain, static obstacles, dynamic hazards, work zones).",
+      "CR-NGHE-006.4: Distribute worksite model to planning, execution, and operator interfaces with latency <2 s.",
+      "CR-NGHE-006.5: Validate model completeness and confidence; flag gaps and low-confidence regions to Safety Services."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Onboard sensor fusion (LiDAR + stereo camera + IMU) on vehicle; local 3D reconstruction; periodic upload to cloud backend for archival and planning access.",
+      "DP-B: Distributed sensing: vehicle-mounted primary sensors + fixed site beacons/markers; centralized fusion engine on edge compute; real-time broadcast to all consumers.",
+      "DP-C: Hybrid: vehicle sensors + optional ground-truth survey points; multi-stage fusion (vehicle-local, then site-wide); model versioning and confidence scoring; push to planning/execution via standardized API.",
+      "DP-D: Lightweight onboard mapping (vehicle odometry + camera-based SLAM); minimal fusion; operator-guided annotation; manual upload to planning system."
+    ],
+    "selected_dp": "DP-C: Hybrid multi-stage fusion with vehicle-primary sensors, optional ground-truth calibration, site-wide model versioning, confidence metadata, and API-driven distribution to planning and execution subsystems.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Sensor fusion algorithm couples to vehicle motion estimation (odometry/IMU); mitigated by standard inertial interface.",
+        "Model distribution couples to network availability; mitigated by local caching and graceful degradation.",
+        "Confidence scoring couples to Safety Services hazard classification; mitigated by explicit metadata schema."
+      ],
+      "notes": "DP-C exhibits low coupling to other FRs at this level. Sensor acquisition is localized to vehicle; fusion is modular; distribution is via standard API. Safety criticality is addressed through confidence metadata and explicit validation hooks to Safety Services."
+    },
+    "assumptions_risks": [
+      "Assumption: Vehicle platform provides stable IMU and odometry data; Risk: Poor-quality inertial data degrades fusion; Mitigation: Sensor validation and outlier rejection in fusion engine.",
+      "Assumption: Network link is available for model distribution; Risk: Offline operation or latency spikes; Mitigation: Local model caching and asynchronous sync.",
+      "Assumption: Ground-truth calibration points are available or can be surveyed; Risk: Worksite may lack reference markers; Mitigation: Make ground-truth optional; use visual loop closure as fallback.",
+      "Assumption: Planning and execution subsystems can consume model via standard API; Risk: Legacy systems may require custom adapters; Mitigation: Define API early; provide adapter layer if needed."
+    ],
+    "recommended_revision": "Clarify sensor suite specification (LiDAR range/resolution, camera specs, IMU grade) and fusion algorithm selection (EKF, graph-SLAM, or learning-based) in next decomposition level. Define model versioning and confidence schema explicitly. Establish SLA for model latency and accuracy."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "The Vehicle module owns the primary sensor acquisition (LiDAR, stereo camera, IMU), local odometry/SLAM processing, and initial 3D reconstruction. It produces a local worksite model and streams raw/processed sensor data and model updates to external consumers (Teleoperation, Safety Services, planning backend). The Vehicle module is the primary data source and local processing hub for worksite mapping."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle streams sensor telemetry (LiDAR point clouds, camera frames, IMU data, odometry estimates) and local model snapshots to Teleoperation and backend planning systems. Frequency: 10 Hz for odometry, 2 Hz for full model updates."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives mapping task directives (e.g., 'scan zone X', 'refine model around obstacle Y') from planning/execution subsystems. Allows operator or autonomous planner to guide sensor acquisition."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Vehicle reports detected hazards (dynamic obstacles, terrain anomalies, confidence gaps) to Safety Services. Enables real-time hazard flagging and operator alerts."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Vehicle communicates with backend planning and Teleoperation subsystems via Network Link. Uploads model updates, receives tasking, and streams telemetry."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Vehicle is the natural owner of sensor acquisition and local processing. Sensor hardware, odometry, and initial 3D reconstruction are tightly coupled to vehicle platform. Diffusion risk: model distribution logic may leak into Teleoperation or backend; mitigated by clean API boundary."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.15,
+        "diffusion_score": 0.85,
+        "notes": "Teleoperation is a consumer of the worksite model, not a producer. Assigning mapping to Teleoperation would scatter sensor fusion logic across vehicle and remote operator interface, violating cohesion. Not recommended."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Safety Services consumes the worksite model to validate hazards and generate alerts. It does not own sensor acquisition or fusion. Assigning mapping to Safety Services would couple safety logic to sensor processing, violating separation of concerns. Not recommended."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.1,
+        "diffusion_score": 0.9,
+        "notes": "NGHE Solution is the system-level container. Assigning worksite mapping to NGHE Solution (rather than Vehicle) would defer architectural packaging and create ambiguity about sensor ownership. Vehicle is the appropriate subsystem-level owner."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module is the optimal owner of worksite mapping because it owns the sensor hardware, odometry/motion estimation, and local processing pipeline. Sensor fusion and 3D reconstruction are tightly coupled to vehicle kinematics and inertial data. Distribution of the model to external consumers (Teleoperation, Safety Services, planning backend) is achieved via clean, well-defined interfaces (Telemetry, SafetyAlert, Network Link). This minimizes diffusion and maintains cohesion.",
+    "containment_risks": [
+      "Risk: Model distribution logic (versioning, caching, API serialization) may be duplicated across Vehicle and backend planning systems. Mitigation: Define a single model schema and API; Vehicle produces, backend consumes and archives.",
+      "Risk: Confidence scoring and hazard classification may blur the boundary between Vehicle (mapping) and Safety Services (hazard validation). Mitigation: Vehicle computes raw confidence metadata; Safety Services applies domain-specific hazard rules.",
+      "Risk: Operator-guided mapping (tasking) may create tight coupling between Vehicle and Teleoperation. Mitigation: Tasking is a standard interface; Vehicle is agnostic to tasking source (autonomous planner or operator)."
+    ],
+    "recommended_revision": "Explicitly define the worksite model schema (3D point cloud format, feature labels, confidence metadata) and the API contract for model distribution. Clarify the boundary between Vehicle's raw confidence scoring and Safety Services' hazard classification. Establish a model versioning strategy (e.g., semantic versioning, timestamp-based snapshots) to support planning and execution workflows."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid multi-stage fusion) directly addresses the refined FR. It specifies how to acquire, fuse, and distribute worksite sensor data with confidence metadata. The DP is solution-neutral (does not prescribe specific algorithms) but sufficiently concrete to guide IM assignment and next-level decomposition. Coupling is low; assumptions are documented and mitigatable."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Model distribution logic (API, versioning, caching) may leak into Teleoperation or backend planning if not carefully scoped. Mitigation: Define a single model schema and API contract owned by Vehicle; other modules consume via standard interface.",
+        "Confidence scoring and hazard classification may blur Vehicle/Safety Services boundary. Mitigation: Vehicle computes raw confidence; Safety Services applies domain rules.",
+        "Sensor fusion algorithm selection (EKF, SLAM, learning-based) is deferred to next level; ensure algorithm choice does not introduce new module dependencies."
+      ],
+      "containment_notes": "Vehicle is the clear owner of sensor acquisition and local fusion. Containment score 0.92 reflects tight coupling of sensors, odometry, and 3D reconstruction to vehicle platform. Diffusion score 0.08 reflects clean API boundaries for model distribution. External interfaces (Telemetry, Tasking, SafetyAlert, Network Link) are well-defined and minimize coupling to other modules."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible via integration testing: (1) Deploy sensor suite on Vehicle; (2) Acquire data in controlled worksite; (3) Validate model accuracy against ground truth; (4) Measure latency and distribution performance; (5) Validate Safety Services integration. Acceptance criteria are measurable (terrain accuracy ±0.5 m, obstacle detection ≥95%, model latency <2 s).",
+      "allocation_clarity": "Allocation is clear: Vehicle owns sensor acquisition, fusion, and local model generation. Teleoperation, Safety Services, and planning backend are consumers. Tasking interface allows external guidance of sensor acquisition. Model distribution is via Telemetry and Network Link interfaces."
+    },
+    "recommended_revisions": [
+      "Define worksite model schema (3D point cloud format, feature labels, confidence metadata) explicitly in next decomposition level.",
+      "Clarify sensor suite specification (LiDAR range/resolution, camera specs, IMU grade) and fusion algorithm selection (EKF, graph-SLAM, learning-based).",
+      "Establish SLA for model latency (<2 s), accuracy (terrain ±0.5 m, obstacle detection ≥95%), and availability (uptime target).",
+      "Define model versioning and caching strategy to support offline operation and asynchronous sync.",
+      "Establish API contract for model distribution (schema, serialization format, update frequency)."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The refined FR is well-scoped and non-atomic; it decomposes into five sub-FRs (sensor acquisition, fusion, classification, distribution, validation). DP-C is concrete and solution-neutral. Vehicle is the clear IM owner with high containment (0.92) and low diffusion (0.08). All gates pass. The next level of decomposition is necessary to specify sensor suite, fusion algorithm, model schema, and API contract. Proceeding to decompose sub-FRs will refine the design and enable detailed implementation planning.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire worksite sensor data (LiDAR, camera, IMU) from vehicle platform.",
+      "CR-NGHE-006.2: Fuse multi-modal sensor data into unified 3D terrain and obstacle representation.",
+      "CR-NGHE-006.3: Classify and label worksite features (terrain, static obstacles, dynamic hazards, work zones).",
+      "CR-NGHE-006.4: Distribute worksite model to planning, execution, and operator interfaces with latency <2 s.",
+      "CR-NGHE-006.5: Validate model completeness and confidence; flag gaps and low-confidence regions to Safety Services."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Vehicle platform provides stable IMU and odometry data suitable for fusion.",
+        "Network link is available for model distribution; local caching mitigates offline scenarios.",
+        "Ground-truth calibration points are optional; visual loop closure is available as fallback.",
+        "Planning and execution subsystems can consume model via standard API.",
+        "Safety Services can integrate with Vehicle via SafetyAlert interface for hazard validation.",
+        "Worksite features (terrain, obstacles, hazards) are distinguishable via multi-modal sensing (LiDAR + camera + IMU)."
+      ],
+      "open_risks": [
+        "Sensor fusion algorithm selection (EKF, SLAM, learning-based) is deferred; choice may introduce new dependencies or performance constraints.",
+        "Model schema and API contract are not yet defined; mismatch with planning/execution subsystems could require rework.",
+        "Confidence scoring methodology is not specified; may require domain expertise from Safety Services.",
+        "Offline operation and model caching strategy are not detailed; may impact availability SLA.",
+        "Operator-guided mapping (tasking) may introduce latency or usability issues if not carefully designed."
+      ],
+      "evidence_needed": [
+        "Sensor suite specification (LiDAR range/resolution, camera specs, IMU grade, power budget).",
+        "Fusion algorithm selection and performance analysis (accuracy, latency, robustness to sensor noise).",
+        "Worksite model schema (3D point cloud format, feature labels, confidence metadata, serialization format).",
+        "API contract for model distribution (endpoints, update frequency, caching strategy).",
+        "Integration test plan with ground-truth validation data.",
+        "Safety Services integration specification (hazard classification rules, alert thresholds).",
+        "Operator interface mockup showing worksite model visualization and tasking controls."
+      ]
+    }
+  }
+}

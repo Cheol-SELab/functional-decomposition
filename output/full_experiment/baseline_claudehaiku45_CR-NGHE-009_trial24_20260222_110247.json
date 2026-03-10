@@ -1,0 +1,164 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation communication packet loss at or below the customer-defined threshold (acceptance criterion: ≤1% under agreed network conditions) to ensure safe and effective remote equipment operation.",
+    "rationale": "CR-NGHE-009 addresses a critical quality-of-service requirement for teleoperation. Packet loss directly impacts operator situational awareness, control responsiveness, and safety. Refining the FR to explicitly reference the acceptance criterion (≤1%) and network conditions clarifies the measurable boundary and reduces ambiguity in verification.",
+    "verification_idea": "Conduct network stress testing under agreed worksite conditions (bandwidth, latency, interference profiles). Measure packet loss rate across representative teleoperation sessions (minimum 1-hour duration per test scenario). Validate against customer-defined threshold and document network assumptions.",
+    "sub_frs": [
+      "FR-NGHE-009.1: The teleoperation system shall detect and report packet loss events in real-time.",
+      "FR-NGHE-009.2: The teleoperation system shall implement error correction or retransmission mechanisms to minimize effective packet loss impact on operator control.",
+      "FR-NGHE-009.3: The teleoperation system shall provide fallback or graceful degradation when packet loss exceeds acceptable thresholds."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Implement redundant communication channels (dual network paths) with automatic failover to maintain packet loss below threshold.",
+      "DP-B: Deploy forward error correction (FEC) and adaptive bitrate encoding to compensate for packet loss without requiring retransmission.",
+      "DP-C: Establish quality-of-service (QoS) prioritization and traffic shaping on the network link to reserve bandwidth for teleoperation packets.",
+      "DP-D: Combine selective retransmission of critical control packets with FEC for non-critical telemetry to balance latency and reliability."
+    ],
+    "selected_dp": "DP-D: Implement a hybrid approach combining selective retransmission of critical control packets (e.g., steering, brake commands) with forward error correction for telemetry streams, supported by QoS prioritization on the network link to achieve ≤1% effective packet loss.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "DP-D couples teleoperation control logic (selective retransmission) with network infrastructure (QoS, FEC codec selection). This is acceptable because both are necessary to meet the packet loss requirement and are logically cohesive.",
+        "DP-D does not create hidden dependencies on unspecified modules; it explicitly requires Network Link and Teleoperation subsystems to collaborate."
+      ],
+      "notes": "DP-D is preferred over DP-A (redundant channels) because it is more cost-effective and operationally simpler for typical worksite networks. It is preferred over DP-B or DP-C alone because neither FEC nor QoS alone is sufficient under high-loss conditions; the hybrid approach provides defense-in-depth."
+    },
+    "assumptions_risks": [
+      "Assumption: Worksite network supports QoS tagging and prioritization (common in modern managed networks, but not guaranteed on all sites).",
+      "Assumption: Latency budget permits selective retransmission of critical packets without exceeding operator control loop requirements (typically <200ms round-trip).",
+      "Risk: FEC overhead increases bandwidth consumption; if network is severely constrained, FEC may paradoxically worsen packet loss. Mitigation: adaptive FEC tuning based on measured loss rate.",
+      "Risk: Selective retransmission logic must correctly classify packets as critical vs. non-critical; misclassification could degrade safety. Mitigation: safety-critical packet classification must be validated and locked in design phase."
+    ],
+    "recommended_revision": "Refine DP-D to explicitly specify: (1) packet classification criteria (control vs. telemetry), (2) retransmission timeout and retry limits, (3) FEC code rate selection algorithm, and (4) QoS DSCP marking scheme. These details are necessary to move to detailed design and avoid ambiguity in implementation."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "The Teleoperation module owns the end-to-end teleoperation communication stack, including selective retransmission logic for critical control packets, FEC codec integration, packet classification, and QoS marking. It interfaces with the Network Link for transmission and with Safety Services for safety-critical packet validation."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives operator commands (steering, throttle, brake, auxiliary functions) from the tele-operator interface; Teleoperation module applies selective retransmission and FEC encoding before transmission."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Sends vehicle state (position, orientation, sensor readings, equipment status) to the tele-operator; Teleoperation module applies FEC encoding and monitors packet loss on this stream."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Bidirectional communication with network infrastructure; Teleoperation module marks packets with QoS DSCP tags and receives feedback on network conditions (loss rate, latency) to adapt FEC and retransmission parameters."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "Exchanges safety-critical status with Safety Services; Teleoperation module ensures SafetyAlert packets are always retransmitted and prioritized; receives safety constraints that may limit retransmission timeout."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "Teleoperation is the natural owner of packet loss mitigation logic because it directly manages the teleoperation communication protocol stack. Selective retransmission, FEC, and packet classification are core teleoperation concerns. Minimal diffusion: only QoS marking (interface to Network Link) and safety validation (interface to Safety Services) leak out."
+      },
+      {
+        "module": "Network Link",
+        "containment_score": 40,
+        "diffusion_score": 60,
+        "notes": "Network Link could own QoS prioritization, but selective retransmission and FEC are application-layer concerns that should not be embedded in the network module. High diffusion risk: pushing teleoperation-specific logic into Network Link would couple it to teleoperation semantics and reduce reusability."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 30,
+        "diffusion_score": 70,
+        "notes": "Safety Services should validate that packet loss mitigation does not compromise safety (e.g., critical packets are always retransmitted), but should not own the retransmission logic itself. High diffusion: embedding FEC and retransmission in Safety Services would blur the boundary between safety validation and communication engineering."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 10,
+        "diffusion_score": 90,
+        "notes": "Vehicle module is responsible for vehicle control and state, not communication. Assigning packet loss mitigation to Vehicle would create severe diffusion and coupling. Not a viable candidate."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "NGHE Solution is the system-level container but is too coarse-grained to own implementation details. Assigning DP-D to NGHE Solution would defer the architectural decision and create ambiguity in ownership. Not recommended."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the correct architectural home for DP-D because: (1) it owns the teleoperation protocol and packet semantics, (2) selective retransmission and FEC are intrinsic to teleoperation quality-of-service, (3) it has clear interfaces to Network Link (for QoS marking) and Safety Services (for critical packet validation), and (4) containment score of 95 reflects minimal diffusion.",
+    "containment_risks": [
+      "Risk: If Network Link does not support QoS tagging, Teleoperation cannot enforce prioritization. Mitigation: establish a design requirement that Network Link must support QoS; if not available, escalate to system-level trade study.",
+      "Risk: Selective retransmission timeout must be coordinated with operator control loop latency budget. If Teleoperation sets timeout too aggressively, it may exceed latency limits. Mitigation: Safety Services must validate that retransmission timeout is compatible with safety-critical control loop requirements.",
+      "Risk: FEC codec selection and tuning is complex and may require runtime adaptation. If Teleoperation module does not have sufficient observability into network conditions, FEC tuning may be suboptimal. Mitigation: Network Link must provide real-time feedback on packet loss rate and latency; Teleoperation must implement adaptive FEC algorithm."
+    ],
+    "recommended_revision": "Clarify the interface contract between Teleoperation and Network Link: (1) Network Link must expose a QoS API that allows Teleoperation to mark packets with priority levels, (2) Network Link must provide real-time metrics (packet loss rate, latency) to Teleoperation for adaptive FEC tuning, (3) Teleoperation must document the packet classification scheme and retransmission timeout values so that Safety Services can validate them."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-D (hybrid selective retransmission + FEC + QoS) directly addresses the refined FR requirement to maintain ≤1% packet loss. The DP is specific, measurable, and achievable under the stated assumptions (QoS-capable network, latency budget). No independence violations detected; the DP does not introduce new FRs that were not anticipated."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Moderate diffusion risk: DP-D requires coordination between Teleoperation (selective retransmission, FEC) and Network Link (QoS marking, metrics feedback). This is acceptable because the interface is well-defined and the responsibilities are clearly separated.",
+        "Low diffusion risk: Safety Services must validate that critical packets are always retransmitted, but this is a validation concern, not an ownership concern. Teleoperation retains implementation ownership."
+      ],
+      "containment_notes": "Teleoperation module achieves 95% containment of DP-D logic. The 5% diffusion (QoS marking, network metrics) is appropriate and necessary for system integration. No hidden dependencies or unintended couplings detected."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification of FR-NGHE-009 is feasible: packet loss can be measured directly via network monitoring tools during teleoperation testing. Acceptance criterion (≤1%) is quantitative and testable. Verification does not require new test infrastructure beyond standard network analysis tools.",
+      "allocation_clarity": "Allocation is clear: Teleoperation module is responsible for achieving ≤1% packet loss through selective retransmission, FEC, and QoS prioritization. Network Link is responsible for providing QoS support and metrics. Safety Services is responsible for validating that packet loss mitigation does not compromise safety. No ambiguity in responsibility allocation."
+    },
+    "recommended_revisions": [
+      "Establish a design requirement that Network Link must support QoS tagging (DSCP or equivalent) and provide real-time packet loss metrics to Teleoperation.",
+      "Define the packet classification scheme (critical control vs. non-critical telemetry) in the Teleoperation design specification and obtain Safety Services approval.",
+      "Specify retransmission timeout and FEC code rate selection algorithm in the Teleoperation design specification; validate against operator control loop latency budget.",
+      "Add a sub-FR for Teleoperation to detect and report when packet loss exceeds the acceptable threshold, enabling operator awareness and graceful degradation."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The refined FR-NGHE-009 is well-defined and the selected DP-D is sound, but the DP contains multiple implementation concerns (selective retransmission, FEC, QoS, adaptive tuning) that require further decomposition to guide detailed design. The sub-FRs identified in the refined_fr section (FR-NGHE-009.1, FR-NGHE-009.2, FR-NGHE-009.3) are atomic and ready for the next decomposition level. Proceeding to the next level will clarify the design details and reduce implementation risk.",
+    "justification_detail": "DP-D is a hybrid approach that combines three distinct mechanisms (selective retransmission, FEC, QoS). While the DP is logically sound and the Teleoperation module is the correct owner, the implementation details (packet classification, timeout values, FEC code rate, adaptive algorithm) are not yet specified. Decomposing the sub-FRs will force these details to be addressed explicitly and will enable more precise DP selection at the next level.",
+    "next_level_sub_frs": [
+      "FR-NGHE-009.1: The teleoperation system shall detect and report packet loss events in real-time to enable operator awareness and system adaptation.",
+      "FR-NGHE-009.2: The teleoperation system shall implement selective retransmission of critical control packets (steering, brake, emergency stop) with a timeout of ≤100ms to ensure operator responsiveness while maintaining safety.",
+      "FR-NGHE-009.3: The teleoperation system shall apply forward error correction to telemetry streams with adaptive code rate selection based on measured packet loss rate.",
+      "FR-NGHE-009.4: The teleoperation system shall mark critical control packets with high-priority QoS tags (DSCP EF or equivalent) to ensure network prioritization."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Worksite network supports QoS tagging and prioritization (DSCP or equivalent).",
+        "Operator control loop latency budget is ≥100ms round-trip, permitting selective retransmission of critical packets.",
+        "Network Link module will provide real-time packet loss metrics and latency feedback to Teleoperation for adaptive FEC tuning.",
+        "Safety Services will validate that packet classification and retransmission timeout are compatible with safety-critical control requirements.",
+        "Customer-defined packet loss threshold is ≤1% under agreed network conditions (to be confirmed in requirements review)."
+      ],
+      "open_risks": [
+        "Risk: If worksite network does not support QoS, DP-D may not achieve ≤1% packet loss. Mitigation: conduct early network assessment; if QoS unavailable, escalate to system-level trade study (consider redundant channels or higher-capacity network).",
+        "Risk: FEC overhead may increase bandwidth consumption and paradoxically worsen packet loss if network is severely constrained. Mitigation: implement adaptive FEC with fallback to retransmission-only mode if bandwidth is exhausted.",
+        "Risk: Selective retransmission logic must correctly classify packets; misclassification could degrade safety or operator control. Mitigation: safety-critical packet classification must be validated by Safety Services and locked in design phase.",
+        "Risk: Operator control loop latency may be tighter than assumed (e.g., <100ms), making selective retransmission infeasible. Mitigation: conduct latency budget analysis early in detailed design; if latency is insufficient, consider redundant channels instead of retransmission."
+      ],
+      "evidence_needed": [
+        "Network assessment report confirming QoS support and typical packet loss/latency characteristics at representative worksites.",
+        "Operator control loop latency budget specification (round-trip time requirement for steering, throttle, brake commands).",
+        "Safety analysis confirming that selective retransmission timeout and packet classification are compatible with safety-critical control requirements.",
+        "FEC codec selection and adaptive tuning algorithm specification (code rate selection criteria, fallback behavior).",
+        "Test plan for packet loss verification under agreed network conditions (minimum 1-hour duration per scenario, multiple sites)."
+      ]
+    }
+  }
+}

@@ -3,7 +3,12 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from lfd.experiment_suite import ExperimentSuiteConfig, run_nghe_experiment_suite_to_csv
+from lfd.experiment_suite import (
+    CrossEvalExperimentSuiteConfig,
+    ExperimentSuiteConfig,
+    run_nghe_cross_eval_experiment_suite_to_csv,
+    run_nghe_experiment_suite_to_csv,
+)
 
 
 def _split_csv_arg(v: str) -> list[str]:
@@ -40,24 +45,48 @@ def main() -> int:
     p.add_argument("--model-baseline", default=None)
     p.add_argument("--model-eval", default=None)
 
+    p.add_argument(
+        "--models",
+        default=None,
+        help="Comma-separated model names for cross-evaluation mode. "
+             "Each model produces outputs, and every OTHER model evaluates them. "
+             "E.g. gpt-4.1-mini,claude-haiku-4-5,gemini-3-flash-preview",
+    )
+
     args = p.parse_args()
 
-    config = ExperimentSuiteConfig(
-        requirements_file=args.requirements_file,
-        outdir=args.outdir,
-        cr_ids=_split_csv_arg(args.cr_ids),
-        trials_per_cr=args.trials,
-        available_modules=_split_csv_arg(args.available_modules),
-        known_interfaces=_split_csv_arg(args.known_interfaces),
-        model_ours=args.model_ours,
-        model_baseline=args.model_baseline,
-        model_eval=args.model_eval,
-    )
+    if args.models:
+        producer_models = _split_csv_arg(args.models)
+        config = CrossEvalExperimentSuiteConfig(
+            requirements_file=args.requirements_file,
+            outdir=args.outdir,
+            cr_ids=_split_csv_arg(args.cr_ids),
+            trials_per_cr=args.trials,
+            available_modules=_split_csv_arg(args.available_modules),
+            known_interfaces=_split_csv_arg(args.known_interfaces),
+            producer_models=producer_models,
+        )
+        out_path = run_nghe_cross_eval_experiment_suite_to_csv(
+            config=config,
+            csv_path=Path(args.csv),
+        )
+    else:
+        config = ExperimentSuiteConfig(
+            requirements_file=args.requirements_file,
+            outdir=args.outdir,
+            cr_ids=_split_csv_arg(args.cr_ids),
+            trials_per_cr=args.trials,
+            available_modules=_split_csv_arg(args.available_modules),
+            known_interfaces=_split_csv_arg(args.known_interfaces),
+            model_ours=args.model_ours,
+            model_baseline=args.model_baseline,
+            model_eval=args.model_eval,
+        )
+        out_path = run_nghe_experiment_suite_to_csv(
+            config=config,
+            csv_path=Path(args.csv),
+        )
 
-    out_path = run_nghe_experiment_suite_to_csv(
-        config=config,
-        csv_path=Path(args.csv),
-    )
     print(str(out_path))
     return 0
 

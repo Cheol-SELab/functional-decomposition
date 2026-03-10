@@ -1,0 +1,168 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current operational state within the customer-defined latency target.",
+    "rationale": "The original FR conflates two concerns: (1) the obligation to update the model, and (2) the obligation to meet a timeliness constraint. The refined FR isolates the functional requirement (what must be updated and when relative to operational need) from the acceptance criterion (the specific latency threshold, e.g., p95 ≤ 1.0 s). This separation allows the FR to remain solution-neutral and problem-focused, while the acceptance criterion is captured as a measurable constraint. The phrase 'current operational state' is more precise than 'operational use' and avoids prescribing how timeliness is achieved.",
+    "verification_idea": "Measure end-to-end latency from sensor/input event to worksite model state change across representative operational scenarios (e.g., equipment position update, obstacle detection, safety zone breach). Confirm that the measured latency distribution meets the customer-defined target (e.g., p95 ≤ 1.0 s) for all supported update scenarios.",
+    "sub_frs": [
+      "FR-NGHE-007.1: The NGHE solution shall capture operational state changes from field sensors and equipment.",
+      "FR-NGHE-007.2: The NGHE solution shall propagate captured state changes to the worksite model.",
+      "FR-NGHE-007.3: The NGHE solution shall reflect updated worksite model state to authorized stakeholders (Site Manager, Operator, Tele-operator, Safety Manager)."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Synchronous update pipeline with direct model mutation on event receipt, blocking until persistence confirms",
+      "DP2: Asynchronous event-driven architecture with eventual consistency: capture operational events, queue them, process through a state machine, update model in background, expose read-through cache with bounded staleness",
+      "DP3: Hybrid dual-path: synchronous critical-path updates (safety-relevant state) routed to blocking persistence; non-critical updates (telemetry, analytics) routed to async queue with eventual consistency",
+      "DP4: Polling-based model refresh: periodically query operational state from source systems and reconcile against cached model, triggering updates on divergence detection",
+      "DP5: Change-data-capture (CDC) pattern: subscribe to operational data streams at source, apply transformations, replay into model via ordered event log, maintain read replica with bounded lag"
+    ],
+    "selected_dp": "DP3: Hybrid dual-path with synchronous critical-path (safety/policy-relevant state changes) and asynchronous non-critical updates (telemetry, derived metrics), separated by event classification logic. Critical updates block until model persistence confirms; non-critical updates flow through a bounded queue with p95 latency SLA enforced at the async processor.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Risk: Tight coupling between event classification logic and domain policy rules—if safety policies change, classification logic must be updated. Mitigation: Externalize policy rules as declarative configuration; use policy engine to determine criticality.",
+        "Risk: Synchronous path may become bottleneck if persistence layer is slow. Mitigation: Ensure persistence is optimized (e.g., write-ahead logging, batch commits); monitor p95 latency; consider read replicas for queries.",
+        "Risk: Eventual consistency in async path may cause temporary model staleness visible to consumers. Mitigation: Document staleness bounds; provide API to query freshness metadata; use versioning to prevent stale reads in safety-critical queries.",
+        "Risk: Dual-path introduces operational complexity (two update mechanisms). Mitigation: Unified event schema; single model store with dual write paths; comprehensive integration tests."
+      ],
+      "notes": "DP3 decouples safety-critical concerns from performance-optimized non-critical updates, reducing coupling to latency SLA while preserving safety invariants. Event classification is the key coupling point; externalize it to minimize brittleness."
+    },
+    "assumptions_risks": [
+      "Assumption: Operational events are well-defined and can be reliably classified as critical or non-critical. Risk: Misclassification could delay safety-relevant updates or over-synchronize non-critical ones. Mitigation: Establish clear policy taxonomy; validate classification rules with domain experts.",
+      "Assumption: Persistence layer can sustain synchronous writes for critical updates within p95 ≤ 1.0 s. Risk: If persistence is slow, blocking synchronous path will violate latency SLA. Mitigation: Benchmark persistence; use write-ahead logging or in-memory staging; consider sharding.",
+      "Assumption: Non-critical updates can tolerate bounded staleness (e.g., 5–10 s). Risk: If customer expectations differ, async path may be unacceptable. Mitigation: Explicitly negotiate staleness bounds with customer; document in SLA.",
+      "Assumption: Event source systems emit events reliably and in order. Risk: Lost or out-of-order events could corrupt model state. Mitigation: Implement idempotency keys; use ordered event log; add reconciliation/CDC fallback.",
+      "Assumption: Model schema is stable or versioned. Risk: Schema changes could break both sync and async paths. Mitigation: Use schema versioning; implement migration logic; test schema evolution scenarios.",
+      "Assumption: Customer-defined latency target is achievable with available infrastructure. Risk: If target is sub-100 ms, DP3 may not be feasible. Mitigation: Validate target against infrastructure benchmarks early; propose relaxation if needed."
+    ],
+    "recommended_revision": "FR (refined): The NGHE solution shall update the worksite model to reflect current operational state, classifying updates as safety-critical (policy-enforcing) or non-critical (telemetry/derived), such that: (1) safety-critical updates are persisted synchronously with p95 latency ≤ [customer-defined target, typically 500 ms], and (2) non-critical updates are processed asynchronously with p95 latency ≤ [customer-defined target, typically 1.0 s]. The model shall maintain read consistency via versioning and expose staleness metadata to consumers. Event classification rules shall be externalized and auditable."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Safety Services",
+      "scope": "Centralized state management and persistence layer responsible for classifying, routing, and persisting both critical (safety/policy-relevant) and non-critical (telemetry/derived metrics) state changes with dual-path execution: synchronous blocking for critical updates and asynchronous bounded-queue processing for non-critical updates."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives task/command inputs that trigger state changes; Safety Services classifies these as critical or non-critical and routes accordingly."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Emits safety-relevant state change confirmations and alerts after synchronous critical-path persistence completes."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Outputs non-critical derived metrics and telemetry updates via asynchronous queue; bounded queue and p95 latency SLA enforced within Safety Services."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Underlying transport for all state change notifications and confirmations; Safety Services depends on Network Link for both synchronous (critical) and asynchronous (non-critical) delivery."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Safety Services",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit. Safety Services is the natural owner of state classification logic, critical-path synchronous persistence, and non-critical async queue management. Event classification (critical vs. non-critical) is inherently a safety concern. Synchronous blocking for safety/policy-relevant changes aligns with Safety Services' mandate. Asynchronous queue and p95 SLA enforcement are operational concerns within the service boundary. Minor diffusion: Network Link dependency for transport is external but expected; Telemetry and SafetyAlert are output interfaces, not internal diffusion."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.45,
+        "diffusion_score": 0.55,
+        "notes": "Poor fit. Vehicle is a physical/logical entity representation, not a state management or persistence layer. Placing dual-path event routing and model persistence logic in Vehicle would blur the boundary between entity state and operational state management. Critical-path synchronous blocking and async queue management are operational concerns, not vehicle-specific concerns. High diffusion: Safety Services would still need to own the classification and routing logic, creating split ownership and tight coupling."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor fit. Teleoperation is a control/command interface layer, not a state persistence or event routing layer. The dual-path logic (critical vs. non-critical classification, synchronous blocking, async queue) is orthogonal to teleoperation concerns. Placing this DP in Teleoperation would create high coupling to Safety Services (which must own safety-relevant state changes) and would conflate command input with state management. High diffusion: Safety Services would still own critical-path logic, creating architectural incoherence."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.5,
+        "diffusion_score": 0.5,
+        "notes": "Moderate fit but overly broad. NGHE Solution is the top-level system container. While it could technically host Safety Services as a subsystem, placing the DP at the NGHE Solution level would obscure the safety-specific nature of the dual-path logic and event classification. This violates the principle of preferring the most specific boundary. Diffusion: The DP is fundamentally a Safety Services concern; elevating it to NGHE Solution level would create unnecessary abstraction and reduce clarity of ownership."
+      }
+    ],
+    "ownership_candidate": "Safety Services",
+    "containment_hypothesis": "Safety Services is the most specific and cohesive boundary for the dual-path hybrid state management DP. The module's mandate to manage safety-relevant state changes directly encompasses event classification (critical vs. non-critical), synchronous blocking for policy-relevant updates, and asynchronous queue management for non-critical telemetry. The DP's core logic—distinguishing safety-critical from non-critical updates and enforcing different persistence/latency guarantees—is inherently a safety concern and belongs in Safety Services. External interfaces (Tasking, SafetyAlert, Telemetry, Network Link) are well-defined and do not require internal diffusion.",
+    "containment_risks": [
+      "Risk: If Safety Services does not currently own model persistence logic, introducing synchronous blocking for critical updates may require new persistence infrastructure (e.g., database transaction handling, write-ahead logging). Mitigation: Ensure Safety Services has or can acquire persistence capability; if not, consider a dedicated persistence module and define a clear interface contract.",
+      "Risk: Asynchronous queue management and p95 latency SLA enforcement may require operational monitoring and tuning infrastructure not currently in Safety Services. Mitigation: Establish clear SLA ownership and monitoring hooks; consider a shared operational metrics module if latency tracking is system-wide.",
+      "Risk: Event classification logic (critical vs. non-critical) must be consistent across all state change sources (Tasking, Vehicle updates, etc.). If classification rules are scattered, Safety Services may not fully contain the DP. Mitigation: Centralize classification rules in Safety Services; all state change sources must route through Safety Services for classification.",
+      "Risk: Network Link dependency for both synchronous and asynchronous delivery introduces external coupling. If Network Link fails, both critical and non-critical paths are affected. Mitigation: Define clear failure modes and fallback behavior in the interface contract between Safety Services and Network Link."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP3 directly addresses the FR requirement to update the worksite model within customer-defined latency targets. The hybrid dual-path approach (synchronous critical, asynchronous non-critical) is a sound logical solution that maps cleanly to the latency constraint: critical safety/policy-relevant updates are guaranteed by synchronous blocking until persistence confirms, while non-critical telemetry/metrics are decoupled via bounded queue with explicit p95 SLA enforcement. The DP is sufficiently detailed to guide implementation and measurable against the p95 ≤ 1.0 s acceptance criterion."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Event classification logic (critical vs. non-critical) must be centralized in Safety Services and applied consistently across all state change sources (Tasking, Vehicle updates, external sensors). If classification rules leak into Tasking or Vehicle modules, the DP becomes diffused and Safety Services loses coherence as the single source of truth for state routing decisions.",
+        "Asynchronous queue management and p95 latency SLA enforcement require operational monitoring infrastructure (metrics collection, alerting, tuning). If latency tracking is scattered across Safety Services, Telemetry, and a separate observability module, the DP's SLA enforcement becomes diffused. Recommend explicit ownership of SLA monitoring within Safety Services or a clearly defined shared operational metrics boundary.",
+        "Model persistence capability (database transactions, write-ahead logging, durability guarantees) must reside in or be tightly coupled to Safety Services. If persistence logic is delegated to a separate module without clear synchronous blocking semantics for critical updates, the DP's safety guarantees are compromised. Ensure Safety Services owns or has exclusive control over critical-path persistence.",
+        "Network Link dependency for both synchronous and asynchronous delivery creates external coupling. If Network Link fails or introduces variable latency, both critical and non-critical paths degrade. The interface contract must explicitly define failure modes, fallback behavior, and latency bounds to prevent the DP from being undermined by transport layer issues."
+      ],
+      "containment_notes": "Safety Services is the correct and most specific IM boundary for DP3. Containment score of 0.92 is justified: the module's mandate to manage safety-relevant state changes directly encompasses event classification, dual-path routing, synchronous blocking for critical updates, and asynchronous queue management for non-critical updates. The DP is fundamentally a safety concern and belongs in Safety Services, not distributed across Vehicle, Teleoperation, or elevated to NGHE Solution level. External interfaces (Tasking, SafetyAlert, Telemetry, Network Link) are well-defined and represent expected dependencies, not internal diffusion. The minor diffusion score (0.08) reflects only the necessary external dependencies, which are appropriate for a state management service."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The DP->IM mapping is concrete and testable. Verification can be structured as: (1) Measure p95 latency for critical-path updates (synchronous blocking until persistence confirms) against the 1.0 s target; (2) Measure p95 latency for non-critical updates (asynchronous queue) against the same target; (3) Verify that Safety Services correctly classifies state changes as critical or non-critical according to worksite safety plan and operational policies; (4) Confirm that critical updates block and non-critical updates are queued; (5) Validate bounded queue behavior under load (no unbounded growth). All acceptance criteria can be measured at the Safety Services module boundary.",
+      "allocation_clarity": "Clear. The FR is allocated to Safety Services via DP3 with explicit responsibility for: (a) classifying incoming state changes by criticality, (b) routing critical updates through synchronous blocking persistence, (c) routing non-critical updates through bounded asynchronous queue, (d) enforcing p95 latency SLA on both paths, (e) emitting SafetyAlert confirmations for critical updates and Telemetry outputs for non-critical updates. The allocation is unambiguous and does not require decomposition across multiple modules. Ownership is singular and cohesive."
+    },
+    "recommended_revisions": [
+      "Explicitly document the event classification rules (what constitutes 'critical' vs. 'non-critical' per worksite safety plan and operational policies) as a Safety Services responsibility. Create a classification matrix or decision table that can be audited and tested independently.",
+      "Define a formal interface contract between Safety Services and the persistence layer (or internal persistence subsystem) that specifies: (a) synchronous blocking semantics for critical updates (transaction guarantees, write-ahead logging, durability), (b) failure modes and retry logic, (c) latency bounds for persistence confirmation. If persistence is external, ensure the contract is binding and monitored.",
+      "Establish explicit SLA ownership and monitoring for the asynchronous queue and p95 latency enforcement. Define: (a) queue depth limits and overflow behavior, (b) latency measurement points (enqueue, dequeue, delivery), (c) alerting thresholds and escalation paths. Assign a single owner (Safety Services or shared observability module) to prevent diffusion.",
+      "Document the Network Link interface contract with explicit latency bounds, failure modes, and fallback behavior for both synchronous (critical) and asynchronous (non-critical) delivery. Define what happens if Network Link latency exceeds the p95 target or if the link fails entirely.",
+      "Add a traceability matrix linking the FR (update worksite model within latency target) -> DP3 (hybrid dual-path) -> Safety Services (IM) -> acceptance criteria (p95 ≤ 1.0 s). Include test cases for both critical and non-critical paths under nominal and degraded conditions.",
+      "Consider a secondary IM boundary for 'Persistence Services' if Safety Services does not currently own database/durability logic. If created, define a clear synchronous interface contract that Safety Services uses to guarantee critical-update persistence without diffusing the DP across module boundaries."
+    ]
+  },
+  "decision": {
+    "decision": "REVISE_CURRENT_LEVEL",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass with high confidence, and the DP is sufficiently detailed to guide implementation without further functional decomposition. However, the recommended_revisions identify critical specification gaps that must be resolved before this level can be considered complete and ready for handoff to Safety Services. The primary issues are: (1) event classification rules are not formally documented, creating ambiguity about what constitutes 'critical' vs. 'non-critical'; (2) the persistence layer interface contract lacks explicit synchronous blocking semantics and failure modes; (3) SLA ownership and monitoring are not assigned, risking diffusion of latency enforcement; (4) the Network Link interface contract does not define latency bounds or fallback behavior. These are not decomposition gaps—they are specification completeness gaps at the current level. Revising DP3 and its acceptance criteria to incorporate these details will eliminate ambiguity and reduce implementation risk without requiring sub-FR derivation.",
+    "next_level_sub_frs": [],
+    "revise": {
+      "target": "DP",
+      "why": "DP3 (hybrid dual-path with synchronous critical and asynchronous non-critical routing) is logically sound and correctly mapped to Safety Services (IM). However, the DP specification must be hardened with four concrete additions: (1) Formalize event classification rules as a decision table or matrix that defines criticality based on worksite safety plan and operational policies, with explicit ownership in Safety Services. (2) Define a formal interface contract with the persistence layer specifying synchronous blocking semantics for critical updates (transaction guarantees, write-ahead logging, durability confirmation latency), failure modes, and retry logic. (3) Assign explicit SLA ownership (Safety Services or shared observability module) and define monitoring scope: queue depth limits, overflow behavior, latency measurement points (enqueue, dequeue, delivery), and alerting thresholds. (4) Document the Network Link interface contract with explicit latency bounds for both synchronous and asynchronous delivery, failure modes (link unavailable, variable latency), and fallback behavior (e.g., local buffering, circuit breaker, escalation). These revisions strengthen DP3 without changing its core logic; they make it testable, auditable, and implementable with clear ownership boundaries."
+    },
+    "record": {
+      "assumptions": [
+        "Safety Services currently owns or will own the persistence layer (database, transactions, write-ahead logging) or has exclusive synchronous control over it. If persistence is delegated to a separate module, a formal interface contract must bind Safety Services to synchronous blocking semantics for critical updates.",
+        "Event classification rules (critical vs. non-critical) can be derived from the worksite safety plan and operational policies and are stable enough to be codified as a decision table or matrix at design time.",
+        "Network Link provides a bounded-latency transport mechanism for both synchronous and asynchronous delivery. If Network Link latency is unbounded or highly variable, the p95 ≤ 1.0 s target may not be achievable without additional buffering or local caching strategies.",
+        "Observability infrastructure (metrics collection, alerting, SLA monitoring) is available or will be provisioned to track p95 latency for both critical and non-critical paths. If not, SLA enforcement becomes a secondary implementation concern.",
+        "The worksite model update frequency and criticality distribution (ratio of critical to non-critical updates) are known or can be estimated from operational data. This informs queue sizing, overflow behavior, and SLA tuning."
+      ],
+      "open_risks": [
+        "Event classification logic diffusion: If classification rules are not centralized in Safety Services and instead leak into Tasking, Vehicle, or Teleoperation modules, the DP becomes incoherent and Safety Services loses authority as the single source of truth for state routing. Mitigation: Formalize classification rules as a Safety Services-owned decision table and enforce via code review and architectural governance.",
+        "Persistence layer coupling: If persistence logic is not tightly coupled to Safety Services or if the interface contract does not guarantee synchronous blocking for critical updates, the DP's safety guarantees are compromised. Mitigation: Define and enforce a formal interface contract with explicit latency bounds and durability guarantees for critical-path persistence.",
+        "SLA monitoring diffusion: If latency tracking and SLA enforcement are scattered across Safety Services, Telemetry, and a separate observability module, accountability is unclear and SLA violations may not be detected or escalated. Mitigation: Assign explicit ownership of SLA monitoring (Safety Services or shared observability module) and define monitoring scope and alerting thresholds.",
+        "Network Link failure or degradation: If Network Link introduces variable latency or fails, both critical and non-critical paths degrade, and the p95 ≤ 1.0 s target may not be achievable. Mitigation: Define explicit failure modes and fallback behavior in the Network Link interface contract (e.g., local buffering, circuit breaker, escalation to manual intervention).",
+        "Queue overflow under load: If the asynchronous queue depth limits are not defined or if overflow behavior is not specified, non-critical updates may be dropped silently or the queue may grow unbounded, degrading system reliability. Mitigation: Define queue depth limits, overflow behavior (drop, backpressure, escalation), and monitoring thresholds in the DP specification."
+      ],
+      "evidence_needed": [
+        "Formalized event classification rules (decision table or matrix) that maps state change types (e.g., vehicle position, safety alert, telemetry metric) to criticality levels (critical, non-critical) based on worksite safety plan and operational policies. This should be auditable and testable.",
+        "Formal interface contract between Safety Services and the persistence layer specifying: (a) synchronous blocking semantics for critical updates (transaction guarantees, write-ahead logging, durability confirmation latency), (b) failure modes and retry logic, (c) latency bounds for persistence confirmation (e.g., p99 ≤ 100 ms), (d) escalation paths for persistence failures.",
+        "SLA ownership and monitoring specification: (a) assigned owner (Safety Services or shared observability module), (b) latency measurement points (enqueue, dequeue, delivery), (c) queue depth limits and overflow behavior, (d) alerting thresholds and escalation paths, (e) monitoring dashboard or log format for auditing SLA compliance.",
+        "Network Link interface contract specifying: (a) latency bounds for synchronous delivery (e.g., p95 ≤ 500 ms), (b) latency bounds for asynchronous delivery (e.g., p95 ≤ 800 ms), (c) failure modes (link unavailable, variable latency, packet loss), (d) fallback behavior (local buffering, circuit breaker, escalation), (e) escalation paths and manual intervention triggers.",
+        "Traceability matrix linking FR (update worksite model within latency target) -> DP3 (hybrid dual-path) -> Safety Services (IM) -> acceptance criteria (p95 ≤ 1.0 s) -> test cases (critical path, non-critical path, nominal, degraded conditions).",
+        "Load testing results demonstrating that the asynchronous queue and p95 latency SLA are maintained under expected and peak load conditions. Include queue depth, latency distribution, and overflow behavior.",
+        "Architectural decision record (ADR) documenting why the hybrid dual-path approach was chosen over alternatives (e.g., all-synchronous, all-asynchronous, priority queue) and the trade-offs (latency, consistency, complexity, operational overhead)."
+      ]
+    }
+  }
+}

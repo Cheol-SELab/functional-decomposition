@@ -1,0 +1,167 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and designated work zones with sufficient fidelity to support autonomous path planning and operator situational awareness.",
+    "rationale": "The original FR was vague on scope (what constitutes 'area analysis') and lacked specificity on fidelity requirements, update cadence, and consumer functions. Refinement clarifies that the worksite model is a persistent, multi-layer representation consumed by planning (path planning, task sequencing) and execution (real-time collision avoidance, operator display). High safety criticality demands explicit hazard representation and real-time update capability.",
+    "verification_idea": "Acceptance: (1) Model generated within 5 minutes of site entry; (2) Terrain elevation accuracy ±0.5 m over 95% of mapped area; (3) Static obstacles detected and represented with ≥90% recall; (4) Dynamic hazards (personnel) detected and updated ≤2 s latency; (5) Work zones defined and enforced in planning/execution; (6) Model available to planning and execution subsystems via agreed interface.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire and fuse multi-sensor terrain and obstacle data (LiDAR, camera, radar) into a unified elevation map.",
+      "CR-NGHE-006.2: Detect, classify, and track dynamic hazards (personnel, moving equipment) in real-time with latency ≤2 s.",
+      "CR-NGHE-006.3: Define, store, and enforce work-zone boundaries (geofences) for task execution and safety containment.",
+      "CR-NGHE-006.4: Publish worksite model state to planning and execution functions via standardized interface with update frequency ≥1 Hz.",
+      "CR-NGHE-006.5: Validate model consistency and detect sensor degradation; alert operator/tele-operator on model confidence loss."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized perception pipeline (sensor fusion engine) running on vehicle compute, generating occupancy grid + dynamic object tracker, publishing to shared memory interface.",
+      "DP-B: Distributed perception: on-vehicle LiDAR/camera processing for local obstacle detection; cloud-based SLAM and terrain reconstruction; periodic model sync via network.",
+      "DP-C: Hybrid edge-cloud: vehicle acquires raw sensor streams; edge gateway (on-site compute) performs real-time fusion and hazard detection; cloud stores historical model and supports planning queries.",
+      "DP-D: Operator-in-the-loop manual mapping: operator teleoperation with annotated camera feed; manual obstacle/zone markup; stored as vector map."
+    ],
+    "selected_dp": "DP-C: Hybrid edge-cloud perception architecture with real-time edge fusion and cloud-backed model persistence. Vehicle acquires multi-sensor streams (LiDAR, stereo camera, IMU); edge gateway (on-site compute node) performs sensor fusion, occupancy grid generation, dynamic hazard detection, and work-zone enforcement; cloud backend stores historical model, supports offline planning queries, and provides model versioning/audit trail. Model published to vehicle and planning subsystems via Telemetry interface at ≥1 Hz.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "DP-C couples vehicle sensor acquisition (hardware/driver layer) to edge compute (software/network layer). Mitigation: standardize sensor output format (ROS topics or equivalent) to decouple sensor drivers from fusion algorithm.",
+        "DP-C couples edge compute to cloud backend via network. Mitigation: design edge gateway to operate autonomously if network fails; model degrades gracefully (local-only, no cloud sync) rather than blocking execution.",
+        "DP-C couples real-time hazard detection (edge) to planning subsystem latency requirements. Mitigation: edge publishes at fixed 1 Hz; planning subsystem buffers and interpolates if needed."
+      ],
+      "notes": "Coupling is acceptable because (1) sensor-to-fusion coupling is standard in robotics; (2) edge-cloud coupling is mitigated by graceful degradation; (3) latency coupling is managed by fixed publish rate and buffering. No circular dependencies detected."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: On-site edge compute (gateway) is available and networked to vehicle. RISK: If gateway unavailable, vehicle must fall back to local-only perception (reduced fidelity). Mitigation: vehicle carries local compute backup; edge gateway is redundant (2x deployment).",
+      "ASSUMPTION: Multi-sensor suite (LiDAR, stereo, IMU) is available on vehicle. RISK: Sensor failure degrades model fidelity. Mitigation: sensor fusion algorithm designed to degrade gracefully (e.g., LiDAR-only if camera fails).",
+      "ASSUMPTION: Network bandwidth sufficient for sensor stream + model updates. RISK: High-bandwidth LiDAR streams may saturate network. Mitigation: compress/downsample sensor data; prioritize hazard detection over full-fidelity terrain.",
+      "ASSUMPTION: Work-zone boundaries are pre-defined or operator-annotated. RISK: Ambiguous or missing zone definitions delay task execution. Mitigation: require explicit zone definition in pre-mission planning; operator can annotate on-site if needed.",
+      "ASSUMPTION: Model fidelity requirements (±0.5 m terrain, ≥90% obstacle recall) are achievable with selected sensors. RISK: Sensor accuracy may not meet spec in all conditions (e.g., dense vegetation, rain). Mitigation: validate sensor performance in representative site conditions; adjust fidelity targets if needed."
+    ],
+    "recommended_revision": "DP-C is sound but requires explicit specification of: (1) sensor fusion algorithm (e.g., occupancy grid resolution, update rate); (2) edge compute hardware spec (CPU, GPU, memory); (3) network protocol and bandwidth budget; (4) cloud backend schema (model versioning, query API); (5) graceful degradation behavior (local-only fallback, model confidence metrics). Recommend decomposing DP-C into sub-DPs for each layer (sensor acquisition, fusion, hazard detection, publication) in next level."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "The Vehicle module owns the on-board sensor acquisition (LiDAR, stereo camera, IMU drivers), local compute for real-time hazard detection (dynamic object tracker), and sensor stream publication. The Vehicle module does NOT own the edge gateway (fusion engine) or cloud backend; those are external services. The Vehicle module is responsible for sensor health monitoring and fallback to local-only perception if edge/cloud unavailable."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle publishes sensor streams (LiDAR point clouds, camera frames, IMU data) and local hazard detections (dynamic object list with position, velocity, confidence) to edge gateway via Telemetry interface. Frequency: ≥10 Hz for sensor data, ≥1 Hz for hazard detections."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives work-zone definitions and planning directives (e.g., 'navigate to zone A, avoid zone B') from planning subsystem via Tasking interface. Vehicle enforces zone boundaries in local collision avoidance."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "in",
+        "details": "Vehicle receives safety alerts from Safety Services (e.g., 'personnel detected in work zone', 'model confidence low') via SafetyAlert interface. Vehicle responds by halting motion, alerting operator, or escalating to tele-operator."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.85,
+        "diffusion_score": 0.15,
+        "notes": "Vehicle owns sensor acquisition and local hazard detection (core DP-C responsibilities). Diffusion risk: sensor fusion algorithm (occupancy grid generation) is split between vehicle (local tracker) and edge gateway (global fusion). Mitigation: standardize sensor output format to minimize coupling."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Teleoperation module is primarily for remote operator control, not perception. Assigning worksite mapping to Teleoperation would scatter perception logic across vehicle and tele-operator subsystems. Not recommended."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Safety Services owns hazard alerting and policy enforcement, but not sensor acquisition or model generation. Assigning worksite mapping to Safety Services would create circular dependency (Safety Services depends on model, but model generation depends on Safety Services for hazard classification). Not recommended."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.5,
+        "diffusion_score": 0.5,
+        "notes": "NGHE Solution is the top-level system container. Assigning worksite mapping to NGHE Solution is too coarse; it does not clarify ownership of sensor acquisition (vehicle responsibility) vs. fusion (edge/cloud responsibility). Recommend assigning to Vehicle as primary owner, with explicit external dependencies on edge/cloud."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module is the natural owner of worksite mapping because it owns the sensor hardware and has real-time latency requirements for local hazard detection. The Vehicle module publishes sensor streams and local detections to an external edge gateway (not modeled as a separate IM in this decomposition level, but assumed to exist as part of NGHE Solution infrastructure). The Vehicle module receives work-zone definitions and safety alerts from external subsystems (Tasking, SafetyAlert) and enforces them locally.",
+    "containment_risks": [
+      "RISK: Vehicle module may become overloaded if local compute is insufficient for real-time hazard detection. Mitigation: specify vehicle compute hardware (e.g., NVIDIA Jetson) with sufficient GPU for neural network inference; offload heavy fusion to edge gateway.",
+      "RISK: Sensor fusion algorithm (occupancy grid generation) is split between vehicle (local tracker) and edge gateway (global fusion). This creates a diffusion point. Mitigation: define clear interface contract between vehicle and edge gateway (e.g., vehicle publishes raw sensor streams + local detections; edge gateway performs global fusion and publishes unified model).",
+      "RISK: Vehicle module depends on external edge gateway and cloud backend for full-fidelity model. If these are unavailable, vehicle falls back to local-only perception. Mitigation: design local fallback to be safe (e.g., conservative collision avoidance, reduced speed) and document degraded-mode capabilities.",
+      "RISK: Work-zone definitions are received via Tasking interface, which may be delayed or inconsistent. Mitigation: vehicle caches last-known work zones and validates new definitions before enforcement; operator can override if needed."
+    ],
+    "recommended_revision": "IM assignment is sound, but recommend explicit modeling of edge gateway and cloud backend as separate IM boundaries in a higher-level decomposition (e.g., NGHE Solution -> Vehicle, Edge Gateway, Cloud Backend). At this level, Vehicle is the correct owner of sensor acquisition and local hazard detection. Recommend adding a sub-FR for 'Vehicle shall validate sensor health and publish confidence metrics' to make sensor degradation explicit."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid edge-cloud perception) directly addresses all sub-FRs: (1) sensor fusion (DP-C layer 1), (2) dynamic hazard detection (DP-C layer 2), (3) work-zone enforcement (DP-C layer 3), (4) model publication (DP-C layer 4), (5) model validation and confidence (DP-C layer 5). DP-C is feasible with current sensor/compute technology (LiDAR, stereo, edge GPU). No independence violations detected (each sub-FR maps to a distinct DP layer). Coupling is acceptable and mitigated."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Sensor fusion algorithm is split between Vehicle (local tracker) and external edge gateway (global fusion). Mitigation: standardize sensor output format and define clear interface contract.",
+        "Work-zone definitions are received from external Tasking subsystem. Mitigation: vehicle caches and validates zones; operator can override.",
+        "Model confidence and sensor health are published via Telemetry interface. Mitigation: define confidence metrics schema and publish frequency."
+      ],
+      "containment_notes": "Vehicle module contains sensor acquisition and local hazard detection (85% containment). External dependencies (edge gateway, cloud backend, Tasking, SafetyAlert) are explicit and managed via standardized interfaces (Telemetry, Tasking, SafetyAlert). Diffusion is acceptable because it reflects the physical/logical architecture (edge-cloud perception is inherently distributed)."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification of CR-NGHE-006 is feasible: (1) model generation time can be measured in field test; (2) terrain accuracy can be validated against ground-truth survey data; (3) obstacle recall can be measured via manual annotation and comparison; (4) dynamic hazard latency can be measured via instrumented test (e.g., moving target); (5) work-zone enforcement can be verified via simulation and field test; (6) model availability can be verified via interface monitoring (Telemetry, Tasking).",
+      "allocation_clarity": "Allocation is clear: Vehicle module is responsible for sensor acquisition, local hazard detection, and model publication. Edge gateway (external) is responsible for global fusion and model persistence. Planning subsystem (external) is responsible for consuming model via Tasking interface. Safety Services (external) is responsible for hazard alerting via SafetyAlert interface. Ownership boundaries are explicit."
+    },
+    "recommended_revisions": [
+      "Refine sub-FR CR-NGHE-006.5 to explicitly specify sensor health monitoring and confidence metrics (e.g., 'Vehicle shall publish sensor health status and model confidence score ≥1 Hz; alert operator if confidence drops below threshold').",
+      "Add acceptance criterion for edge gateway availability/redundancy (e.g., 'Edge gateway shall be deployed with 2x redundancy; vehicle shall detect gateway failure and fall back to local-only perception within 5 s').",
+      "Specify network protocol and bandwidth budget for sensor stream publication (e.g., 'Vehicle shall compress LiDAR data to ≤10 Mbps; publish via ROS topics over Ethernet or 5G link').",
+      "Define work-zone schema and validation rules (e.g., 'Work zones shall be defined as polygons in WGS84 coordinates; vehicle shall validate zone definitions before enforcement')."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "CR-NGHE-006 is not atomic; it decomposes into 5 sub-FRs (sensor fusion, hazard detection, work-zone enforcement, model publication, model validation). Each sub-FR requires further refinement and DP selection. The refined FR and selected DP (DP-C) are sound and pass all gates, but the sub-FRs are not yet fully specified (e.g., sensor fusion algorithm, hazard detection thresholds, work-zone schema). Recommend decomposing to next level to detail each sub-FR and assign DPs/IMs.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire and fuse multi-sensor terrain and obstacle data (LiDAR, camera, radar) into a unified elevation map.",
+      "CR-NGHE-006.2: Detect, classify, and track dynamic hazards (personnel, moving equipment) in real-time with latency ≤2 s.",
+      "CR-NGHE-006.3: Define, store, and enforce work-zone boundaries (geofences) for task execution and safety containment.",
+      "CR-NGHE-006.4: Publish worksite model state to planning and execution functions via standardized interface with update frequency ≥1 Hz.",
+      "CR-NGHE-006.5: Validate model consistency and detect sensor degradation; alert operator/tele-operator on model confidence loss."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "On-site edge compute (gateway) is available and networked to vehicle.",
+        "Multi-sensor suite (LiDAR, stereo, IMU) is available on vehicle.",
+        "Network bandwidth sufficient for sensor stream + model updates (≤10 Mbps for compressed LiDAR).",
+        "Work-zone boundaries are pre-defined or operator-annotated.",
+        "Model fidelity requirements (±0.5 m terrain, ≥90% obstacle recall) are achievable with selected sensors.",
+        "Vehicle compute is sufficient for local hazard detection (e.g., NVIDIA Jetson or equivalent).",
+        "Sensor fusion algorithm can degrade gracefully if one or more sensors fail.",
+        "Edge gateway and cloud backend are managed as external services (not owned by Vehicle module)."
+      ],
+      "open_risks": [
+        "Sensor fusion algorithm (occupancy grid generation) is split between Vehicle and edge gateway; requires clear interface contract.",
+        "Vehicle compute may be overloaded if local hazard detection is too complex; may need to offload to edge gateway.",
+        "Network latency between vehicle and edge gateway may exceed 2 s for dynamic hazard detection; may need local fallback.",
+        "Work-zone definitions may be delayed or inconsistent; vehicle must validate and cache.",
+        "Sensor accuracy may not meet spec in all conditions (e.g., dense vegetation, rain); may need to adjust fidelity targets.",
+        "Edge gateway and cloud backend availability is not modeled; need explicit redundancy and failover strategy."
+      ],
+      "evidence_needed": [
+        "Sensor performance data (LiDAR range/accuracy, stereo baseline, IMU drift) in representative site conditions.",
+        "Vehicle compute hardware spec and performance benchmarks (inference latency for hazard detection).",
+        "Network bandwidth and latency measurements between vehicle and edge gateway.",
+        "Sensor fusion algorithm design (occupancy grid resolution, update rate, fusion method).",
+        "Edge gateway hardware spec and redundancy strategy.",
+        "Work-zone schema and validation rules.",
+        "Model confidence metrics definition and thresholds.",
+        "Field test results validating terrain accuracy, obstacle recall, hazard detection latency, and model availability."
+      ]
+    }
+  }
+}

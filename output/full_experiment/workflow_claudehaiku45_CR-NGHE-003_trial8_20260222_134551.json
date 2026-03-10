@@ -1,0 +1,172 @@
+{
+  "refined_fr": {
+    "refined_fr": "Enable measurement and reporting of energy consumption per unit of work output to support validation against customer-defined energy efficiency targets.",
+    "rationale": "The original FR conflates two distinct obligations: (1) the system's capability to measure/report energy metrics, and (2) the achievement of a performance target. The refined FR is atomic and solution-neutral by focusing on the enablement of measurement and visibility—the system's responsibility. Achievement of the target is a system-level acceptance criterion, not a functional requirement of the system itself. This separation clarifies that the FR addresses instrumentation and data provision (problem domain), while the acceptance criterion (energy_per_ton ≤ E_target) is a measurable outcome that depends on both system design and operational context.",
+    "verification_idea": "Demonstrate that the system collects energy consumption data (kWh or equivalent) and work output metrics (tons moved, distance, cycles) with sufficient accuracy and granularity to compute energy_per_ton. Verify that reporting mechanisms (dashboard, API, logs) expose these metrics in a form consumable by the Site Manager and System Engineer for validation against E_target.",
+    "sub_frs": [
+      "Acquire and log energy consumption data from all power sources (engine, electric motor, hydraulic pump, etc.) with ±5% accuracy or better.",
+      "Acquire and log work output metrics (mass moved, distance traveled, operational cycles) with ±5% accuracy or better.",
+      "Compute and store energy_per_ton (or equivalent normalized efficiency metric) at defined intervals (per shift, per job, per evaluation period).",
+      "Provide access to energy and work output data through reporting interfaces (human-readable reports, APIs, or dashboards) for stakeholder review."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Decompose energy consumption measurement into (a) instantaneous power acquisition from energy source, (b) continuous integration over evaluation period, and (c) independent work output quantification; correlate via post-processing to derive energy_per_ton ratio.",
+      "DP2: Embed energy metering at the primary energy source boundary (e.g., fuel tank, electrical supply point) with synchronized work-output counters (e.g., tonnage sensors on load path); compute ratio in real-time or batch mode.",
+      "DP3: Establish dual measurement streams—one for energy (source-level or component-level power draw) and one for work output (load, distance, time)—with independent data acquisition and timestamped logging; reconcile via common time reference for ratio calculation.",
+      "DP4: Implement hierarchical energy accounting: measure gross energy input at system boundary, subtract parasitic losses via calibrated models, attribute net energy to work output; validate model assumptions against direct measurement samples.",
+      "DP5: Use energy consumption as a derived metric computed from first-principles physical models (e.g., force × distance, power × time) calibrated against periodic direct measurements; report both model-derived and measured values with confidence intervals."
+    ],
+    "selected_dp": "DP3: Establish dual measurement streams—one for energy (source-level power draw) and one for work output (tonnage and operational time)—with independent data acquisition and timestamped logging; reconcile via common time reference for ratio calculation.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Energy measurement and work-output measurement are logically independent; decoupling them reduces risk that sensor failure in one domain invalidates the other.",
+        "Timestamped logging creates a weak temporal coupling (both streams must be synchronized to a common clock), but this is a necessary and manageable dependency, not a design flaw.",
+        "Post-processing (ratio calculation) is decoupled from acquisition; allows independent validation and re-analysis without re-running field trials.",
+        "Risk: If energy and work-output sensors share a single data logger or power supply, physical coupling may emerge at the IM layer; mitigation is architectural (separate loggers or redundant power)."
+      ],
+      "notes": "DP3 avoids tight functional coupling by treating energy and work as orthogonal measurement axes. Alternatives (DP1, DP2) risk conflating measurement logic with computation, reducing modularity. DP4 and DP5 introduce model-based dependencies that complicate validation against acceptance criteria (which require measured, not modeled, energy_per_ton)."
+    },
+    "assumptions_risks": [
+      "Assumption: Energy source boundary is well-defined and accessible for metering (e.g., fuel flow, electrical current). Risk: If energy source is distributed or indirect (e.g., multiple fuel tanks, grid-supplied equipment), measurement boundary ambiguity may arise. Mitigation: Clarify energy system architecture early.",
+      "Assumption: Work output is quantifiable and directly measurable (e.g., tonnage on load cell, distance via odometer). Risk: If work output is indirect or inferred (e.g., estimated from engine RPM), measurement error propagates to energy_per_ton ratio. Mitigation: Validate work-output sensor accuracy against independent reference.",
+      "Assumption: Evaluation period is continuous and uninterrupted. Risk: If operations are intermittent or include idle periods, energy_per_ton ratio may be distorted by parasitic consumption during non-productive time. Mitigation: Define evaluation period boundaries and idle-state handling in acceptance criteria.",
+      "Assumption: Timestamping and synchronization are accurate to within acceptable tolerance (e.g., ±1% of measurement interval). Risk: Clock drift or synchronization failure could introduce systematic bias in ratio calculation. Mitigation: Implement periodic clock verification and log synchronization metadata.",
+      "Assumption: Customer-defined E_target is based on comparable equipment and operating conditions. Risk: If target is unrealistic or derived from different duty cycles, validation may fail despite correct measurement. Mitigation: Validate target assumptions with customer before field trial.",
+      "Assumption: Worksite safety plan and operational policies do not restrict access to energy or work-output measurement points. Risk: Safety constraints may force measurement locations that introduce indirect or lossy data. Mitigation: Engage safety and operations teams early in sensor placement planning."
+    ],
+    "recommended_revision": "Refine DP3 to explicitly separate concerns: (a) Energy measurement: acquire instantaneous power or cumulative energy at source boundary with specified accuracy and sampling rate; (b) Work-output measurement: acquire tonnage and operational time with specified accuracy and sampling rate; (c) Data reconciliation: synchronize streams via common timestamp and compute energy_per_ton = ∫energy(t)dt / ∫tonnage(t)dt over evaluation period. Add acceptance criteria for measurement uncertainty (e.g., ±5% on energy_per_ton) and define handling of edge cases (idle periods, sensor faults, evaluation period boundaries). This revision clarifies the logical structure and enables independent validation of each measurement stream before ratio computation."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "Centralized dual-stream measurement acquisition, timestamped logging, and energy-to-work reconciliation engine; owns data collection orchestration, time synchronization logic, and ratio calculation pipelines."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Exports reconciled energy-to-work ratios, dual stream logs, and timestamped measurement records to external monitoring and analytics systems."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives operational directives and measurement configuration parameters (e.g., sampling rates, logging intervals, reconciliation windows) from task scheduler."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Synchronizes time references across distributed measurement endpoints (Vehicle power sensors, work output sensors) via network time protocol or equivalent; receives raw sensor streams."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Highest cohesion: dual-stream measurement, logging, and reconciliation are core NGHE analytics functions. Time synchronization and ratio calculation naturally belong here. Minor diffusion: raw sensor acquisition remains at Vehicle; Telemetry export is a defined boundary."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.45,
+        "diffusion_score": 0.55,
+        "notes": "Poor fit: Vehicle owns physical sensors and power draw measurement, but work output (tonnage, operational time) is external to vehicle domain. Reconciliation logic and centralized logging would diffuse across Vehicle and external systems. Time synchronization would require Vehicle to manage global clock—architectural mismatch."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Weak containment: Teleoperation is a control/command interface, not a measurement or analytics layer. Dual-stream acquisition, logging, and reconciliation are orthogonal to operator control. High diffusion: measurement logic would leak into control logic."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Misaligned: Safety Services owns alert generation and safety thresholds, not measurement acquisition or energy-work reconciliation. While energy metrics may inform safety decisions, the DP is fundamentally an analytics/monitoring function, not a safety function. Diffusion would be significant."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "NGHE Solution is the natural owner of dual-stream measurement orchestration, timestamped logging, and energy-to-work reconciliation because: (1) it is the analytics and efficiency-monitoring layer; (2) it has no competing domain responsibilities; (3) it can coordinate time synchronization across Vehicle sensors via Network Link without architectural conflict; (4) it exports results via Telemetry without internal diffusion; (5) it receives measurement configuration via Tasking without coupling to control logic.",
+    "containment_risks": [
+      "Vehicle sensor integration: Raw power draw and work output sensors reside on Vehicle; NGHE Solution must reliably ingest these streams via Network Link. Network latency or sensor dropout could degrade time synchronization fidelity.",
+      "Time reference authority: NGHE Solution must establish and maintain the common time reference. If Vehicle or other modules use independent clocks, reconciliation accuracy degrades. Requires explicit time sync protocol (e.g., NTP, PTP) over Network Link.",
+      "Dual-stream independence: Energy and work streams must be acquired independently to avoid measurement coupling. If Vehicle conflates power draw with work output in a single sensor, DP intent is violated. Requires clear sensor separation at Vehicle boundary.",
+      "Logging volume and retention: Timestamped dual-stream logs at high frequency may exceed NGHE Solution storage or processing capacity. Requires clear data retention policy and potential streaming/archival strategy."
+    ],
+    "recommended_revision": "DP is well-formed and containment is strong. No revision needed. Ensure implementation clarifies: (1) Network Link protocol for time synchronization (e.g., GPS, NTP, or Vehicle-to-NGHE heartbeat with latency compensation); (2) Sensor independence at Vehicle (separate power and work output acquisition chains); (3) Logging strategy (in-memory buffer, disk, or cloud streaming); (4) Reconciliation window and tolerance thresholds for ratio calculation."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP3 directly addresses the FR by specifying a dual-stream measurement architecture (energy source-level power draw + work output tonnage/time) with independent acquisition, timestamped logging, and time-synchronized reconciliation. The DP is concrete, measurable, and enables calculation of energy_per_ton ratio required by acceptance criteria. No logical gaps between requirement and design parameter."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Network Link reliability: Time synchronization fidelity depends on consistent network availability and latency predictability. Sensor dropout or network partition could break reconciliation. Mitigation: define fallback clock discipline and acceptable sync drift tolerance.",
+        "Sensor independence at Vehicle boundary: If Vehicle conflates power draw and work output into a single measurement stream, DP intent (independent dual streams) is violated. Mitigation: explicit sensor separation requirement in Vehicle interface specification.",
+        "Logging volume scaling: High-frequency timestamped dual-stream logging may exceed NGHE Solution storage/processing capacity under sustained operation. Mitigation: define data retention policy, streaming strategy, and buffer overflow handling.",
+        "Time reference authority coupling: NGHE Solution establishes common time reference, but Vehicle and other modules must respect it. If Vehicle uses independent clock, reconciliation accuracy degrades. Mitigation: explicit time sync protocol (NTP/PTP) with Vehicle compliance requirement."
+      ],
+      "containment_notes": "NGHE Solution achieves 0.92 containment score with strong cohesion: dual-stream orchestration, timestamped logging, and ratio calculation are core analytics functions naturally owned by this module. External interfaces are well-defined: Tasking (inbound config), Telemetry (outbound results), Network Link (inbound sensor streams + time sync). Minor diffusion (0.08) is acceptable—raw sensor acquisition remains at Vehicle (appropriate boundary), and Telemetry export is a defined interface, not diffusion. No competing domain responsibilities. Architectural alignment is sound."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Acceptance criterion 'energy_per_ton ≤ E_target' is directly verifiable via NGHE Solution outputs: reconciled energy-to-work ratios exported via Telemetry can be compared against customer-defined E_target over agreed evaluation period. Dual-stream independence and timestamped logging provide traceability for validation audits. Feasibility is high provided Network Link reliability and sensor independence constraints are met.",
+      "allocation_clarity": "FR allocation to NGHE Solution IM is clear and unambiguous. NGHE Solution owns the complete measurement-to-reporting pipeline: data acquisition orchestration (via Network Link), time synchronization logic, dual-stream logging, and ratio calculation. Tasking provides configuration inputs; Telemetry exports results. Vehicle provides raw sensor streams. No ambiguity in ownership or interface responsibilities. Worksite safety plan and operational policies are external constraints that inform measurement configuration (e.g., sampling rates, logging intervals) but do not alter IM allocation."
+    },
+    "recommended_revisions": [
+      "Specify Network Link time synchronization protocol explicitly (e.g., GPS-disciplined clock, NTP with Vehicle, or heartbeat-based latency compensation). Define acceptable clock drift tolerance (e.g., ±100 ms) and fallback behavior on sync loss.",
+      "Require Vehicle interface specification to mandate sensor independence: power draw acquisition chain must be physically and logically separate from work output (tonnage/time) acquisition chain. Document sensor types, sampling rates, and output formats.",
+      "Define NGHE Solution logging strategy: in-memory circular buffer size, disk storage capacity, or cloud streaming endpoint. Specify data retention period and archival policy to prevent overflow.",
+      "Establish reconciliation window and tolerance thresholds: define time window for matching energy and work samples (e.g., 1-second window), and acceptable ratio variance before flagging measurement anomaly.",
+      "Add acceptance criterion detail: specify evaluation period duration, sampling frequency, and minimum data completeness threshold (e.g., 95% dual-stream coverage) required for valid energy_per_ton calculation."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass with high confidence. The dual-stream measurement architecture is logically sound, architecturally well-contained, and directly verifiable against acceptance criteria. However, the recommended_revisions expose critical implementation dependencies—particularly time synchronization protocol, sensor independence enforcement, and logging capacity management—that are prerequisites for safe realization. Rather than revise the current level (which would delay decomposition), decompose FR3 into sub-FRs that explicitly address these dependencies as first-class functional requirements. This ensures that downstream design and implementation teams inherit clear, testable constraints rather than discovering them as integration surprises. High safety criticality reinforces the need for explicit functional traceability of synchronization, sensor isolation, and data integrity concerns.",
+    "next_level_sub_frs": [
+      "FR3.1: Establish and maintain a common time reference across Vehicle and NGHE Solution with bounded clock drift (≤±100 ms) and graceful fallback on synchronization loss.",
+      "FR3.2: Acquire and log energy source-level power draw via a physically and logically independent sensor chain, isolated from work output measurement, with defined sampling rate and output format.",
+      "FR3.3: Acquire and log work output (tonnage and time) via a physically and logically independent sensor chain, isolated from power draw measurement, with defined sampling rate and output format.",
+      "FR3.4: Buffer, store, and manage timestamped dual-stream measurement data with capacity sufficient for sustained operation, defined retention policy, and overflow prevention.",
+      "FR3.5: Reconcile dual-stream energy and work samples within a defined time window, detect measurement anomalies, and flag data quality issues for operator awareness.",
+      "FR3.6: Calculate and export energy-per-ton ratio with traceability metadata (sample count, sync drift, data completeness percentage) to enable acceptance criterion verification and audit."
+    ],
+    "revise": {
+      "target": null,
+      "why": "No revision of current-level FR, DP, or IM is required. All gates pass. Decomposition to sub-FRs is the appropriate next step to operationalize the recommended_revisions as explicit functional requirements rather than post-hoc design notes."
+    },
+    "record": {
+      "assumptions": [
+        "Vehicle can provide dual independent sensor streams (power draw and work output) with defined sampling rates and formats; Vehicle interface specification will enforce this separation.",
+        "Network Link infrastructure supports time synchronization protocol (GPS, NTP, or heartbeat-based) with latency predictability sufficient to achieve ±100 ms clock drift tolerance.",
+        "NGHE Solution has sufficient storage or streaming capacity to buffer/log dual-stream data at the required sampling frequency for the evaluation period without overflow.",
+        "Tasking module can configure measurement parameters (sampling rates, logging intervals, reconciliation window, anomaly thresholds) and communicate them to NGHE Solution and Vehicle.",
+        "Telemetry module can export reconciled energy-per-ton ratios with metadata (sample count, sync drift, data completeness) in a format suitable for acceptance criterion verification.",
+        "Operator and worksite safety plan accept the measurement configuration (e.g., sampling frequency, logging intervals) as compatible with operational constraints."
+      ],
+      "open_risks": [
+        "Time synchronization protocol selection and Vehicle compliance: if Vehicle does not implement the chosen protocol (GPS, NTP, or heartbeat), reconciliation accuracy degrades. Mitigation: explicit Vehicle interface requirement and integration testing.",
+        "Sensor independence enforcement: if Vehicle design conflates power draw and work output into a single measurement stream, DP intent is violated. Mitigation: Vehicle interface specification with sensor separation mandate and design review.",
+        "Logging volume and storage scaling: high-frequency dual-stream logging may exceed NGHE Solution capacity under sustained operation. Mitigation: define data retention policy, streaming strategy, and buffer overflow handling in FR3.4 decomposition.",
+        "Reconciliation window and tolerance definition: if reconciliation window is too narrow or tolerance thresholds too tight, legitimate measurement variance is flagged as anomaly. If too loose, real energy efficiency issues are masked. Mitigation: empirical tuning during integration testing (FR3.5).",
+        "Data completeness and evaluation period: if dual-stream coverage drops below acceptable threshold (e.g., <95%), energy_per_ton calculation may not be statistically valid. Mitigation: define minimum data completeness threshold and evaluation period duration in FR3.6.",
+        "Safety criticality: measurement errors or synchronization failures could lead to incorrect energy efficiency assessment, potentially masking safety-critical equipment degradation. Mitigation: explicit anomaly flagging (FR3.5) and operator notification via Telemetry."
+      ],
+      "evidence_needed": [
+        "Vehicle interface specification: sensor types, sampling rates, output formats, and explicit separation of power draw and work output acquisition chains.",
+        "Network Link time synchronization protocol specification: protocol choice (GPS, NTP, heartbeat), clock drift tolerance (±100 ms), and fallback behavior on sync loss.",
+        "NGHE Solution logging strategy: in-memory buffer size, disk storage capacity or cloud streaming endpoint, data retention period, and archival policy.",
+        "Reconciliation algorithm specification: time window for matching energy and work samples (e.g., 1-second window), tolerance thresholds for ratio variance, and anomaly detection logic.",
+        "Acceptance criterion detail: evaluation period duration, sampling frequency, minimum data completeness threshold (e.g., 95% dual-stream coverage), and E_target value.",
+        "Integration test plan: validation of time synchronization fidelity, sensor independence, logging capacity, reconciliation accuracy, and anomaly detection under nominal and degraded conditions.",
+        "Safety analysis: FMEA or HARA addressing measurement errors, synchronization failures, and data integrity issues; mitigation strategies and residual risk assessment."
+      ]
+    }
+  }
+}

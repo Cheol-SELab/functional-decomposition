@@ -1,0 +1,163 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 Refined: The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and designated work zones, with sufficient fidelity and update frequency to support autonomous path planning and operator situational awareness.",
+    "rationale": "The original FR was vague on fidelity requirements, update cadence, and intended consumers. Refinement clarifies that the worksite model must serve dual purposes: (1) autonomous planning algorithms requiring metric-level terrain and obstacle data, and (2) operator/tele-operator situational awareness requiring near-real-time hazard updates. High safety criticality demands explicit inclusion of dynamic hazard representation and work-zone boundaries.",
+    "verification_idea": "Acceptance test: (1) Terrain model accuracy within ±0.5 m RMS error over mapped area; (2) Static obstacle detection rate ≥95% for objects >0.3 m³; (3) Dynamic hazard update latency <2 s; (4) Work-zone boundary representation available to planning and HMI within 1 s of definition.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire and fuse multi-sensor terrain and obstacle data (LiDAR, camera, radar) into a unified 3D spatial model.",
+      "CR-NGHE-006.2: Detect, classify, and track dynamic hazards (personnel, moving equipment) with continuous update.",
+      "CR-NGHE-006.3: Define, store, and communicate work-zone boundaries and restricted areas to planning and execution functions.",
+      "CR-NGHE-006.4: Provide worksite model query and visualization interfaces to planning, operator HMI, and tele-operator console."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized on-vehicle perception stack (LiDAR + stereo camera fusion) with local 3D occupancy grid and dynamic object tracker; model pushed to cloud for archival and planning.",
+      "DP-B: Distributed perception: vehicle-mounted sensors feed to edge compute node (on-vehicle or nearby gateway); edge node maintains occupancy grid and hazard tracker; model synchronized to cloud planning service.",
+      "DP-C: Cloud-centric mapping: vehicle streams raw sensor data to cloud; cloud service performs SLAM, occupancy grid generation, and hazard detection; results streamed back to vehicle and operator consoles.",
+      "DP-D: Hybrid local-cloud: vehicle maintains local real-time occupancy grid for immediate planning; cloud maintains authoritative map for multi-vehicle coordination and long-term site model; periodic sync with conflict resolution."
+    ],
+    "selected_dp": "DP-D: Hybrid local-cloud architecture. Vehicle maintains a local real-time occupancy grid and dynamic hazard tracker (latency <2 s) for immediate autonomous planning and operator awareness. Cloud maintains an authoritative, persistent worksite model integrating data from all vehicles and external sources (survey data, manual annotations). Periodic bi-directional sync with conflict resolution ensures consistency while preserving vehicle autonomy during network outages.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between local occupancy grid update rate and cloud sync frequency: mitigated by time-stamped updates and version control.",
+        "Coupling between vehicle sensor suite and cloud model fidelity: managed via sensor abstraction layer accepting multiple sensor modalities.",
+        "Coupling between planning algorithms and model representation: addressed by standardized occupancy grid and object list interfaces."
+      ],
+      "notes": "DP-D decouples real-time vehicle autonomy (local model) from site-wide coordination (cloud model), reducing latency sensitivity and network dependency. Conflict resolution logic required at sync boundary."
+    },
+    "assumptions_risks": [
+      "Assumption: Vehicle has sufficient on-board compute (GPU/edge processor) for real-time occupancy grid and tracker. Risk: Legacy vehicles may lack compute; mitigation: edge gateway option.",
+      "Assumption: Cloud service availability is not a hard real-time constraint for vehicle operation. Risk: Network outage disables cloud sync; mitigation: local model remains operational, sync resumes when network restored.",
+      "Assumption: Sensor data bandwidth is manageable (LiDAR ~10-50 Mbps, camera ~5-20 Mbps). Risk: Poor network conditions degrade cloud model freshness; mitigation: adaptive data compression and prioritization.",
+      "Risk: High safety criticality requires validation of hazard detection and tracking accuracy; mitigation: formal V&V of perception pipeline against safety standards."
+    ],
+    "recommended_revision": "Clarify sync conflict resolution policy: when local and cloud models diverge (e.g., vehicle detects hazard not yet in cloud), define priority (local takes precedence for immediate safety, cloud updates after confirmation). Specify sensor abstraction layer to support multi-vendor sensor integration."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "On-vehicle perception, local occupancy grid generation, dynamic hazard tracking, and real-time model query interface. Includes sensor fusion middleware, occupancy grid data structure, and hazard tracker state machine. Excludes cloud synchronization logic and multi-vehicle coordination (assigned to NGHE Solution)."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle publishes occupancy grid updates, hazard detections (position, class, confidence), and model metadata (timestamp, coverage area) to cloud and operator consoles."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives work-zone definitions and restricted-area updates from planning service; updates local model to reflect new boundaries."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Vehicle publishes high-priority hazard alerts (personnel detected, obstacle in path) to Safety Services and operator HMI with latency <500 ms."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Vehicle communicates with cloud for model sync, receives work-zone updates, and streams telemetry; operates in degraded mode if link unavailable."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Vehicle is the natural owner of real-time perception and local model generation. Sensor hardware, fusion algorithms, and occupancy grid are vehicle-resident. Minor diffusion: cloud sync logic and conflict resolution require coordination with NGHE Solution."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.65,
+        "diffusion_score": 0.35,
+        "notes": "NGHE Solution could host cloud-side model management and multi-vehicle coordination, but real-time perception must remain on Vehicle. High diffusion if perception logic split between Vehicle and NGHE Solution."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Teleoperation is a consumer of the worksite model (for operator situational awareness), not a producer or maintainer. Assigning model generation to Teleoperation would create tight coupling and diffusion across vehicle and console."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Safety Services consumes hazard alerts from the model but does not generate or maintain the model. Assigning model generation to Safety Services would violate separation of concerns and create diffusion."
+      }
+    ],
+    "ownership_candidate": "Vehicle (primary), with NGHE Solution as secondary owner for cloud-side model persistence and multi-vehicle coordination.",
+    "containment_hypothesis": "Real-time worksite model generation (occupancy grid, hazard tracking) is best contained within the Vehicle module because: (1) sensor hardware and fusion algorithms are vehicle-resident; (2) latency-critical planning algorithms require local model access; (3) vehicle autonomy during network outages depends on local model. Cloud-side model (NGHE Solution) serves as authoritative archive and coordination layer, not primary generator.",
+    "containment_risks": [
+      "Risk: Vehicle module becomes large and complex if it owns both perception and planning. Mitigation: Define clear interface between perception (model generation) and planning (model consumption); use dependency injection for planning algorithms.",
+      "Risk: Sync conflicts between local and cloud models could lead to inconsistent state. Mitigation: Implement version control and timestamp-based conflict resolution; define clear precedence rules (local for safety, cloud for coordination).",
+      "Risk: Different vehicle types may have different sensor suites; model generation logic must be sensor-agnostic. Mitigation: Implement sensor abstraction layer in Vehicle module; cloud model accepts multiple sensor modalities."
+    ],
+    "recommended_revision": "Explicitly define the Vehicle-to-NGHE Solution interface for model sync: (1) Vehicle publishes occupancy grid deltas and hazard updates at configurable frequency; (2) NGHE Solution maintains authoritative model and broadcasts work-zone updates back to Vehicle; (3) Conflict resolution: local model takes precedence for immediate safety, cloud model updates after confirmation. Specify sensor abstraction layer to decouple perception from specific sensor hardware."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-D (hybrid local-cloud) directly addresses all sub-FRs: (1) multi-sensor fusion on vehicle satisfies terrain/obstacle acquisition; (2) local tracker satisfies dynamic hazard detection; (3) work-zone updates via Tasking interface satisfy zone definition; (4) model query interfaces satisfy planning/HMI access. DP-D is decoupled (local and cloud models are independent), scalable (supports multi-vehicle), and resilient (operates without cloud). No coupling violations detected."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Minor diffusion: Cloud sync logic (conflict resolution, version control) spans Vehicle and NGHE Solution. Mitigation: Define clear sync protocol and ownership of conflict resolution logic.",
+        "Minor diffusion: Sensor abstraction layer may require coordination between Vehicle and external sensor drivers. Mitigation: Encapsulate sensor drivers in Vehicle module; expose standardized sensor interface."
+      ],
+      "containment_notes": "Vehicle module contains real-time perception and local model generation with high cohesion (0.92 containment score). NGHE Solution owns cloud-side model and sync orchestration. Teleoperation and Safety Services are consumers, not owners. Clear ownership boundaries reduce diffusion."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible: (1) Terrain accuracy can be measured against ground truth (survey data, RTK-GPS); (2) Obstacle detection can be validated in controlled test environments; (3) Dynamic hazard latency can be measured end-to-end (detection to alert); (4) Work-zone availability can be verified via interface testing. High safety criticality requires formal V&V of perception pipeline.",
+      "allocation_clarity": "Allocation is clear: Vehicle owns perception and local model; NGHE Solution owns cloud model and sync; Teleoperation and Safety Services are consumers. Interfaces (Telemetry, Tasking, SafetyAlert, Network Link) are well-defined and traceable to sub-FRs."
+    },
+    "recommended_revisions": [
+      "Refine DP-D to specify sync frequency and conflict resolution algorithm. Recommend: Vehicle publishes occupancy grid deltas at 1-10 Hz; cloud publishes work-zone updates at 0.1-1 Hz; conflicts resolved by timestamp (latest wins for non-safety data, local wins for safety-critical hazards).",
+      "Define sensor abstraction layer in Vehicle module to support multi-vendor sensors (LiDAR, stereo, radar). Recommend: Standardized sensor interface (point cloud, depth map, detection list) with pluggable drivers.",
+      "Specify occupancy grid representation (resolution, coordinate frame, update mechanism) to ensure compatibility with planning algorithms. Recommend: 0.1-0.5 m resolution, vehicle-centric frame with periodic transformation to global frame.",
+      "Clarify hazard classification taxonomy (personnel, equipment, obstacle, etc.) and confidence thresholds for SafetyAlert publication. Recommend: High-confidence hazards (>90%) trigger immediate alerts; lower-confidence detections logged for cloud model refinement."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "CR-NGHE-006 is not atomic; it decomposes into four sub-FRs (sensor fusion, dynamic hazard tracking, work-zone definition, model query). Each sub-FR requires further refinement and DP selection. DP-D (hybrid local-cloud) is sound and passes all gates, but implementation details (sync protocol, conflict resolution, sensor abstraction) must be elaborated at the next level. Vehicle module assignment is appropriate and well-justified. Proceeding to next decomposition level is necessary to detail perception algorithms, model data structures, and interface specifications.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire and fuse multi-sensor terrain and obstacle data (LiDAR, camera, radar) into a unified 3D spatial model.",
+      "CR-NGHE-006.2: Detect, classify, and track dynamic hazards (personnel, moving equipment) with continuous update.",
+      "CR-NGHE-006.3: Define, store, and communicate work-zone boundaries and restricted areas to planning and execution functions.",
+      "CR-NGHE-006.4: Provide worksite model query and visualization interfaces to planning, operator HMI, and tele-operator console."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Vehicle has sufficient on-board compute (GPU/edge processor) for real-time occupancy grid and hazard tracking.",
+        "Cloud service availability is not a hard real-time constraint for vehicle operation; local model remains operational during network outages.",
+        "Sensor data bandwidth is manageable (LiDAR ~10-50 Mbps, camera ~5-20 Mbps) with adaptive compression.",
+        "Hazard detection and tracking accuracy can be validated against safety standards (e.g., ISO 26262 for functional safety).",
+        "Work-zone definitions are provided by planning service via Tasking interface at low frequency (0.1-1 Hz).",
+        "Occupancy grid resolution of 0.1-0.5 m is sufficient for autonomous path planning and operator awareness."
+      ],
+      "open_risks": [
+        "High safety criticality: Perception pipeline (sensor fusion, hazard detection) must achieve high reliability and low false-negative rate. Formal V&V required.",
+        "Network outage: Cloud model becomes stale if Vehicle cannot sync; conflict resolution must handle divergence gracefully.",
+        "Sensor diversity: Different vehicle types may have different sensor suites; sensor abstraction layer must be flexible and extensible.",
+        "Computational load: Real-time occupancy grid and hazard tracking may exceed on-board compute capacity for large work areas or high sensor data rates.",
+        "Regulatory compliance: Worksite mapping may be subject to privacy, data retention, and safety regulations; data governance policy required."
+      ],
+      "evidence_needed": [
+        "Sensor fusion algorithm performance data (accuracy, latency, robustness to sensor failures).",
+        "Occupancy grid and hazard tracker implementation (data structure, update mechanism, memory footprint).",
+        "Cloud sync protocol specification (frequency, conflict resolution, version control).",
+        "Sensor abstraction layer design (interface definition, driver architecture, multi-vendor support).",
+        "Safety analysis: FMEA or FTA for perception pipeline; hazard detection false-negative rate; latency analysis for safety-critical alerts.",
+        "Performance benchmarks: occupancy grid generation latency, hazard detection latency, cloud sync overhead.",
+        "Integration test plan: multi-sensor fusion validation, dynamic hazard tracking in realistic scenarios, work-zone update propagation."
+      ]
+    }
+  }
+}

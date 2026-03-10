@@ -1,0 +1,161 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation link availability ≥ 0.999 (99.9%) over the agreed evaluation period, measured as the ratio of time the bidirectional command-and-telemetry link is operational to total evaluation time.",
+    "rationale": "CR-NGHE-010 addresses a critical operational requirement: remote equipment control depends on reliable communication. The refined FR quantifies the acceptance criterion (≥0.999 availability), specifies the measurement scope (bidirectional link), and defines the evaluation window. This is essential for safety-critical teleoperation where link loss can lead to equipment immobilization or unsafe states.",
+    "verification_idea": "Continuous monitoring of link state (up/down) during evaluation period; calculate availability as (total_time_link_up) / (total_evaluation_time). Acceptance: measured availability ≥ customer-defined target (default 0.999). Failure modes: network outage, transceiver failure, antenna misalignment, interference.",
+    "sub_frs": [
+      "FR-NGHE-010.1: The teleoperation system shall establish and maintain a bidirectional command link from tele-operator to vehicle.",
+      "FR-NGHE-010.2: The teleoperation system shall establish and maintain a bidirectional telemetry link from vehicle to tele-operator.",
+      "FR-NGHE-010.3: The teleoperation system shall detect link loss and trigger safe state transition within defined timeout.",
+      "FR-NGHE-010.4: The teleoperation system shall provide redundancy or recovery mechanisms to minimize link downtime."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Implement dual-path wireless communication (primary + backup network) with automatic failover; monitor link health continuously; trigger safe shutdown on persistent loss.",
+      "DP-B: Implement single high-reliability wireless link with error correction and retransmission; rely on network provider SLA for availability.",
+      "DP-C: Implement wired tether-based command/telemetry with wireless backup; prioritize wired path for availability.",
+      "DP-D: Implement mesh network topology with multiple relay nodes to provide path redundancy and self-healing routing."
+    ],
+    "selected_dp": "DP-A: Implement dual-path wireless communication (primary + backup network) with automatic failover; monitor link health continuously; trigger safe shutdown on persistent loss.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "DP-A couples to FR-NGHE-010.3 (safe state transition) and FR-NGHE-010.4 (redundancy) directly; no hidden coupling to unrelated FRs.",
+        "Failover logic couples to Safety Services (SafetyAlert interface) for safe shutdown coordination.",
+        "Link monitoring couples to Telemetry interface for health status reporting."
+      ],
+      "notes": "DP-A is well-decoupled from vehicle propulsion, steering, and payload control FRs. It is orthogonal to equipment-specific operational modes. Coupling is intentional and traceable to sub-FRs."
+    },
+    "assumptions_risks": [
+      "Assumption: Two independent wireless networks (e.g., LTE + private 5G or satellite) are available at the worksite.",
+      "Assumption: Failover switching can occur within acceptable latency (< 100 ms) without loss of critical commands.",
+      "Risk: Dual-path infrastructure cost may exceed budget; customer may not have access to two independent networks.",
+      "Risk: Failover logic complexity increases software testing burden and potential for race conditions.",
+      "Risk: Link health monitoring overhead (CPU, power) may impact vehicle battery life on extended missions."
+    ],
+    "recommended_revision": "Refine DP-A to specify: (1) primary/backup network selection criteria (e.g., signal strength, latency, packet loss); (2) failover timeout threshold (e.g., 3 consecutive missed heartbeats); (3) safe state definition (e.g., brake engaged, engine idle); (4) monitoring interval (e.g., 100 ms heartbeat). Add fallback to DP-B (single high-reliability link) if dual-path infrastructure unavailable."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Owns the dual-path wireless communication stack, link health monitoring, failover logic, and safe state transition triggers. Interfaces with Vehicle for command injection and telemetry collection; interfaces with Safety Services for safe shutdown coordination. Does NOT own physical network infrastructure (carrier networks, antennas) or vehicle propulsion/steering control."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives operator commands (steering, throttle, auxiliary controls) from tele-operator console; routed through primary or backup network path."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Transmits vehicle state (position, orientation, sensor readings, link health status) from vehicle to tele-operator console; routed through primary or backup network path."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Signals link loss or degradation events to Safety Services; triggers safe state transition (brake, engine shutdown) if link unavailable for > threshold duration."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Abstracts the underlying dual-path wireless infrastructure (primary + backup networks); Teleoperation module manages path selection, failover, and health monitoring at this interface."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.95,
+        "diffusion_score": 0.05,
+        "notes": "Teleoperation is the natural owner of link availability logic. Dual-path failover, health monitoring, and safe state triggers are core teleoperation concerns. Minimal diffusion: only SafetyAlert coupling to Safety Services (expected and necessary)."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Vehicle module owns propulsion and steering; link availability is not a vehicle-specific concern. Assigning DP-A to Vehicle would scatter communication logic across vehicle firmware, creating high diffusion and poor cohesion."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Safety Services owns safe state policies and shutdown coordination, but NOT the communication infrastructure or failover logic. Assigning DP-A to Safety Services would conflate network management with safety policy, violating separation of concerns."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.1,
+        "diffusion_score": 0.9,
+        "notes": "NGHE Solution is the system-level container; assigning DP-A here would bypass architectural layering and prevent reuse of Teleoperation module across different NGHE variants."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "Teleoperation module is the optimal owner because: (1) it encapsulates all communication path logic (primary/backup selection, failover, health monitoring); (2) it owns the Tasking and Telemetry interfaces; (3) it minimizes diffusion by centralizing link availability concerns; (4) it maintains cohesion with other teleoperation functions (command encoding, latency compensation, operator feedback).",
+    "containment_risks": [
+      "Risk: If Vehicle module also implements link monitoring (e.g., for autonomous fallback), logic duplication and inconsistency may occur. Mitigation: Vehicle queries link status via Teleoperation interface; does not implement independent monitoring.",
+      "Risk: If Safety Services implements its own failover logic (e.g., independent timeout), race conditions may occur. Mitigation: SafetyAlert is unidirectional (Teleoperation → Safety Services); Safety Services reacts to alerts, does not drive failover.",
+      "Risk: If network infrastructure (antennas, carrier contracts) is managed outside Teleoperation, interface contracts must be explicit. Mitigation: Network Link interface abstracts infrastructure; Teleoperation assumes dual-path availability per interface SLA."
+    ],
+    "recommended_revision": "Clarify interface contracts: (1) Network Link interface must specify dual-path availability SLA (e.g., each path ≥ 0.99 availability independently); (2) SafetyAlert must specify safe state transition latency budget (e.g., ≤ 500 ms from link loss detection to brake engagement); (3) Telemetry interface must include link health metadata (signal strength, latency, packet loss rate) for operator awareness."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-A (dual-path wireless with failover) directly addresses FR-NGHE-010 (link availability ≥ 0.999). Redundancy and failover are the primary mechanisms to achieve high availability. DP-A is traceable to all sub-FRs (010.1–010.4). No logical gaps or misalignment detected."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Low diffusion risk: Teleoperation module is the natural owner; failover logic is cohesive with command/telemetry routing.",
+        "Moderate coupling risk: SafetyAlert interface couples Teleoperation to Safety Services. Mitigation: interface is unidirectional and event-driven; no circular dependency."
+      ],
+      "containment_notes": "Teleoperation achieves 0.95 containment score. All DP-A logic (dual-path selection, health monitoring, failover) fits within Teleoperation scope. External interfaces (Tasking, Telemetry, SafetyAlert, Network Link) are well-defined and necessary. No artificial splitting or duplication required."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible: (1) Continuous link state monitoring during evaluation period; (2) Automated failover testing in lab and field; (3) Availability calculation via telemetry logs. Acceptance criterion (≥0.999) is measurable and objective.",
+      "allocation_clarity": "Allocation is clear: Teleoperation module owns link availability; Vehicle and Safety Services own complementary concerns (propulsion, safe state). Responsibilities are non-overlapping and traceable."
+    },
+    "recommended_revisions": [
+      "Refine DP-A to specify failover timeout threshold (e.g., 3 heartbeat misses = ~300 ms at 100 ms interval) and safe state definition (e.g., brake engaged, engine idle, no steering input).",
+      "Define Network Link interface SLA: each path must provide ≥ 0.99 availability independently; Teleoperation achieves ≥ 0.999 via redundancy.",
+      "Add verification plan: (1) lab failover testing (inject link loss, measure recovery time); (2) field availability monitoring (log link state every 100 ms); (3) statistical analysis (calculate uptime ratio over evaluation period).",
+      "Clarify safe state transition latency budget: SafetyAlert must trigger brake engagement within ≤ 500 ms of link loss detection."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-NGHE-010 is not atomic; it decomposes into four sub-FRs (010.1–010.4) that require independent design and verification. DP-A is sound and well-allocated to Teleoperation, but sub-FRs must be refined further to address: (1) command link establishment and maintenance (010.1); (2) telemetry link establishment and maintenance (010.2); (3) link loss detection and safe state transition (010.3); (4) redundancy and recovery mechanisms (010.4). Each sub-FR will have its own DP and IM assignment at the next level.",
+    "next_level_sub_frs": [
+      "FR-NGHE-010.1: The teleoperation system shall establish and maintain a bidirectional command link from tele-operator to vehicle with latency ≤ 200 ms and packet loss ≤ 1%.",
+      "FR-NGHE-010.2: The teleoperation system shall establish and maintain a bidirectional telemetry link from vehicle to tele-operator with latency ≤ 500 ms and packet loss ≤ 5%.",
+      "FR-NGHE-010.3: The teleoperation system shall detect link loss (no heartbeat for > 300 ms) and trigger safe state transition (brake engagement, engine idle) within ≤ 500 ms.",
+      "FR-NGHE-010.4: The teleoperation system shall implement automatic failover from primary to backup network path within ≤ 100 ms and restore primary path when available."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Two independent wireless networks (e.g., LTE + private 5G) are available at the worksite.",
+        "Failover switching latency (< 100 ms) is acceptable for teleoperation safety.",
+        "Link health monitoring overhead (CPU, power) is within vehicle power budget.",
+        "Safe state (brake engaged, engine idle) is sufficient to prevent hazards during link loss.",
+        "Operator is trained to recognize link degradation and take manual control if needed."
+      ],
+      "open_risks": [
+        "Dual-path infrastructure cost may exceed budget; customer may not have access to two independent networks.",
+        "Failover logic complexity increases software testing burden and potential for race conditions.",
+        "Link health monitoring overhead may impact vehicle battery life on extended missions.",
+        "Failover timeout threshold (3 heartbeats = ~300 ms) may be too aggressive or too lenient depending on worksite conditions.",
+        "Safe state definition (brake, engine idle) may not be sufficient for all hazard scenarios (e.g., equipment on slope)."
+      ],
+      "evidence_needed": [
+        "Network availability data for candidate wireless providers at representative worksites.",
+        "Failover latency measurements from prototype dual-path implementation.",
+        "Vehicle power budget analysis including link health monitoring overhead.",
+        "Safety analysis (FMEA, HAZOP) to validate safe state definition and timeout thresholds.",
+        "Field trial data: measured link availability over ≥ 30-day evaluation period at customer site."
+      ]
+    }
+  }
+}

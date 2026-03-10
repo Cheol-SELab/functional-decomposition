@@ -1,0 +1,163 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and designated work zones with sufficient fidelity to support autonomous path planning and operator situational awareness.",
+    "rationale": "The original FR was vague on scope (what constitutes 'area analysis') and lacked specificity on fidelity requirements, update cadence, and consumer functions. Refinement clarifies that the model must be dynamic, support both planning and execution, and be safety-critical (high criticality factor). This enables downstream DPs to address sensing, fusion, representation, and distribution.",
+    "verification_idea": "Acceptance: (1) Worksite model generated within 5 minutes of mission start; (2) Terrain elevation accuracy ±0.5 m over 95% of mapped area; (3) Obstacle detection recall ≥95% for objects >0.3 m³; (4) Model available to planning and execution subsystems via agreed interface; (5) Safety-critical features (hazard zones) updated at ≥1 Hz.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire worksite sensor data (LiDAR, camera, inertial) from vehicle platform.",
+      "CR-NGHE-006.2: Fuse multi-modal sensor data into unified 3D terrain and obstacle representation.",
+      "CR-NGHE-006.3: Classify and label terrain, obstacles, hazards, and work zones in the model.",
+      "CR-NGHE-006.4: Distribute worksite model to planning, execution, and operator interfaces with low latency.",
+      "CR-NGHE-006.5: Validate model completeness and safety-critical feature accuracy against acceptance criteria."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Onboard multi-sensor fusion (LiDAR + stereo camera + IMU) with real-time 3D reconstruction and obstacle classification; model stored locally and pushed to planning/execution via network.",
+      "DP-B: Tele-operator-guided manual mapping with operator marking obstacles and zones on a 2D map; model stored centrally and distributed.",
+      "DP-C: Hybrid approach: onboard LiDAR + camera for autonomous terrain/obstacle detection; tele-operator validates and annotates hazard zones and work areas; fused model distributed to all consumers.",
+      "DP-D: Cloud-based SLAM with vehicle-mounted sensors streaming raw data to remote processing; model computed centrally and pushed back to vehicle and planning systems."
+    ],
+    "selected_dp": "DP-C: Hybrid onboard-tele-operator model generation. Autonomous sensors (LiDAR, stereo camera, IMU) on vehicle acquire raw data and perform real-time 3D reconstruction and obstacle detection. Tele-operator receives live sensor feed and model preview, validates terrain classification, and explicitly marks safety-critical hazard zones and work boundaries. Fused model (autonomous detections + operator annotations) is stored in a central model repository and distributed to planning, execution, and operator interfaces via Tasking and Telemetry interfaces.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Sensor data acquisition (CR-NGHE-006.1) is decoupled from fusion logic (CR-NGHE-006.2) via standardized sensor message formats.",
+        "Classification and labeling (CR-NGHE-006.3) depends on fusion output but is logically separable; tele-operator input is merged at this stage.",
+        "Distribution (CR-NGHE-006.4) is decoupled from model generation via a model repository interface.",
+        "Validation (CR-NGHE-006.5) is a post-generation check and does not couple back to generation logic in this DP."
+      ],
+      "notes": "DP-C exhibits low coupling because it separates autonomous perception (onboard), human validation (tele-operator), and distribution (network). The tele-operator role is a control point but does not create tight coupling if the model repository and distribution mechanism are standardized."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Tele-operator has sufficient situational awareness and latency tolerance to validate model in near-real-time (assumed <5 s round-trip latency).",
+      "ASSUMPTION: Onboard compute (vehicle) is sufficient for real-time LiDAR + stereo processing and 3D reconstruction.",
+      "RISK: Tele-operator bottleneck—if validation is slow, model distribution is delayed, impacting planning and execution.",
+      "RISK: Sensor occlusion or degradation (rain, dust, darkness) may reduce autonomous detection quality; tele-operator must compensate, increasing workload.",
+      "RISK: Inconsistency between autonomous detections and operator annotations if operator training or situational awareness is poor."
+    ],
+    "recommended_revision": "Clarify tele-operator validation SLA (max latency, required coverage %). Define fallback behavior if tele-operator is unavailable (e.g., use autonomous detections only with reduced confidence). Specify sensor fusion algorithm and obstacle classification taxonomy to ensure consistency."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "The Vehicle module owns onboard sensor acquisition (LiDAR, stereo camera, IMU), real-time 3D reconstruction, and obstacle detection. It streams raw sensor data and preliminary model to Teleoperation module and publishes model updates to the central model repository via Network Link. The Vehicle module does NOT own tele-operator validation, hazard zone annotation, or model distribution logic; those are owned by Teleoperation and Safety Services."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle publishes sensor data (LiDAR point clouds, stereo images, IMU readings) and preliminary 3D model state (terrain mesh, detected obstacles with confidence scores) to Teleoperation for operator visualization and validation."
+      },
+      {
+        "name": "Network Link",
+        "direction": "out",
+        "details": "Vehicle publishes finalized model updates (after tele-operator validation) to central model repository and to planning/execution subsystems. Also receives Tasking commands that may include model region-of-interest or update priorities."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives mission tasking that may specify worksite boundaries, sensor sweep patterns, or model update priorities. This guides sensor acquisition strategy."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 85,
+        "diffusion_score": 15,
+        "notes": "Vehicle naturally owns onboard sensors and real-time perception. Sensor data acquisition and 3D reconstruction are tightly coupled to vehicle hardware and compute. Diffusion risk: model validation and annotation logic should NOT be in Vehicle; those belong in Teleoperation and Safety Services. If validation logic leaks into Vehicle, coupling increases and reusability decreases."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 70,
+        "diffusion_score": 30,
+        "notes": "Teleoperation owns operator interface, visualization of sensor data and preliminary model, and operator validation/annotation of hazard zones and work boundaries. Diffusion risk: if Teleoperation also owns model fusion or storage, it becomes a monolith. Model repository should be separate (owned by NGHE Solution or Safety Services)."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 60,
+        "diffusion_score": 40,
+        "notes": "Safety Services could own hazard zone classification, safety-critical feature validation, and distribution of model to safety-relevant consumers (e.g., collision avoidance, geofencing). However, if Safety Services owns the entire model repository and distribution, it may become a bottleneck. Recommend Safety Services owns validation and safety-critical labeling; NGHE Solution owns central repository."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 75,
+        "diffusion_score": 25,
+        "notes": "NGHE Solution (system-level) could own the central model repository, model versioning, and distribution to all consumers (planning, execution, operator, safety). This is a natural system-level responsibility. Diffusion risk: if NGHE Solution also owns perception algorithms or operator interface, it becomes too broad."
+      }
+    ],
+    "ownership_candidate": "Vehicle (onboard perception) + Teleoperation (operator validation) + Safety Services (hazard classification and safety-critical validation) + NGHE Solution (central model repository and distribution).",
+    "containment_hypothesis": "Worksite model generation is a distributed responsibility across four modules: (1) Vehicle acquires and fuses sensor data into a preliminary 3D model; (2) Teleoperation provides operator visualization and validation interface; (3) Safety Services validates safety-critical features and applies safety labels; (4) NGHE Solution maintains the central model repository and distributes to planning/execution. This distribution respects module boundaries and avoids monolithic ownership.",
+    "containment_risks": [
+      "RISK: Model repository ownership ambiguity—if both NGHE Solution and Safety Services claim ownership, versioning and consistency may suffer.",
+      "RISK: Latency in model distribution—if model must pass through multiple validation stages (Vehicle → Teleoperation → Safety Services → NGHE Solution), end-to-end latency may exceed planning/execution requirements.",
+      "RISK: Operator validation bottleneck—if Teleoperation is the only path to model finalization, operator unavailability blocks model distribution.",
+      "RISK: Diffusion of model fusion logic—if Vehicle, Teleoperation, and Safety Services each apply transformations to the model, consistency and traceability degrade."
+    ],
+    "recommended_revision": "Establish clear ownership: Vehicle owns onboard perception and preliminary model; NGHE Solution owns central model repository and distribution; Safety Services owns safety-critical validation and labeling; Teleoperation owns operator interface and annotation. Define model versioning and consistency rules. Implement asynchronous model update pipeline to avoid bottlenecks: Vehicle publishes preliminary model → Safety Services validates in parallel → NGHE Solution merges and distributes. Operator annotations are merged as a separate stream."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid onboard-tele-operator model generation) directly addresses the refined FR. Autonomous sensors provide terrain and obstacle detection; tele-operator validation ensures safety-critical features are correctly labeled; model distribution supports planning and execution. The DP is feasible, testable, and aligns with high safety criticality (operator-in-the-loop validation). No fundamental mismatch between FR and DP."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Model fusion logic may diffuse across Vehicle, Teleoperation, and Safety Services if ownership boundaries are not clearly defined. Recommend centralizing fusion in Vehicle; Teleoperation and Safety Services apply post-processing only.",
+        "Model repository ownership is ambiguous between NGHE Solution and Safety Services. Recommend NGHE Solution owns repository; Safety Services owns validation logic.",
+        "Operator annotation workflow may create tight coupling between Teleoperation and Vehicle if not mediated by a clear interface (e.g., annotation messages via Network Link)."
+      ],
+      "containment_notes": "Vehicle containment is strong for onboard perception (85/15). NGHE Solution containment is strong for central repository and distribution (75/25). Teleoperation and Safety Services containment is moderate (70/30 and 60/40) due to shared responsibility for validation and labeling. Recommend clarifying ownership of model versioning and consistency rules to reduce diffusion."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible: (1) Onboard sensor accuracy can be tested in controlled environments; (2) Tele-operator validation can be logged and audited; (3) Model distribution latency can be measured end-to-end; (4) Safety-critical feature accuracy can be validated against ground truth. Acceptance criteria are measurable.",
+      "allocation_clarity": "Allocation is clear: Vehicle is responsible for sensor acquisition and preliminary model; Teleoperation is responsible for operator interface and validation; Safety Services is responsible for safety-critical labeling; NGHE Solution is responsible for repository and distribution. Each module has a distinct responsibility and interface."
+    },
+    "recommended_revisions": [
+      "Clarify model versioning and consistency rules to prevent diffusion of fusion logic across modules.",
+      "Define operator validation SLA (max latency, required coverage) to manage tele-operator bottleneck risk.",
+      "Specify fallback behavior if tele-operator is unavailable (e.g., use autonomous detections with reduced confidence).",
+      "Establish clear ownership of central model repository (recommend NGHE Solution).",
+      "Define model update pipeline (asynchronous, with parallel validation streams) to minimize latency."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The refined FR is decomposable into five sub-FRs (sensor acquisition, fusion, classification, distribution, validation), each of which requires further decomposition to define concrete algorithms, interfaces, and module responsibilities. The selected DP (hybrid onboard-tele-operator) is sound but requires detailed design of the model representation, fusion algorithm, operator interface, and distribution mechanism. The assigned IM (distributed across Vehicle, Teleoperation, Safety Services, NGHE Solution) is feasible but requires clarification of ownership boundaries and consistency rules. Proceeding to the next decomposition level will resolve these ambiguities and enable detailed design and implementation.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire worksite sensor data (LiDAR, camera, inertial) from vehicle platform with specified accuracy and update rate.",
+      "CR-NGHE-006.2: Fuse multi-modal sensor data into unified 3D terrain and obstacle representation with specified fidelity and latency.",
+      "CR-NGHE-006.3: Classify and label terrain, obstacles, hazards, and work zones in the model with operator validation.",
+      "CR-NGHE-006.4: Distribute worksite model to planning, execution, and operator interfaces with low latency and consistency guarantees.",
+      "CR-NGHE-006.5: Validate model completeness and safety-critical feature accuracy against acceptance criteria."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Tele-operator has sufficient situational awareness and latency tolerance (<5 s round-trip) to validate model in near-real-time.",
+        "Onboard compute (vehicle) is sufficient for real-time LiDAR + stereo processing and 3D reconstruction.",
+        "Sensor fusion algorithm can achieve ≥95% obstacle detection recall for objects >0.3 m³.",
+        "Network bandwidth is sufficient to stream sensor data to tele-operator and distribute model to planning/execution.",
+        "Operator training and procedures ensure consistent validation and annotation of safety-critical features."
+      ],
+      "open_risks": [
+        "Tele-operator bottleneck—if validation is slow, model distribution is delayed, impacting planning and execution.",
+        "Sensor occlusion or degradation (rain, dust, darkness) may reduce autonomous detection quality; tele-operator must compensate, increasing workload.",
+        "Model repository ownership ambiguity between NGHE Solution and Safety Services.",
+        "Diffusion of model fusion logic across Vehicle, Teleoperation, and Safety Services if ownership boundaries are not clearly defined.",
+        "Operator annotation workflow may create tight coupling between Teleoperation and Vehicle if not mediated by a clear interface."
+      ],
+      "evidence_needed": [
+        "Sensor accuracy specifications (LiDAR range/resolution, stereo baseline, IMU drift).",
+        "Fusion algorithm design and validation results (obstacle detection recall/precision, terrain elevation accuracy).",
+        "Operator interface mockup and usability testing results.",
+        "Network latency and bandwidth measurements for sensor data streaming and model distribution.",
+        "Safety-critical feature validation procedure and acceptance criteria.",
+        "Model versioning and consistency rules (e.g., how operator annotations are merged with autonomous detections)."
+      ]
+    }
+  }
+}

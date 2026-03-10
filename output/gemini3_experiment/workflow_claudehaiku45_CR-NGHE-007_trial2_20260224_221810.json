@@ -1,0 +1,178 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall propagate worksite model state changes to all authorized consumers within the customer-defined latency threshold.",
+    "rationale": "The original FR conflates two distinct obligations: (1) detecting/capturing state changes in the worksite model, and (2) delivering those changes to consumers within a time bound. The refined FR focuses on the propagation obligation (the primary latency concern) and removes the vague 'operational use' qualifier in favor of explicit reference to customer-defined acceptance criteria. The term 'propagate' is solution-neutral (avoids prescribing polling, pub-sub, or push mechanisms) and 'authorized consumers' acknowledges that different stakeholders (operator, tele-operator, safety manager, maintenance) may receive updates selectively.",
+    "verification_idea": "Measure end-to-end latency from the moment a worksite state change is committed (e.g., equipment position update, hazard detection, task completion) to the moment all subscribed authorized consumers receive the updated model state. Validate across representative update scenarios (position updates, safety events, task transitions) that p95 latency ≤ customer-defined threshold (e.g., 1.0 s). Confirm that unauthorized consumers do not receive restricted updates.",
+    "sub_frs": [
+      "FR-NGHE-007.1: The NGHE solution shall detect and capture worksite model state changes from all monitored sources (equipment, sensors, operator input, external systems).",
+      "FR-NGHE-007.2: The NGHE solution shall propagate worksite model state changes to authorized consumers within the customer-defined latency threshold.",
+      "FR-NGHE-007.3: The NGHE solution shall enforce access control such that only authorized consumers receive worksite model updates relevant to their role."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Centralized event-driven state propagation with asynchronous message broker (decouples producers from consumers, enables selective subscription by authorization context)",
+      "DP2: Synchronous request-response state synchronization with polling intervals (simple but introduces latency variance and tight coupling between state owner and consumers)",
+      "DP3: Hybrid push-pull model with event notification + on-demand state fetch (balances latency guarantees with consumer autonomy, adds complexity)",
+      "DP4: Distributed state replication with eventual consistency (high availability but difficult to enforce p95 latency bounds and authorization boundaries)",
+      "DP5: Centralized state server with subscription-based change streams filtered by authorization rules (explicit authorization enforcement, single point of control for latency SLA)"
+    ],
+    "selected_dp": "DP5: Centralized state server with subscription-based change streams filtered by authorization rules at publish time, coupled with DP1 event-driven propagation for decoupling producer from consumer topology",
+    "coupling_check": {
+      "assessment": "Fail",
+      "potential_sources": [
+        "Authorization filtering logic tightly coupled to state change events (risk: authorization policy changes require event schema versioning)",
+        "Consumer subscription management tied to worksite model schema (risk: schema evolution breaks subscriptions)",
+        "Latency SLA enforcement depends on message broker performance (risk: broker becomes single point of failure for latency guarantee)",
+        "State server must maintain authoritative model version (risk: if state server unavailable, propagation halts)"
+      ],
+      "notes": "DP5 + DP1 combination achieves functional independence (producers don't know consumers) but introduces operational coupling through the centralized state server and message broker. Authorization filtering at publish time prevents unauthorized data leakage but couples authorization policy to event schema. Recommend separating authorization concern into distinct DP layer."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Worksite model state changes are discrete, identifiable events (not continuous streams). RISK: If model is continuously mutable, change detection becomes non-trivial.",
+      "ASSUMPTION: p95 ≤ 1.0 s latency is achievable with in-process or co-located message broker. RISK: Network latency to remote broker may violate SLA; requires deployment topology constraint.",
+      "ASSUMPTION: Authorization rules are stable during propagation window. RISK: If authorization context changes mid-propagation, consumers may receive stale authorization decisions.",
+      "ASSUMPTION: 'All authorized consumers' is deterministic at publish time. RISK: If authorization is dynamic (e.g., role-based, time-dependent), consumer set may change between state change and propagation completion.",
+      "ASSUMPTION: Worksite model schema is versioned and backward-compatible. RISK: Breaking schema changes require consumer coordination; may violate latency SLA during transition.",
+      "ASSUMPTION: Customer-defined latency threshold is measurable and consistent across update scenarios. RISK: Different update types (safety plan change vs. operational status) may have different latency requirements; single SLA may be insufficient."
+    ],
+    "recommended_revision": "FR should be refined to: 'The NGHE solution shall propagate worksite model state changes to all authorized consumers within the customer-defined latency threshold, with authorization filtering applied at publish time to prevent unauthorized data leakage, and with explicit handling of authorization policy changes and schema evolution.' Additionally, decompose into two sub-FRs: (1) Detect and encode worksite model state changes as discrete events, (2) Deliver encoded events to authorized consumer subscriptions within latency SLA. This separation allows independent DP selection for change detection (DP: event sourcing, change data capture, or polling) vs. delivery (DP: message broker, change streams, webhooks). Recommend explicit IM boundary for authorization filtering module to isolate policy logic from event propagation logic."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "Centralized state management layer providing subscription-based change streams with authorization-filtered publish semantics and event-driven propagation decoupling"
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Ingestion of vehicle and system state updates; filtered and published to authorized subscribers via change streams"
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Delivery of authorized state change notifications to task consumers (Vehicle, Teleoperation, Safety Services) triggering reactive behavior"
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Priority-filtered safety state changes published to Safety Services and Vehicle for critical state transitions"
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Transport for subscription management, state queries, and change stream delivery across distributed nodes"
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit: centralized state server, subscription logic, authorization filtering, and event-driven propagation are all core NGHE responsibilities. Diffusion limited to Network Link transport and external consumer binding (Vehicle, Teleoperation, Safety Services receive filtered streams but do not implement the server logic)."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor fit: Vehicle is a consumer of state changes, not the provider of centralized state management. Placing the server here would require Vehicle to manage global state for all other modules, violating separation of concerns and creating tight coupling to Vehicle lifecycle."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Poor fit: Teleoperation is a consumer domain (operator interface). Centralizing state management here conflates operator control logic with infrastructure-level state distribution, creating high diffusion to Vehicle and Safety Services."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.25,
+        "diffusion_score": 0.75,
+        "notes": "Poor fit: Safety Services is a specialized consumer of safety-critical state. Placing the centralized server here would require Safety Services to manage non-safety state and couple all other modules to safety infrastructure, violating single responsibility."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "DP5 (centralized state server with subscription-based change streams filtered by authorization rules, coupled with DP1 event-driven propagation) is best contained within NGHE Solution because: (1) NGHE is the natural infrastructure layer responsible for distributed state coordination; (2) authorization filtering at publish time is a cross-cutting concern that belongs in a neutral, non-consumer module; (3) subscription-based decoupling via event streams is a core NGHE pattern; (4) Vehicle, Teleoperation, and Safety Services remain pure consumers, receiving only authorized state deltas via well-defined interfaces (Telemetry in, Tasking/SafetyAlert out).",
+    "containment_risks": [
+      "Authorization rule complexity: if authorization rules become domain-specific (e.g., role-based access tied to Vehicle operational state), filtering logic may diffuse into consumer modules, requiring DP revision.",
+      "Subscription management scalability: if subscription state becomes stateful and tightly coupled to consumer lifecycle (e.g., Teleoperation session management), subscription logic may need to migrate to Teleoperation, weakening containment.",
+      "Change stream schema evolution: if different consumers require incompatible state representations, the single change stream may fragment into multiple domain-specific streams, requiring DP revision toward domain-driven event sourcing.",
+      "Network Link dependency: heavy reliance on Network Link for transport and subscription protocol may create hidden coupling if network topology changes (e.g., edge caching, local replicas)."
+    ],
+    "recommended_revision": "DP5 is well-chosen and contained. No revision recommended at this stage. However, monitor: (1) whether authorization rules remain generic (cross-cutting) or become domain-specific; (2) whether subscription patterns remain uniform or fragment by consumer type; (3) whether change stream schema remains unified or diverges. If any of these occur, consider revising DP5 to explicitly separate authorization (generic, NGHE-owned) from domain-specific filtering (consumer-owned), or introduce a domain event broker pattern (DP variant) that allows consumers to define their own subscription predicates while NGHE enforces authorization at the transport layer."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP5 (centralized state server with subscription-based change streams filtered by authorization rules at publish time, coupled with DP1 event-driven propagation) directly addresses the FR requirement to propagate worksite model state changes to authorized consumers. The design logically decouples producers from consumers via event streams and enforces authorization at the publish boundary, satisfying both the propagation and authorization constraints. The coupling with DP1 (event-driven decoupling) is sound and necessary for latency-bounded delivery across distributed nodes."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Authorization rule complexity: if authorization rules become domain-specific (e.g., tied to Vehicle operational state or Teleoperation session context), filtering logic may diffuse from NGHE Solution into consumer modules, requiring DP revision toward a hybrid authorization model.",
+        "Subscription lifecycle coupling: if subscription state becomes tightly bound to consumer lifecycle events (e.g., Teleoperation session start/stop, Vehicle power-on/off), subscription management logic may migrate out of NGHE Solution, weakening the centralized DP.",
+        "Change stream schema fragmentation: if different consumers require incompatible state representations or filtering predicates, the unified change stream may fragment into multiple domain-specific streams, violating the single-stream assumption in DP5.",
+        "Network Link transport dependency: heavy reliance on Network Link for subscription protocol and change stream delivery creates hidden coupling; if network topology changes (e.g., edge caching, local replicas introduced), the centralized server assumption may become invalid.",
+        "Authorization enforcement boundary ambiguity: if authorization rules are enforced both at NGHE publish time and at consumer ingestion time (defense-in-depth), responsibility for authorization correctness becomes diffused across NGHE Solution and consumers."
+      ],
+      "containment_notes": "DP5 is well-contained within NGHE Solution (containment_score 0.92, diffusion_score 0.08). The centralized state server, subscription logic, authorization filtering, and event-driven propagation are all core NGHE infrastructure responsibilities. Vehicle, Teleoperation, and Safety Services are correctly positioned as pure consumers receiving filtered state deltas via well-defined external interfaces (Telemetry in, Tasking/SafetyAlert out). No alternative module (Vehicle, Teleoperation, Safety Services) is suitable for ownership; all alternatives exhibit poor containment (0.25–0.35) and high diffusion (0.65–0.75). The IM boundary is clear and defensible."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The FR requirement is measurable against the acceptance criterion (p95 latency ≤ 1.0 s for supported update scenarios). Verification can be performed by: (1) instrumenting the NGHE Solution to measure end-to-end latency from Telemetry ingestion to Tasking/SafetyAlert delivery; (2) testing subscription filtering and authorization enforcement under load; (3) validating that all authorized consumers receive state changes within the latency threshold. The IM boundary (NGHE Solution) is the natural instrumentation point for latency measurement.",
+      "allocation_clarity": "High. The FR is clearly allocated to the NGHE Solution IM boundary via DP5. The external interfaces (Telemetry in, Tasking/SafetyAlert out, SafetyAlert out, Network Link inout) provide unambiguous allocation of responsibilities: NGHE Solution owns state propagation logic; Vehicle, Teleoperation, and Safety Services own consumption and reactive behavior. Authorization filtering at publish time is explicitly allocated to NGHE Solution, eliminating ambiguity about where authorization decisions are made."
+    },
+    "recommended_revisions": [
+      "Monitor authorization rule complexity: establish a gate criterion that authorization rules remain generic (cross-cutting, not domain-specific). If domain-specific authorization emerges, consider revising DP5 to separate generic authorization (NGHE-owned) from domain-specific filtering (consumer-owned via subscription predicates).",
+      "Establish subscription lifecycle ownership: explicitly document whether subscription management (creation, update, termination) is owned by NGHE Solution or delegated to consumers. If delegation occurs, define the subscription protocol and ensure it does not create hidden coupling to consumer lifecycle.",
+      "Define change stream schema stability: establish a versioning and evolution strategy for the change stream schema. If schema fragmentation occurs (multiple incompatible representations), consider introducing a domain event broker pattern (DP variant) that allows consumers to define subscription predicates while NGHE enforces authorization at the transport layer.",
+      "Clarify Network Link contract: explicitly define the subscription protocol, change stream delivery semantics (at-least-once, exactly-once, best-effort), and network failure handling. Document assumptions about network topology (centralized vs. distributed, edge caching, local replicas) to prevent hidden coupling.",
+      "Establish authorization enforcement boundaries: clarify whether authorization is enforced only at NGHE publish time or also at consumer ingestion time. If both, document the division of responsibility and ensure no authorization logic is duplicated across NGHE Solution and consumers.",
+      "Latency validation plan: define a test scenario matrix covering supported update scenarios (e.g., vehicle telemetry updates, safety state transitions, operational policy changes) and confirm that p95 latency ≤ 1.0 s is achievable with the proposed DP5 architecture. If latency targets are not met, consider optimizations (e.g., local caching, edge filtering, subscription predicate pushdown)."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass with high confidence and clear allocation. However, the diffusion_risks and recommended_revisions reveal critical dependencies and boundary ambiguities that must be resolved at the next decomposition level to prevent architectural drift during detailed design. Specifically: (1) authorization rule complexity and domain-specificity require explicit sub-FR treatment to establish containment boundaries; (2) subscription lifecycle coupling to consumer state machines demands sub-level design to clarify ownership and protocol contracts; (3) change stream schema stability and versioning require sub-level specification to prevent fragmentation; (4) Network Link transport assumptions need sub-level validation to expose hidden coupling. Given high safety criticality, these risks cannot be deferred to implementation; they must be addressed through structured sub-FR decomposition to establish verifiable design constraints and interface contracts.",
+    "next_level_sub_frs": [
+      "FR5.1: Enforce authorization rules at publish time without leaking domain-specific filtering logic into consumer modules (containment constraint: authorization filtering logic must remain within NGHE Solution IM boundary; diffusion risk: domain-specific authorization rules may migrate to consumers if not explicitly constrained).",
+      "FR5.2: Manage subscription lifecycle (creation, update, termination) with clear ownership boundaries and protocol contracts between NGHE Solution and consumers (containment constraint: subscription state machine and lifecycle events must be owned by either NGHE Solution or consumers, not split; diffusion risk: if subscription lifecycle is tightly coupled to consumer operational state, subscription management logic may diffuse across module boundaries).",
+      "FR5.3: Maintain change stream schema stability and support schema evolution without fragmenting into multiple incompatible domain-specific streams (containment constraint: schema versioning and evolution strategy must be defined and enforced at NGHE Solution boundary; diffusion risk: if different consumers require incompatible state representations, change stream may fragment into multiple streams, violating single-stream assumption).",
+      "FR5.4: Define and validate Network Link transport contract for subscription protocol and change stream delivery semantics (containment constraint: subscription protocol, delivery guarantees (at-least-once, exactly-once, best-effort), and network failure handling must be explicitly specified; diffusion risk: if network topology assumptions are implicit, introduction of edge caching or local replicas may invalidate centralized server design).",
+      "FR5.5: Establish clear authorization enforcement boundary between NGHE Solution publish-time filtering and consumer ingestion-time filtering to prevent authorization logic duplication and ensure defense-in-depth without ambiguity (containment constraint: authorization responsibility must be clearly partitioned; diffusion risk: if both NGHE and consumers enforce authorization, responsibility becomes diffused and authorization correctness becomes difficult to verify).",
+      "FR5.6: Validate latency performance (p95 ≤ 1.0 s) across supported update scenarios (vehicle telemetry, safety state transitions, operational policy changes) and identify optimization points if targets are not met (verification constraint: latency must be measurable and validated against acceptance criterion; diffusion risk: if latency targets are not met, optimization pressure may drive architectural changes such as local caching or edge filtering that violate centralized design assumptions)."
+    ],
+    "revise": {
+      "target": null,
+      "why": "No revision of current-level FR, DP, or IM is required. All three gates pass with sound logic and clear allocation. The recommended_revisions in the gate output are design guardrails and monitoring criteria for sub-level decomposition, not corrections to the current level."
+    },
+    "record": {
+      "assumptions": [
+        "Authorization rules remain generic and cross-cutting; domain-specific authorization logic is not required.",
+        "Subscription lifecycle is owned by NGHE Solution; consumers do not manage subscription state directly.",
+        "Change stream schema is stable and does not fragment into multiple incompatible representations.",
+        "Network Link provides reliable, latency-bounded transport for subscription protocol and change stream delivery; network topology remains centralized (no edge caching or local replicas).",
+        "Authorization is enforced only at NGHE publish time; consumers do not perform secondary authorization filtering.",
+        "Latency targets (p95 ≤ 1.0 s) are achievable with centralized state server and event-driven propagation; no optimization (local caching, edge filtering, predicate pushdown) is required."
+      ],
+      "open_risks": [
+        "Authorization rule complexity: if domain-specific authorization emerges (e.g., tied to Vehicle operational state or Teleoperation session context), filtering logic may diffuse from NGHE Solution into consumer modules, requiring DP revision.",
+        "Subscription lifecycle coupling: if subscription state becomes tightly bound to consumer lifecycle events (Teleoperation session start/stop, Vehicle power-on/off), subscription management logic may migrate out of NGHE Solution, weakening centralized DP.",
+        "Change stream schema fragmentation: if different consumers require incompatible state representations or filtering predicates, unified change stream may fragment into multiple domain-specific streams, violating single-stream assumption.",
+        "Network Link transport dependency: heavy reliance on Network Link for subscription protocol and change stream delivery creates hidden coupling; if network topology changes (edge caching, local replicas), centralized server assumption may become invalid.",
+        "Authorization enforcement boundary ambiguity: if authorization rules are enforced both at NGHE publish time and consumer ingestion time (defense-in-depth), responsibility for authorization correctness becomes diffused across NGHE Solution and consumers.",
+        "Latency validation: if p95 latency ≤ 1.0 s is not achievable with centralized design, optimization pressure may drive architectural changes that violate design assumptions."
+      ],
+      "evidence_needed": [
+        "Sub-level design specification for FR5.1 (authorization filtering): document authorization rule taxonomy, identify which rules are generic vs. domain-specific, establish containment criterion (e.g., 'all authorization rules must be expressible as generic predicates on worksite model state without reference to consumer operational context').",
+        "Sub-level design specification for FR5.2 (subscription lifecycle): define subscription state machine, ownership boundary (NGHE vs. consumer), protocol contract (subscription creation/update/termination messages, error handling), and coupling constraints to consumer lifecycle.",
+        "Sub-level design specification for FR5.3 (change stream schema): define schema versioning strategy, evolution rules, and fragmentation prevention criterion (e.g., 'all consumers must accept the same change stream schema; domain-specific filtering is performed via subscription predicates, not schema variants').",
+        "Sub-level design specification for FR5.4 (Network Link contract): define subscription protocol (message format, handshake, subscription predicate syntax), delivery semantics (at-least-once, exactly-once, best-effort), network failure handling (retry, timeout, fallback), and network topology assumptions (centralized vs. distributed, edge caching, local replicas).",
+        "Sub-level design specification for FR5.5 (authorization enforcement boundary): clarify whether authorization is enforced only at NGHE publish time or also at consumer ingestion time; if both, document division of responsibility and establish criterion for authorization correctness verification.",
+        "Latency validation test plan: define test scenario matrix covering supported update scenarios (vehicle telemetry updates, safety state transitions, operational policy changes); measure end-to-end latency from Telemetry ingestion to Tasking/SafetyAlert delivery; confirm p95 latency ≤ 1.0 s; identify optimization points if targets are not met.",
+        "Safety criticality assessment: given high safety criticality, establish verification criteria for each sub-FR to ensure that authorization enforcement, subscription lifecycle, schema stability, and latency performance are validated before integration testing."
+      ]
+    }
+  }
+}

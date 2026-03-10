@@ -1,0 +1,173 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall enable end-to-end teleoperation communication with latency that permits safe remote operation by the tele-operator.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting teleoperation capability, and (2) ensuring latency is compatible with safety. The refined version separates the capability requirement from the safety constraint. The phrase 'compatible with safe remote operation' remains in the FR because it defines the functional boundary (what latency performance is needed for the operator to safely control the equipment), while the specific numerical acceptance criterion (p95 ≤ 150 ms) belongs in the constraint/acceptance criteria layer, not the FR itself. This keeps the FR solution-neutral and problem-focused.",
+    "verification_idea": "Measure end-to-end latency (sensor input to actuator response) under agreed network conditions across multiple teleoperation scenarios (e.g., precision tasks, emergency stop, obstacle avoidance). Confirm that measured latency permits the tele-operator to maintain safe control authority as defined in the worksite safety plan and operational policies.",
+    "sub_frs": [
+      "FR-NGHE-008.1: The NGHE solution shall transmit tele-operator control inputs from the remote station to the equipment with deterministic latency.",
+      "FR-NGHE-008.2: The NGHE solution shall transmit equipment state and sensor feedback from the equipment to the remote station with deterministic latency.",
+      "FR-NGHE-008.3: The NGHE solution shall provide the tele-operator with sufficient situational awareness (visual, auditory, or haptic feedback) to safely command equipment motion and operations."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Establish a dedicated, low-latency communication pathway with end-to-end latency monitoring and adaptive quality-of-service (QoS) prioritization to ensure operator commands and telemetry reach within the p95 ≤ 150 ms budget.",
+      "DP2: Implement a hybrid communication architecture with primary and secondary redundant channels, each independently capable of meeting latency requirements, with automatic failover logic to maintain safety during primary channel degradation.",
+      "DP3: Decompose teleoperation into discrete command-response cycles with bounded processing windows at each stage (operator interface, network transit, remote execution, feedback return), enforcing strict timeout and retry policies to prevent latency accumulation.",
+      "DP4: Deploy edge-local autonomy with operator-in-the-loop validation, where remote equipment executes pre-validated motion primitives locally while awaiting operator confirmation, reducing round-trip latency dependency for safety-critical actions.",
+      "DP5: Establish a tiered communication protocol stack with application-level heartbeat and jitter buffering, separating real-time command channels from non-real-time telemetry, allowing independent optimization of each tier."
+    ],
+    "selected_dp": "DP3 + DP5 (Composite): Decompose teleoperation into discrete, bounded command-response cycles with strict per-stage latency budgets and timeout enforcement (DP3), integrated with a tiered protocol architecture that separates real-time command channels from telemetry (DP5). This composition ensures latency predictability through explicit cycle boundaries while allowing independent optimization of critical vs. non-critical data flows.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "DP3 and DP5 are logically independent: DP3 defines cycle structure and budgeting; DP5 defines channel separation. However, implementation (IM layer) must ensure that the protocol stack (DP5) respects the cycle boundaries (DP3), creating a soft coupling at the IM level.",
+        "DP3's timeout and retry logic must be coordinated with DP5's jitter buffering to avoid double-buffering or conflicting backpressure mechanisms.",
+        "Operator interface, network, and remote execution stages (DP3) are loosely coupled if each stage owns its own latency budget and communicates via well-defined interfaces, but tight coupling emerges if stages share state or synchronization primitives."
+      ],
+      "notes": "The composite DP avoids tight functional coupling by keeping concerns orthogonal: DP3 addresses temporal structure and safety guarantees; DP5 addresses channel multiplexing and QoS. Coupling risk is primarily at the IM layer (implementation module boundaries) where protocol handlers must respect cycle timing. This is manageable through clear interface contracts and latency budgets per module."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Network conditions are stable and predictable within the agreed baseline (e.g., bandwidth, jitter profile). RISK: If network conditions degrade beyond baseline, the p95 ≤ 150 ms target may not be achievable without fallback to reduced autonomy or operator-guided safe shutdown.",
+      "ASSUMPTION: Operator reaction time and interface processing latency are accounted for within the 150 ms budget. RISK: If operator interface latency is not explicitly budgeted and measured, the remaining network+execution budget may be insufficient.",
+      "ASSUMPTION: Remote equipment can execute pre-validated motion primitives with deterministic latency. RISK: If execution environment (e.g., embedded controller, actuator response) has variable latency, cycle predictability is compromised.",
+      "ASSUMPTION: Worksite safety plan includes procedures for operator-initiated safe shutdown if latency exceeds thresholds. RISK: If safety procedures are not operationalized (e.g., no automated watchdog or operator training), latency violations may not trigger safe states.",
+      "ASSUMPTION: DP5's tiered protocol can be implemented without introducing additional latency overhead (e.g., serialization, context switching). RISK: Separation of channels may require additional buffering or scheduling logic that increases latency variance.",
+      "ASSUMPTION: The 150 ms p95 latency is sufficient for safe remote operation given the worksite hazards and operator skill level. RISK: If actual safety requirements are tighter (e.g., due to high-speed equipment or confined spaces), 150 ms may be inadequate; this should be validated against the safety plan."
+    ],
+    "recommended_revision": "Refine the FR to explicitly include latency budget allocation across stages: 'The NGHE solution shall enable end-to-end teleoperation communication with p95 latency ≤ 150 ms, decomposed as: operator interface ≤ X ms, network transit ≤ Y ms, remote execution ≤ Z ms, with each stage monitored and reported to the operator. The solution shall enforce a safety watchdog that triggers operator-initiated safe shutdown if any stage exceeds its budget for more than N consecutive cycles.' This revision makes the latency budget explicit and measurable at the IM layer, reducing ambiguity in implementation and enabling clear ownership of latency performance across modules."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Encapsulates command-response cycle orchestration, latency budgeting, timeout enforcement, and protocol-level separation of real-time command channels from telemetry streams. Owns the state machine for discrete bounded cycles and per-stage latency tracking."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives operator commands and cycle initiation signals; Teleoperation module interprets these as cycle boundaries and applies latency budgets."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Emits vehicle state, sensor data, and cycle completion status on non-critical telemetry channel; decoupled from real-time command path."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Signals timeout violations, latency budget overruns, or cycle failures to Safety Services for intervention."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Underlying transport for both command (real-time tier) and telemetry (non-real-time tier) channels; Teleoperation manages protocol-level multiplexing and prioritization."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit. DP3 (cycle decomposition, latency budgets, timeouts) and DP5 (tiered protocol, channel separation) are both core to teleoperation orchestration. Cycle state machine, timeout logic, and protocol multiplexing naturally belong here. Minor diffusion: Network Link must implement physical transport; Safety Services must enforce timeout consequences. Cohesion is high because both DPs directly address the teleoperation control loop."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor fit. Vehicle module owns actuator control and sensor acquisition, not command-response cycle orchestration or protocol architecture. DP3 and DP5 are operator-side concerns; placing them in Vehicle would scatter cycle logic across vehicle firmware and operator station, violating separation of concerns. High diffusion: cycle state, latency budgets, and protocol tiers would leak into vehicle control logic."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.28,
+        "diffusion_score": 0.72,
+        "notes": "Poor fit. Safety Services owns hazard detection and intervention, not cycle orchestration or protocol design. While Safety Services consumes timeout alerts (via SafetyAlert), it does not own the latency budgeting or command-response cycle logic. Placing DP3 and DP5 here would conflate safety enforcement with teleoperation control flow. High diffusion: core cycle and protocol logic would remain in Teleoperation, creating circular dependency."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.15,
+        "diffusion_score": 0.85,
+        "notes": "Very poor fit. NGHE Solution is a top-level system container, not a functional module. Placing DP3 and DP5 here would bypass architectural layering and make the entire system responsible for cycle orchestration and protocol design. Extreme diffusion: no clear ownership, no encapsulation, no reusability. This violates modularity principles."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the natural owner of both DP3 and DP5 because it is responsible for the operator-to-vehicle command-response loop. DP3 (cycle decomposition and latency budgeting) directly implements the control flow and timing guarantees that teleoperation must provide. DP5 (tiered protocol architecture) is the mechanism by which Teleoperation separates critical real-time commands from non-critical telemetry, ensuring predictable latency for operator commands while allowing independent optimization of sensor data flows. Both DPs are cohesive within Teleoperation: they address the same problem (latency predictability in remote control) and share state (cycle boundaries, timeout counters, channel priorities). External dependencies are minimal and well-defined: Tasking provides input, Telemetry and SafetyAlert provide output, and Network Link provides transport.",
+    "containment_risks": [
+      "Risk: Network Link implementation may not support the tiered protocol multiplexing required by DP5. Mitigation: Teleoperation must define a clear protocol contract (e.g., priority queuing, frame tagging) that Network Link implements. If Network Link cannot support this, DP5 must be revised to match available transport capabilities.",
+      "Risk: Safety Services may need to enforce timeout consequences (e.g., emergency stop) that require tight coupling to Teleoperation's cycle state. Mitigation: Use SafetyAlert as a clean interface; Teleoperation signals timeout violations, and Safety Services decides the response. Avoid bidirectional control flow.",
+      "Risk: Vehicle module may need to acknowledge cycle completion or report per-stage latency, creating feedback coupling. Mitigation: Vehicle reports completion status via Telemetry; Teleoperation interprets this as cycle-end signal. Keep Vehicle unaware of cycle semantics.",
+      "Risk: Operator station (Tasking source) may impose command patterns that violate latency budgets. Mitigation: Teleoperation must validate incoming commands against budget constraints and reject or queue non-conforming requests. This is a DP3 responsibility."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The FR specifies a measurable latency constraint (p95 ≤ 150 ms for safe remote operation). The IM boundary (Teleoperation module) owns cycle state machine, per-stage latency tracking, and timeout enforcement—all directly observable and testable. Verification can be performed via: (1) instrumented cycle timing logs, (2) latency histogram analysis under network conditions, (3) timeout trigger validation, (4) SafetyAlert emission on budget overrun. The external interfaces (Tasking input, Telemetry/SafetyAlert output, Network Link transport) provide clear measurement points.",
+      "allocation_clarity": "Excellent. The FR requirement maps unambiguously to the Teleoperation IM: operator commands enter via Tasking, cycle orchestration and latency budgeting occur within Teleoperation, and safety-critical timeout violations exit via SafetyAlert. The IM boundary is crisp and does not overlap with Vehicle, Safety Services, or other modules. Ownership is singular and non-negotiable."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "The composite DP (DP3 + DP5) directly addresses the FR requirement. DP3 (discrete bounded cycles with per-stage latency budgets and timeout enforcement) provides the mechanism for latency predictability and safe operation. DP5 (tiered protocol architecture separating real-time commands from telemetry) ensures that critical operator commands are not delayed by non-critical sensor data, enabling consistent latency performance. Together, they form a coherent solution to the FR: end-to-end teleoperation with operator-safe latency. The logic is sound and the composition is justified (cycle boundaries enable independent optimization of critical vs. non-critical flows)."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Risk: Network Link implementation may not natively support tiered protocol multiplexing (priority queuing, frame tagging) required by DP5. If Network Link is a passive transport layer, Teleoperation must implement protocol-level prioritization logic. Mitigation: Define explicit protocol contract (e.g., frame header with priority field, queue discipline) that Teleoperation enforces and Network Link respects. If Network Link cannot support this, escalate to architecture review and revise DP5 to match transport capabilities.",
+        "Risk: Safety Services timeout response (e.g., emergency stop command) may require bidirectional coupling to Teleoperation's cycle state, creating circular dependency. Mitigation: Enforce unidirectional SafetyAlert interface: Teleoperation signals timeout violations, Safety Services decides intervention independently. Teleoperation must not wait for Safety Services acknowledgment before proceeding to next cycle.",
+        "Risk: Vehicle module may need to report per-stage latency or cycle completion status, creating implicit feedback coupling that could scatter cycle semantics across Vehicle firmware. Mitigation: Vehicle reports completion status and sensor data via Telemetry channel only; Teleoperation interprets Telemetry as cycle-end signal. Vehicle must remain unaware of cycle boundaries and latency budgets.",
+        "Risk: Operator station (Tasking source) may issue commands at rates or patterns that violate latency budgets, causing Teleoperation to queue or reject requests. This could degrade operator experience and safety. Mitigation: Teleoperation must validate incoming commands against budget constraints and provide feedback (e.g., queue status, rejection reason) to Tasking. This is a DP3 responsibility and must be explicitly designed.",
+        "Risk: Teleoperation module containment score of 0.92 indicates 8% diffusion. This residual diffusion is acceptable and localized: Network Link owns physical transport implementation, Safety Services owns hazard response logic. However, the protocol contract between Teleoperation and Network Link must be explicit and testable to prevent creeping diffusion."
+      ],
+      "containment_notes": "Excellent containment. The Teleoperation module is the natural and only appropriate owner of DP3 and DP5. Cycle orchestration, latency budgeting, timeout enforcement, and protocol-level channel separation are all core teleoperation concerns and belong in a single, cohesive module. The external interfaces are well-defined and minimal: Tasking (input), Telemetry/SafetyAlert (output), Network Link (transport). No other module should own or duplicate cycle logic, latency tracking, or protocol multiplexing. The 0.92 containment score reflects this clarity. The 0.08 diffusion is unavoidable and acceptable: Network Link must implement transport, Safety Services must enforce consequences. These are external dependencies, not architectural flaws."
+    },
+    "recommended_revisions": [
+      "Revision 1: Explicitly define the protocol contract between Teleoperation and Network Link. Specify frame format (e.g., priority field, sequence number, timeout marker), queue discipline (e.g., strict priority, weighted fair queuing), and latency guarantees (e.g., p95 latency for real-time tier). This contract must be testable and must be validated during integration testing.",
+      "Revision 2: Add a design note to DP5 clarifying that 'tiered protocol architecture' refers to logical channel separation (real-time commands vs. non-critical telemetry), not necessarily physical channel separation. If Network Link supports only a single physical channel, Teleoperation must implement logical multiplexing (e.g., frame tagging, priority queuing) to achieve the same effect.",
+      "Revision 3: Add a design note to DP3 specifying the timeout enforcement mechanism: (a) per-stage timeout (e.g., 50 ms per stage for a 150 ms total budget), (b) timeout action (e.g., abort cycle, signal SafetyAlert, queue retry), and (c) timeout counter reset logic (e.g., reset on cycle start, reset on stage completion). This must be unambiguous and testable.",
+      "Revision 4: Add a design note clarifying the Tasking-to-Teleoperation interface: (a) command validation rules (e.g., reject commands that would exceed latency budget), (b) feedback mechanism (e.g., queue status, rejection reason), and (c) operator notification strategy (e.g., visual indicator, audio alert). This ensures operator awareness of cycle constraints.",
+      "Revision 5: Add a design note clarifying the Telemetry-to-Vehicle interface: Vehicle must report cycle completion status (e.g., 'cycle_complete' flag, timestamp) via Telemetry, but must not be aware of cycle semantics or latency budgets. Teleoperation interprets Telemetry as cycle-end signal. This preserves Vehicle module independence.",
+      "Revision 6: Add a design note clarifying the SafetyAlert-to-Safety Services interface: Teleoperation signals timeout violations and latency budget overruns, but does not dictate Safety Services response. Safety Services must decide intervention independently (e.g., emergency stop, operator alert, cycle abort). This prevents circular dependency.",
+      "Revision 7: Add acceptance test criteria: (a) Measure p95 latency under agreed network conditions and verify ≤ 150 ms, (b) Verify timeout enforcement by injecting network delays and confirming SafetyAlert emission, (c) Verify protocol multiplexing by monitoring frame priorities and queue depths, (d) Verify cycle state machine by tracing cycle transitions and latency budget consumption. These tests must be automated and repeatable."
+    ]
+  },
+  "decision": {
+    "decision": "REVISE_CURRENT_LEVEL",
+    "justification": "All three gates (FR-IM, FR-DP, DP-IM) pass with high confidence, and the FR is sufficiently specific and measurable (p95 ≤ 150 ms) to warrant implementation without further decomposition. However, the recommended_revisions identify seven critical design clarifications that must be incorporated into the current FR, DP, and IM definitions before proceeding to detailed design or sub-level decomposition. These revisions are not optional refinements; they address explicit diffusion risks (Network Link protocol contract, Vehicle cycle awareness, Safety Services coupling, Tasking feedback) and testability gaps (timeout mechanism, cycle state machine, acceptance criteria) that could undermine safety and containment if left unresolved. Revising now prevents architectural debt and ensures the Teleoperation module boundary remains crisp and defensible. Once revisions are integrated, this FR is ready for implementation-level design (detailed state machine, latency budget allocation, protocol specification) without further functional decomposition.",
+    "next_level_sub_frs": [],
+    "revise": {
+      "target": "DP",
+      "why": "DP3 and DP5 are logically sound but lack sufficient detail to guide implementation and testing. Revisions 1–7 must be incorporated as design notes and acceptance criteria attached to the DP definitions: (1) Explicit protocol contract (frame format, queue discipline, latency guarantees) for DP5 and Network Link integration. (2) Clarification that DP5 refers to logical channel separation, implementable via frame tagging and priority queuing if physical channels are unavailable. (3) Detailed timeout enforcement mechanism for DP3 (per-stage timeout, timeout action, counter reset logic). (4) Tasking-to-Teleoperation interface specification (command validation, feedback, operator notification). (5) Telemetry-to-Vehicle interface specification (cycle completion status reporting, Vehicle module independence). (6) SafetyAlert-to-Safety Services interface specification (unidirectional signaling, independent Safety Services decision-making). (7) Acceptance test criteria (p95 latency measurement, timeout validation, protocol multiplexing verification, cycle state machine tracing). These revisions elevate DP3 and DP5 from conceptual solutions to implementable, testable designs. The FR itself remains valid and does not require revision; the DP must be enriched to fully realize the FR."
+    },
+    "record": {
+      "assumptions": [
+        "Network Link transport layer can be configured or extended to support tiered protocol multiplexing (priority queuing, frame tagging) as specified in the protocol contract. If not, DP5 must be revised or escalated to architecture review.",
+        "Vehicle module can report cycle completion status (e.g., 'cycle_complete' flag, timestamp) via Telemetry without requiring awareness of cycle semantics or latency budgets. This assumption must be validated during Vehicle module design.",
+        "Safety Services module can respond to SafetyAlert signals independently, without requiring bidirectional coupling or acknowledgment from Teleoperation. This assumption must be validated during Safety Services design.",
+        "Operator station (Tasking source) can accept feedback from Teleoperation regarding command validation, queue status, and rejection reasons. This assumption must be validated during operator interface design.",
+        "The p95 latency constraint (≤ 150 ms) is achievable under agreed network conditions (e.g., typical LTE latency, packet loss rate, jitter). This assumption must be validated during network characterization and integration testing.",
+        "Timeout enforcement (per-stage timeout, timeout action, counter reset) can be implemented deterministically in the Teleoperation module without race conditions or state machine ambiguities. This assumption must be validated during detailed design and code review."
+      ],
+      "open_risks": [
+        "Risk: Network Link implementation may not natively support tiered protocol multiplexing. Mitigation: Define explicit protocol contract and validate during integration. Escalate to architecture review if Network Link cannot support contract.",
+        "Risk: Safety Services timeout response may create circular dependency with Teleoperation cycle state. Mitigation: Enforce unidirectional SafetyAlert interface and validate during integration testing.",
+        "Risk: Vehicle module may be implicitly coupled to cycle semantics if it reports per-stage latency or cycle completion status. Mitigation: Clarify Telemetry-to-Vehicle interface and validate that Vehicle remains unaware of cycle boundaries.",
+        "Risk: Operator station may issue commands at rates or patterns that violate latency budgets, degrading operator experience and safety. Mitigation: Implement command validation and feedback mechanism in Teleoperation, and validate during operator interface testing.",
+        "Risk: Timeout enforcement mechanism may have race conditions or state machine ambiguities if not carefully designed. Mitigation: Specify timeout mechanism in detail (per-stage timeout, timeout action, counter reset) and validate via code review and state machine testing.",
+        "Risk: Protocol multiplexing (DP5) may introduce latency overhead if implemented via software-level frame tagging and priority queuing. Mitigation: Measure latency impact during integration testing and adjust queue discipline if necessary.",
+        "Risk: Acceptance test criteria may be incomplete or non-deterministic if not carefully specified. Mitigation: Define acceptance tests in detail (measurement methodology, network conditions, success criteria) and automate testing to ensure repeatability."
+      ],
+      "evidence_needed": [
+        "Protocol contract specification: Frame format (priority field, sequence number, timeout marker), queue discipline (strict priority, weighted fair queuing), latency guarantees (p95 latency for real-time tier). This must be documented and agreed upon by Teleoperation and Network Link teams.",
+        "Timeout enforcement design: Per-stage timeout values (e.g., 50 ms per stage for 150 ms total budget), timeout action (e.g., abort cycle, signal SafetyAlert, queue retry), counter reset logic (e.g., reset on cycle start, reset on stage completion). This must be documented in DP3 design notes.",
+        "Tasking-to-Teleoperation interface specification: Command validation rules (e.g., reject commands that would exceed latency budget), feedback mechanism (e.g., queue status, rejection reason), operator notification strategy (e.g., visual indicator, audio alert). This must be documented and agreed upon by Teleoperation and operator interface teams.",
+        "Telemetry-to-Vehicle interface specification: Vehicle must report cycle completion status (e.g., 'cycle_complete' flag, timestamp) via Telemetry, but must not be aware of cycle semantics or latency budgets. This must be documented and validated during Vehicle module design.",
+        "SafetyAlert-to-Safety Services interface specification: Teleoperation signals timeout violations and latency budget overruns, but does not dictate Safety Services response. Safety Services must decide intervention independently. This must be documented and agreed upon by Teleoperation and Safety Services teams.",
+        "Network characterization: Typical latency, packet loss rate, jitter under agreed conditions (e.g., LTE, WiFi, wired). This must be measured and documented to validate p95 latency constraint.",
+        "Acceptance test plan: Automated tests for p95 latency measurement, timeout enforcement validation, protocol multiplexing verification, cycle state machine tracing. Tests must be repeatable and must include network condition variation (latency injection, packet loss simulation).",
+        "Code review checklist: State machine correctness, timeout counter logic, race condition analysis, protocol multiplexing implementation, error handling. This must be completed before integration testing."
+      ]
+    }
+  }
+}

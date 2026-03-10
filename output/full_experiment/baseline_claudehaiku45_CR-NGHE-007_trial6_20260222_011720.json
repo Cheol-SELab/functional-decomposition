@@ -1,0 +1,163 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current equipment state, environmental conditions, and operational events with a p95 latency not exceeding the customer-defined target (baseline 1.0 s) across all supported update scenarios.",
+    "rationale": "CR-NGHE-007 requires clarification of scope (what constitutes 'worksite model'), measurement basis (p95 latency across which scenarios), and customer-specific acceptance criteria. The refined FR explicitly bounds the latency requirement to a statistical percentile and acknowledges customer tailoring, critical for high-safety-criticality systems where deterministic guarantees matter.",
+    "verification_idea": "Instrument worksite model update pipeline with end-to-end latency telemetry; measure p95 latency across representative scenarios (equipment state change, sensor event, tele-operator command, safety alert); compare against customer acceptance criteria; validate under nominal and degraded network conditions.",
+    "sub_frs": [
+      "FR-NGHE-007.1: Capture and transmit equipment state changes (position, orientation, operational mode) with minimal local processing latency.",
+      "FR-NGHE-007.2: Receive and integrate transmitted state updates into the worksite model with bounded processing and storage latency.",
+      "FR-NGHE-007.3: Propagate worksite model updates to all authorized consumers (Site Manager, Tele-operator, Safety Services) within the latency budget.",
+      "FR-NGHE-007.4: Ensure latency compliance under network congestion, packet loss, and multi-equipment scenarios."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized worksite model server with real-time event streaming; all equipment pushes state to server; server broadcasts updates to consumers via publish-subscribe.",
+      "DP-B: Distributed edge-cached worksite model; each equipment maintains local model replica; state changes propagated via gossip protocol with eventual consistency.",
+      "DP-C: Hybrid hub-and-spoke with local equipment buffers; equipment batches state updates and sends to central hub; hub aggregates and multicasts to consumers with configurable flush intervals.",
+      "DP-D: Time-synchronized state snapshots; all equipment and consumers synchronize to a common clock; worksite model updated at fixed intervals (e.g., 100 ms) with deterministic latency."
+    ],
+    "selected_dp": "DP-A: Centralized worksite model server with real-time event streaming and publish-subscribe distribution.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between equipment telemetry capture rate and server ingestion throughput (mitigated by buffering and backpressure).",
+        "Coupling between network link quality and end-to-end latency (inherent; requires network SLA).",
+        "Coupling between consumer subscription patterns and server broadcast load (mitigated by topic-based filtering)."
+      ],
+      "notes": "DP-A exhibits loose coupling between equipment and server (via asynchronous events) and between server and consumers (via pub-sub decoupling). Latency is primarily determined by network transit time and server processing queue depth, both measurable and tunable. High-safety-criticality context favors centralized model (single source of truth) over distributed eventual-consistency approaches."
+    },
+    "assumptions_risks": [
+      "Assumption: Network link provides sufficient bandwidth and low-latency connectivity (e.g., 4G/5G or wired); risk: poor network conditions violate p95 target.",
+      "Assumption: Worksite model server is deployed with sufficient compute and memory; risk: server bottleneck under high equipment count or update frequency.",
+      "Assumption: Equipment can reliably capture and timestamp state changes; risk: clock skew or missed events degrade model accuracy.",
+      "Assumption: Consumers tolerate brief model inconsistency during propagation; risk: safety-critical decisions based on stale model state.",
+      "Risk: Single point of failure at centralized server; mitigation required via redundancy and failover."
+    ],
+    "recommended_revision": "Refine DP-A to explicitly include: (1) server redundancy and failover strategy, (2) network SLA requirements (latency, jitter, packet loss), (3) equipment-to-server buffering and retry logic, (4) consumer-side model caching and staleness detection, (5) latency monitoring and alerting thresholds."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "End-to-end worksite model update pipeline: equipment state capture, network transmission, central model aggregation, and distribution to authorized consumers. Includes server infrastructure, network coordination, and consumer-side model synchronization logic."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Equipment state updates (position, orientation, mode, sensor readings) ingested from Vehicle and Teleoperation modules; used to populate and refresh worksite model."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Worksite model state and updates distributed to consumers (Site Manager, Tele-operator) to inform operational decisions and task execution."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "Safety Services module consumes worksite model updates to detect hazards; Safety Services emits alerts that are integrated into worksite model and propagated to operators."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Underlying network transport (4G/5G, wired, or hybrid) used for all inter-module communication; latency and reliability of Network Link directly impact worksite model update latency."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "NGHE Solution is the system-level integration point; worksite model update is a core system function. Containment is high because the entire pipeline (capture, aggregation, distribution) is logically part of the NGHE solution. Minimal diffusion: only external interfaces are to Vehicle, Teleoperation, Safety Services, and Network Link."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 30,
+        "diffusion_score": 70,
+        "notes": "Vehicle module owns equipment state capture and local telemetry generation, but does not own the central model server, aggregation logic, or distribution to consumers. Assigning the entire DP to Vehicle would scatter model update logic across multiple equipment instances and violate single-source-of-truth principle."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 25,
+        "diffusion_score": 75,
+        "notes": "Teleoperation module is a consumer of worksite model updates, not the owner of the model or aggregation logic. Assigning DP to Teleoperation would couple tele-operator-specific logic with system-wide model management."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Safety Services module consumes worksite model to detect hazards and emit alerts, but does not own the model update pipeline. Assigning DP to Safety Services would conflate safety analysis with model synchronization."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "The worksite model update pipeline is a system-level concern that must be owned by the NGHE Solution module to ensure single source of truth, consistent latency guarantees, and coordinated distribution to all consumers. Vehicle, Teleoperation, and Safety Services are consumers or contributors, not owners.",
+    "containment_risks": [
+      "Risk: NGHE Solution module may become a monolithic 'god object' if too many system-level functions are assigned to it; mitigation: decompose NGHE Solution into sub-modules (e.g., Model Server, Network Coordinator, Consumer Manager) at the next decomposition level.",
+      "Risk: Tight coupling between NGHE Solution and Network Link if network latency is not explicitly managed; mitigation: define network SLA and implement latency monitoring and adaptive buffering.",
+      "Risk: Latency compliance depends on Vehicle and Teleoperation modules providing timely, accurate telemetry; mitigation: define telemetry interface contracts (frequency, accuracy, timestamp format) and validate at integration."
+    ],
+    "recommended_revision": "Confirm that NGHE Solution module has authority and resources to own the worksite model server infrastructure, network coordination, and consumer distribution logic. Define clear sub-module boundaries (e.g., Model Server, Network Coordinator, Consumer Manager) to avoid monolithic design. Establish interface contracts with Vehicle, Teleoperation, and Safety Services for telemetry input and model output."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-A (centralized server with pub-sub) directly addresses the refined FR requirement for bounded p95 latency across supported scenarios. The DP is logically sound: event-driven architecture minimizes unnecessary updates, pub-sub decoupling allows independent scaling of consumers, and centralized model ensures consistency. Latency is primarily determined by network transit and server queue depth, both measurable and tunable. No fundamental mismatch between FR and DP."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Risk: If NGHE Solution module is not properly resourced or architected, the centralized server logic may be scattered across Vehicle, Teleoperation, and Safety Services modules, violating the single-source-of-truth principle and increasing latency variance.",
+        "Risk: Network Link interface is external to NGHE Solution; if network SLA is not met, latency compliance cannot be guaranteed by NGHE Solution alone. Mitigation: establish explicit network SLA and monitoring."
+      ],
+      "containment_notes": "NGHE Solution is the appropriate owner for the worksite model update pipeline. The module boundary cleanly separates the model aggregation and distribution logic (owned by NGHE Solution) from equipment-specific telemetry capture (Vehicle), tele-operator-specific consumption (Teleoperation), and safety-specific analysis (Safety Services). External interfaces (Telemetry, Tasking, SafetyAlert, Network Link) are well-defined and minimal."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible via instrumentation of the worksite model update pipeline with end-to-end latency telemetry. Latency can be measured at key checkpoints: equipment state capture, network transmission, server ingestion, model update, and consumer delivery. p95 latency can be computed from telemetry logs and compared against customer acceptance criteria.",
+      "allocation_clarity": "The allocation of FR-NGHE-007 to NGHE Solution is clear. Sub-FRs (FR-NGHE-007.1 through 007.4) can be further allocated to sub-modules of NGHE Solution (e.g., Model Server, Network Coordinator) and to Vehicle, Teleoperation, and Safety Services at the next decomposition level."
+    },
+    "recommended_revisions": [
+      "Refine DP-A to include explicit server redundancy and failover strategy to address single-point-of-failure risk.",
+      "Define network SLA (latency, jitter, packet loss, availability) as a constraint on NGHE Solution and a requirement for the Network Link module.",
+      "Establish telemetry interface contracts with Vehicle and Teleoperation modules (frequency, accuracy, timestamp format, retry logic).",
+      "Define consumer-side model caching and staleness detection logic to mitigate brief inconsistencies during propagation.",
+      "Plan for latency monitoring and alerting at the NGHE Solution level to detect and respond to SLA violations."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The refined FR is well-scoped and the selected DP is logically sound and appropriately assigned to NGHE Solution. However, the DP requires further decomposition to address critical sub-concerns: (1) server redundancy and failover, (2) network SLA management, (3) equipment telemetry capture and buffering, (4) consumer-side model synchronization, and (5) latency monitoring. These sub-concerns map to the sub-FRs (FR-NGHE-007.1 through 007.4) and should be decomposed at the next level to ensure design completeness and risk mitigation.",
+    "next_level_sub_frs": [
+      "FR-NGHE-007.1: Capture and transmit equipment state changes (position, orientation, operational mode) with minimal local processing latency.",
+      "FR-NGHE-007.2: Receive and integrate transmitted state updates into the worksite model with bounded processing and storage latency.",
+      "FR-NGHE-007.3: Propagate worksite model updates to all authorized consumers (Site Manager, Tele-operator, Safety Services) within the latency budget.",
+      "FR-NGHE-007.4: Ensure latency compliance under network congestion, packet loss, and multi-equipment scenarios."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Network link provides sufficient bandwidth and low-latency connectivity (e.g., 4G/5G or wired).",
+        "Worksite model server is deployed with sufficient compute and memory to handle expected equipment count and update frequency.",
+        "Equipment can reliably capture and timestamp state changes with acceptable clock skew.",
+        "Consumers tolerate brief model inconsistency during propagation (not applicable to safety-critical decisions).",
+        "Customer-defined latency target is achievable given network and infrastructure constraints."
+      ],
+      "open_risks": [
+        "Single point of failure at centralized worksite model server; requires redundancy and failover strategy.",
+        "Network latency and reliability are external to NGHE Solution; poor network conditions may violate p95 target.",
+        "Equipment telemetry capture and transmission latency are owned by Vehicle module; if not optimized, may dominate end-to-end latency.",
+        "Consumer-side model caching and staleness detection logic may be scattered across Teleoperation and Safety Services; requires coordination.",
+        "Latency monitoring and alerting infrastructure must be in place to detect and respond to SLA violations in production."
+      ],
+      "evidence_needed": [
+        "Network SLA specification (latency, jitter, packet loss, availability) from customer or network provider.",
+        "Equipment telemetry capture and transmission latency measurements from Vehicle module.",
+        "Worksite model server performance benchmarks (ingestion throughput, processing latency, memory footprint) under expected load.",
+        "Consumer-side model synchronization latency measurements from Teleoperation and Safety Services modules.",
+        "End-to-end latency telemetry from pilot deployment or simulation to validate p95 target compliance.",
+        "Failover and redundancy strategy for worksite model server (e.g., active-active, active-passive, geographic replication)."
+      ]
+    }
+  }
+}

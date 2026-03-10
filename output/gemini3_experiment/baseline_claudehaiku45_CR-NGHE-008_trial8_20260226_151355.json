@@ -1,0 +1,174 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall establish and maintain teleoperation communication channels with end-to-end latency (sensor-to-actuator round-trip) not exceeding 150 ms at the 95th percentile under agreed network conditions, enabling safe and responsive remote equipment operation.",
+    "rationale": "The original FR is vague on measurement point (end-to-end vs. link-only), percentile definition, and network assumptions. Refinement clarifies that latency is measured from sensor acquisition through network transmission to actuator command execution, with explicit p95 acceptance criterion and conditional network scope. This precision is critical for safety-critical teleoperation where operator reaction time and equipment responsiveness directly impact worksite safety.",
+    "verification_idea": "Instrumented teleoperation test harness measuring timestamp deltas at sensor input and actuator output across representative network conditions (latency, jitter, packet loss profiles). Collect 1000+ round-trip samples; compute p95 latency distribution. Validate under both nominal and degraded network scenarios per agreed network conditions specification.",
+    "sub_frs": [
+      "FR-TELE-001: Acquire sensor data (position, orientation, load, proximity) at source with minimal capture latency.",
+      "FR-TELE-002: Encode and transmit sensor telemetry over network link with deterministic buffering and prioritization.",
+      "FR-TELE-003: Receive and decode remote operator commands (motion, tool actuation) with bounded queue latency.",
+      "FR-TELE-004: Execute actuator commands with minimal servo response time.",
+      "FR-TELE-005: Monitor end-to-end latency and alert operator/safety system if p95 latency exceeds 150 ms threshold."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Implement dedicated low-latency teleoperation stack (custom protocol, optimized serialization, priority queuing) with hardware-timestamped sensor acquisition and real-time actuator servo control.",
+      "DP-B: Leverage commercial off-the-shelf (COTS) teleoperation middleware (e.g., ROS 2 with DDS, industrial VPN + UDP) with tuned QoS profiles and network prioritization.",
+      "DP-C: Hybrid approach: custom sensor-to-network and network-to-actuator bridges with COTS middleware for command routing and monitoring.",
+      "DP-D: Implement redundant dual-path teleoperation (primary + failover) with automatic switchover to maintain latency SLA."
+    ],
+    "selected_dp": "DP-C: Hybrid approach with custom low-latency sensor acquisition and actuator servo bridges, integrated via COTS teleoperation middleware (ROS 2 DDS or equivalent) with QoS tuning, network prioritization, and latency monitoring.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between sensor bridge (IM: Vehicle) and teleoperation middleware (IM: Teleoperation) via Telemetry interface—mitigated by well-defined message schema and priority tagging.",
+        "Coupling between command reception (IM: Teleoperation) and actuator servo (IM: Vehicle) via Tasking interface—mitigated by deterministic command queue and timeout handling.",
+        "Coupling between latency monitoring (IM: Teleoperation or Safety Services) and safety alert generation (IM: Safety Services) via SafetyAlert interface—acceptable; safety criticality justifies tight coupling."
+      ],
+      "notes": "DP-C avoids over-coupling by isolating custom logic to bridge modules (Vehicle sensor/actuator layers) while delegating routing and monitoring to COTS middleware. Decoupling achieved via explicit interface contracts (Telemetry, Tasking, SafetyAlert). Safety-critical latency monitoring is appropriately coupled to Safety Services."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Network conditions (latency, jitter, packet loss) are characterized and stable within agreed bounds; if network degrades beyond specification, latency SLA may not be achievable.",
+      "ASSUMPTION: COTS middleware (ROS 2 DDS or equivalent) can be tuned to sub-50 ms middleware overhead; if not, custom middleware may be required.",
+      "RISK: Hardware timestamp synchronization between Vehicle and Teleoperation modules may drift; mitigation: periodic NTP sync or hardware clock discipline.",
+      "RISK: Actuator servo response time variability (mechanical hysteresis, friction) may consume significant portion of 150 ms budget; mitigation: characterize servo response distribution and allocate latency budget accordingly.",
+      "RISK: Network packet loss or reordering may cause command buffering and latency spikes; mitigation: implement adaptive command queue management and loss detection."
+    ],
+    "recommended_revision": "Refine DP-C to explicitly allocate latency budget across five sub-components: (1) sensor acquisition ≤20 ms, (2) sensor-to-network encoding ≤10 ms, (3) network transmission ≤80 ms (agreed network SLA), (4) network-to-actuator decoding ≤20 ms, (5) actuator servo response ≤20 ms. Total: ≤150 ms p95. Validate budget allocation against measured component latencies during integration testing."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Teleoperation module owns the end-to-end latency requirement. It encompasses: (1) telemetry reception and buffering from Vehicle (sensor data), (2) command encoding and transmission to Vehicle (actuator commands), (3) middleware routing and QoS management (COTS ROS 2 DDS or equivalent), (4) latency monitoring and threshold detection, (5) SafetyAlert generation on latency SLA violation. Vehicle module owns sensor acquisition bridges and actuator servo control (sub-FRs TELE-001 and TELE-004). Safety Services module owns latency alert policy and operator notification (sub-FR TELE-005 policy layer)."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Sensor data stream from Vehicle (position, orientation, load, proximity) with hardware timestamps. Teleoperation module receives, buffers, and forwards to remote operator console. Latency measurement point: Telemetry ingress timestamp."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Remote operator commands (motion vectors, tool actuation, mode changes) transmitted from Teleoperation to Vehicle. Latency measurement point: Tasking egress timestamp. Includes command sequence numbers and timeout markers for loss detection."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Latency threshold violation alerts generated by Teleoperation and sent to Safety Services. Includes current p95 latency estimate, threshold, and recommended operator action (reduce speed, switch to failover, abort operation)."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Underlying network transport (5G, LTE, satellite, or hybrid) providing connectivity between Vehicle and remote operator. Teleoperation module abstracts network variability via QoS tuning and adaptive buffering. Network Link SLA: latency ≤80 ms p95 (assumed agreed condition)."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "NGHE Solution is the system-level container; teleoperation is a subsystem. Assigning to NGHE Solution would diffuse latency ownership across multiple child modules (Vehicle, Teleoperation, Safety Services) without clear accountability. Not recommended as primary IM boundary."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Vehicle owns sensor acquisition (TELE-001) and actuator servo (TELE-004), which are critical to latency budget. However, Vehicle does not own network transmission, middleware routing, or latency monitoring (TELE-002, TELE-003, TELE-005). Assigning end-to-end latency to Vehicle would create false containment; latency is a system-level property spanning Vehicle and Teleoperation. Not recommended as primary IM boundary."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.85,
+        "diffusion_score": 0.15,
+        "notes": "Teleoperation module directly owns network transmission, middleware routing, command reception, and latency monitoring (TELE-002, TELE-003, TELE-005). It interfaces with Vehicle via Telemetry and Tasking, and with Safety Services via SafetyAlert. Latency is a property of the teleoperation subsystem; ownership is clear and localized. Recommended as primary IM boundary."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Safety Services owns latency alert policy and operator notification (sub-FR TELE-005 policy layer) but does not own latency measurement or network control. Assigning end-to-end latency to Safety Services would diffuse technical responsibility away from the module that controls latency. Not recommended as primary IM boundary."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the natural owner of end-to-end latency because it controls the critical path: sensor ingress → network transmission → command egress. Vehicle contributes sensor acquisition and actuator servo latency (sub-FRs TELE-001, TELE-004) but does not own the end-to-end property. Safety Services consumes latency alerts but does not generate them. Teleoperation's high containment score (0.85) and low diffusion score (0.15) support this assignment.",
+    "containment_risks": [
+      "RISK: Latency budget allocation between Vehicle (sensor/servo) and Teleoperation (network/middleware) is not explicit in DP-C. If Vehicle sensor acquisition or servo response exceeds allocated budget, Teleoperation cannot compensate. MITIGATION: Establish formal latency budget contract between Vehicle and Teleoperation modules with acceptance testing.",
+      "RISK: Network Link is external to Teleoperation module but critical to latency SLA. If network conditions degrade beyond agreed bounds, Teleoperation cannot meet 150 ms p95 target. MITIGATION: Define network SLA as a precondition for Teleoperation latency acceptance; include network monitoring and failover logic in Teleoperation.",
+      "RISK: Operator reaction time and remote console latency (not measured in this FR) may add additional latency beyond the 150 ms end-to-end target. MITIGATION: Clarify that FR-NGHE-008 measures only equipment-side latency; operator-side latency is a separate concern (FR-NGHE-009 or equivalent).",
+      "RISK: Latency monitoring (sub-FR TELE-005) requires real-time statistical computation (p95 percentile) which may itself introduce latency. MITIGATION: Implement latency monitoring in a separate low-priority thread or external monitoring service to avoid impacting primary teleoperation path."
+    ],
+    "recommended_revision": "Establish explicit latency budget contract between Vehicle and Teleoperation modules: Vehicle commits to ≤40 ms (sensor acquisition + servo response), Teleoperation commits to ≤110 ms (network transmission + middleware overhead). Include acceptance test criteria for each module. Define Network Link SLA as a precondition: ≤80 ms p95 latency under agreed network conditions. Clarify that FR-NGHE-008 excludes operator console latency (separate FR)."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "Refined FR-NGHE-008 is clear, measurable, and safety-critical. DP-C (hybrid custom bridges + COTS middleware) is a sound technical approach that addresses latency requirements through explicit budget allocation and QoS tuning. DP-C is not over-constrained; it allows flexibility in middleware selection (ROS 2, proprietary, etc.) while enforcing latency discipline. Coupling analysis shows acceptable decoupling via Telemetry, Tasking, and SafetyAlert interfaces. Assumptions and risks are documented and mitigable."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Latency budget allocation between Vehicle and Teleoperation is implicit in DP-C; must be made explicit in IM assignment to avoid diffusion of responsibility.",
+        "Network Link is external to Teleoperation IM but critical to latency SLA; must be treated as a precondition (agreed network conditions) rather than a Teleoperation responsibility.",
+        "Latency monitoring (sub-FR TELE-005) spans Teleoperation (measurement) and Safety Services (policy/alert); must define clear interface (SafetyAlert) to avoid diffusion."
+      ],
+      "containment_notes": "Teleoperation module has high containment (0.85) for end-to-end latency. Vehicle and Safety Services have supporting roles (sensor/servo and alert policy, respectively) but do not own the primary latency property. Containment is acceptable if latency budget contract is established between Vehicle and Teleoperation."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification of FR-NGHE-008 is feasible via instrumented teleoperation test harness measuring end-to-end latency under representative network conditions. Acceptance criterion (p95 ≤ 150 ms) is measurable and testable. Latency budget allocation (Vehicle ≤40 ms, Teleoperation ≤110 ms) can be validated via component-level testing and integration testing.",
+      "allocation_clarity": "Allocation of FR-NGHE-008 to Teleoperation IM is clear. Sub-FRs (TELE-001 through TELE-005) are allocated to Vehicle (TELE-001, TELE-004), Teleoperation (TELE-002, TELE-003, TELE-005 technical layer), and Safety Services (TELE-005 policy layer). Interfaces (Telemetry, Tasking, SafetyAlert, Network Link) are explicit and traceable."
+    },
+    "recommended_revisions": [
+      "Establish formal latency budget contract between Vehicle and Teleoperation modules with acceptance test criteria.",
+      "Define Network Link SLA (≤80 ms p95) as a precondition for Teleoperation latency acceptance; include network monitoring and failover logic.",
+      "Clarify that FR-NGHE-008 measures equipment-side latency only; operator console latency is a separate concern.",
+      "Implement latency monitoring (sub-FR TELE-005) in a separate low-priority thread or external service to avoid impacting primary teleoperation path.",
+      "Document assumptions on COTS middleware performance (sub-50 ms overhead) and validate during DP selection phase."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-NGHE-008 is refined, DP-C is sound, and Teleoperation IM assignment is well-justified (containment score 0.85). However, the FR is not atomic; it decomposes into five sub-FRs (TELE-001 through TELE-005) that require further refinement and allocation. Latency budget allocation between Vehicle and Teleoperation is implicit and must be made explicit at the next level. Network Link SLA and operator console latency are preconditions that must be clarified before proceeding to detailed design. Recommend decomposing each sub-FR (TELE-001 through TELE-005) to the next level with explicit DP and IM assignment.",
+    "next_level_sub_frs": [
+      "FR-TELE-001: Acquire sensor data (position, orientation, load, proximity) at source with minimal capture latency (target: ≤20 ms).",
+      "FR-TELE-002: Encode and transmit sensor telemetry over network link with deterministic buffering and prioritization (target: ≤10 ms encoding + ≤80 ms network).",
+      "FR-TELE-003: Receive and decode remote operator commands (motion, tool actuation) with bounded queue latency (target: ≤20 ms).",
+      "FR-TELE-004: Execute actuator commands with minimal servo response time (target: ≤20 ms).",
+      "FR-TELE-005: Monitor end-to-end latency and alert operator/safety system if p95 latency exceeds 150 ms threshold (target: ≤10 ms monitoring overhead)."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "DP-C is sound but requires explicit latency budget allocation and network SLA definition. Recommend revising DP-C to include: (1) latency budget breakdown (Vehicle ≤40 ms, Teleoperation ≤110 ms), (2) Network Link SLA (≤80 ms p95), (3) COTS middleware selection criteria (sub-50 ms overhead), (4) latency monitoring architecture (separate low-priority thread), (5) failover logic for network degradation. These details are necessary to support IM assignment and sub-FR decomposition."
+    },
+    "record": {
+      "assumptions": [
+        "Network conditions (latency, jitter, packet loss) are characterized and stable within agreed bounds (≤80 ms p95).",
+        "COTS teleoperation middleware (ROS 2 DDS or equivalent) can be tuned to sub-50 ms overhead.",
+        "Hardware timestamp synchronization between Vehicle and Teleoperation modules is maintained via NTP or hardware clock discipline.",
+        "Actuator servo response time is characterized and allocated within latency budget (≤20 ms).",
+        "Operator console latency is measured separately and not included in FR-NGHE-008 scope.",
+        "Safety criticality of teleoperation justifies tight coupling between Teleoperation and Safety Services via SafetyAlert interface."
+      ],
+      "open_risks": [
+        "Network conditions may degrade beyond agreed bounds, causing latency SLA violation.",
+        "COTS middleware performance may not meet sub-50 ms overhead target; custom middleware may be required.",
+        "Hardware timestamp synchronization may drift over time; periodic recalibration required.",
+        "Actuator servo response time variability may exceed allocated budget; mechanical redesign may be necessary.",
+        "Latency monitoring overhead may impact primary teleoperation path if not properly isolated.",
+        "Operator reaction time and remote console latency are not measured in FR-NGHE-008; may create false sense of safety."
+      ],
+      "evidence_needed": [
+        "Network SLA specification (latency, jitter, packet loss profiles under agreed conditions).",
+        "COTS middleware performance characterization (latency, throughput, QoS tuning options).",
+        "Vehicle sensor acquisition and actuator servo latency measurements (component-level testing).",
+        "Teleoperation middleware latency measurements (integration testing with Vehicle).",
+        "End-to-end latency distribution under representative network conditions (1000+ samples, p95 calculation).",
+        "Operator console latency specification (separate FR or design constraint).",
+        "Safety criticality assessment and operator reaction time requirements (from Safety Manager).",
+        "Failover and degradation handling procedures (network monitoring, command timeout, alert policy)."
+      ]
+    }
+  }
+}

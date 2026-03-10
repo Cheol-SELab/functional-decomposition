@@ -1,0 +1,178 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall enable execution of the load→travel→dump cycle within the customer-defined cycle time target.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting/enabling the capability to achieve cycle time, and (2) actually achieving the measured KPI. The refined FR is atomic and solution-neutral by focusing on the functional obligation—enabling the cycle to execute within the time envelope—without prescribing how (e.g., via speed optimization, path planning, operator training, or equipment design). The actual achievement of p95 ≤ CT_target is a verification criterion tied to duty cycle and site conditions, not a functional requirement of the system itself. This separation allows DPs to address enablement (e.g., responsive controls, efficient hydraulics, predictable motion) independently of operational performance measurement.",
+    "verification_idea": "Demonstrate that under nominal duty cycle and representative site conditions, the NGHE solution's subsystems (propulsion, actuation, control response, load handling) do not introduce artificial delays or constraints that prevent the cycle from completing within CT_target. Measure end-to-end cycle time in controlled trials; confirm that any shortfall vs. CT_target is attributable to operator technique, site conditions, or load variability—not system design limitations.",
+    "sub_frs": [
+      "FR-NGHE-002.1: The NGHE solution shall execute the load phase (bucket fill, material consolidation) without introducing artificial time delays.",
+      "FR-NGHE-002.2: The NGHE solution shall execute the travel phase (loaded and empty transit) without introducing artificial time delays.",
+      "FR-NGHE-002.3: The NGHE solution shall execute the dump phase (material discharge, bucket return to load position) without introducing artificial time delays.",
+      "FR-NGHE-002.4: The NGHE solution shall provide responsive control inputs (operator or tele-operator commands) with latency and fidelity sufficient to support cycle time execution."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Decompose cycle into discrete, sequenced phases (load, travel, dump) with phase-gating logic and independent phase duration targets that sum to CT_target",
+      "DP2: Implement real-time cycle monitoring with adaptive phase timing that dynamically redistributes time budget across phases based on measured site conditions and load variance",
+      "DP3: Design parallel load-preparation and travel-readiness workflows to overlap non-critical path activities and reduce sequential idle time",
+      "DP4: Establish deterministic phase transition triggers (sensor-based or state-machine driven) with bounded latency to eliminate timing ambiguity between phases",
+      "DP5: Allocate a time-margin reserve (e.g., 5–10% of CT_target) as a buffer for site variability, then design each phase to meet its reduced target with high confidence (p95)"
+    ],
+    "selected_dp": "DP1 + DP4 + DP5 (integrated): Decompose the load→travel→dump cycle into three sequenced phases, each with an independent phase-duration target derived from CT_target minus a variability margin. Implement deterministic phase-transition triggers (state-machine or sensor-based gating) with bounded latency to eliminate ambiguity. Reserve 5–10% of CT_target as a site-variability buffer; design each phase to meet its reduced target such that p95(sum of phases) ≤ CT_target under the agreed duty cycle.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Phase interdependency: load phase output (load mass, distribution) affects travel phase duration and dump phase stability—mitigate via explicit load-state handoff and acceptance criteria at phase boundaries",
+        "Trigger latency coupling: if phase-transition triggers are tightly coupled to external site conditions (e.g., operator input, sensor noise), variability may propagate across phases—mitigate via deterministic state-machine logic and sensor debouncing",
+        "Margin allocation coupling: if the 5–10% margin is not explicitly reserved and tracked, phases may consume it incrementally, leaving no buffer—mitigate via explicit margin governance and phase-level SLAs"
+      ],
+      "notes": "DP1+DP4+DP5 achieves low coupling by: (1) making each phase independent in its duration target, (2) using deterministic triggers to decouple phase transitions from ambient variability, and (3) isolating the margin as a controlled reserve. Avoid DP2 (adaptive timing) at this stage because it introduces feedback coupling and complicates p95 analysis; defer adaptive logic to IM-level tuning if needed."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Phase-transition triggers (load-ready, travel-ready, dump-ready) can be defined deterministically and measured with bounded latency (<5% of phase duration). RISK: If triggers are ambiguous or noisy, phase timing will be unpredictable. MITIGATION: Specify trigger definitions and sensor/logic requirements in DP→IM mapping.",
+      "ASSUMPTION: Load variance (mass, distribution, moisture) is characterized and does not exceed the duty-cycle envelope. RISK: Outlier loads may exceed phase-duration targets even with margin. MITIGATION: Validate duty-cycle assumptions with customer; establish load-acceptance criteria at load phase boundary.",
+      "ASSUMPTION: Site conditions (terrain, weather, operator skill) are stable within the agreed duty cycle. RISK: Extreme site variability (e.g., mud, steep grades) may invalidate phase targets. MITIGATION: Conduct site-condition survey; embed site-condition monitoring in IM to detect out-of-envelope conditions.",
+      "ASSUMPTION: p95 is a valid statistical measure for the customer's acceptance criterion. RISK: If cycle-time distribution is multi-modal or heavy-tailed, p95 may not reflect operational risk. MITIGATION: Collect baseline cycle-time data; validate distribution shape with customer.",
+      "ASSUMPTION: Margin reserve (5–10%) is sufficient to absorb site variability without requiring active control. RISK: If variability is larger than margin, p95 target will be missed. MITIGATION: Conduct sensitivity analysis; adjust margin or phase targets if needed."
+    ],
+    "recommended_revision": "Refine DP1+DP4+DP5 by explicitly defining: (1) Phase-duration targets for load, travel, and dump as functions of CT_target and margin; (2) Phase-transition trigger definitions (e.g., 'load phase complete when load mass is stable ±2% for 0.5 s'); (3) Margin governance (e.g., 'margin is reserved and not allocated to any phase; if any phase exceeds its target, cycle fails'). Then map each phase to candidate IMs (e.g., load-phase IM = hydraulic/mechanical load system; travel-phase IM = drivetrain and steering; dump-phase IM = hydraulic dump mechanism) and analyze IM-level coupling (e.g., load-system pressure affects travel-phase acceleration). Conduct Monte Carlo simulation of cycle time under duty-cycle load and site-condition distributions to validate p95 ≤ CT_target before detailed design."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "Encapsulates the load→travel→dump cycle decomposition, phase-duration targets, deterministic state-machine transitions, sensor-based gating logic, and bounded-latency phase triggers. Owns the cycle timing model, variability margin allocation, and p95 performance validation under the agreed duty cycle."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives cycle initiation commands and duty-cycle parameters (load mass, terrain type, distance) from NGHE Solution or Teleoperation; Vehicle translates these into phase-duration targets."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Exports phase-transition events, current phase state, elapsed phase duration, and p95 cycle-time metrics for monitoring and validation."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Signals if any phase exceeds its reduced target or if cumulative cycle time approaches CT_target; triggers safety intervention if p95 bound is at risk."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Supports remote teleoperation commands and real-time telemetry streaming if Vehicle operates in teleoperated mode; latency-critical for phase-transition feedback."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent containment. Vehicle owns the physical actuators (load mechanism, drive motor, dump hydraulics), sensors (position, load cell, proximity), and embedded controller logic. Phase-state machine, duration targets, and trigger logic are naturally localized to the vehicle's real-time control layer. Minor diffusion: Tasking interface requires external duty-cycle parameters; SafetyAlert and Telemetry require external subscribers, but these are clean, unidirectional exports."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.45,
+        "diffusion_score": 0.55,
+        "notes": "Poor containment. NGHE Solution is a high-level orchestration/planning layer. Embedding deterministic phase-transition logic, sensor-based gating, and bounded-latency triggers here would require tight coupling to Vehicle hardware state and real-time control loops. Phase-duration targets and variability margins are better owned by Vehicle; NGHE would only set overall CT_target and duty-cycle constraints. Significant diffusion: state-machine logic would leak into Vehicle anyway; latency guarantees cannot be met at NGHE level."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor containment. Teleoperation is a human-in-the-loop interface layer, not a real-time control substrate. Embedding phase-transition triggers and bounded-latency state machines here introduces network latency and human reaction-time variability, violating the deterministic requirement. Phase logic must reside on Vehicle; Teleoperation can only issue high-level commands (e.g., 'start cycle') and monitor phase progress via Telemetry."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Weak containment. Safety Services is a supervisory/monitoring layer responsible for detecting unsafe states and triggering interventions. While it can validate p95 bounds and issue SafetyAlert signals, it cannot own the phase-transition logic or duration targets—these are operational control concerns, not safety-specific. Diffusion: phase-state machine and trigger logic must remain in Vehicle; Safety Services only observes and reacts."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module is the natural owner of the integrated DP (phase decomposition, duration targets, deterministic state-machine transitions, sensor-based gating, and bounded-latency triggers) because it directly controls the physical actuators and sensors that execute the load→travel→dump cycle. The phase-state machine and trigger logic are embedded in the Vehicle's real-time controller, ensuring deterministic latency and tight coupling to sensor feedback. External modules (NGHE Solution, Teleoperation, Safety Services) interact with Vehicle via clean, well-defined interfaces: Tasking (inbound duty-cycle parameters), Telemetry (outbound phase events and metrics), SafetyAlert (outbound safety signals), and Network Link (for remote monitoring/teleoperation). This architecture minimizes diffusion and preserves the real-time guarantees required by the DP.",
+    "containment_risks": [
+      "Risk: Vehicle's embedded controller may lack sufficient computational capacity or real-time OS support to implement a complex state-machine with multiple sensor inputs and phase-transition logic. Mitigation: Validate Vehicle's hardware/firmware architecture early; if insufficient, consider a dedicated real-time control module (e.g., PLC or edge controller) as a sub-component of Vehicle.",
+      "Risk: Sensor latency or jitter (e.g., GPS, load-cell noise) may violate bounded-latency assumptions for phase transitions. Mitigation: Specify sensor sampling rates, filtering, and validation thresholds in the DP; design phase-transition triggers with hysteresis and debouncing to tolerate sensor noise.",
+      "Risk: Variability margin (5–10% of CT_target) may be insufficient if duty-cycle parameters (terrain, load mass) vary significantly. Mitigation: Implement adaptive margin allocation based on real-time duty-cycle feedback; use Telemetry to monitor p95 performance and adjust phase targets dynamically.",
+      "Risk: Network latency in Teleoperation or remote Telemetry streaming may introduce delays that affect real-time phase-transition feedback. Mitigation: Ensure phase-transition logic is autonomous on Vehicle; use Network Link only for monitoring and high-level commands, not for real-time control loops.",
+      "Risk: Safety Services may not have sufficient visibility into Vehicle's internal phase state to validate p95 bounds in real time. Mitigation: Vehicle exports detailed phase-transition events and duration metrics via Telemetry; Safety Services subscribes to these and validates against CT_target thresholds."
+    ],
+    "recommended_revision": "No revision to DP choice is necessary. The integrated DP (DP1 + DP4 + DP5) is well-suited to the Vehicle module boundary. However, clarify the following in the DP specification to improve containment and reduce diffusion: (1) Explicitly state that the phase-state machine and trigger logic are embedded in Vehicle's real-time controller, not delegated to external modules. (2) Define the sensor inputs (position, load, proximity) and their latency/accuracy requirements to ensure bounded-latency phase transitions. (3) Specify the duty-cycle parameters (load mass, terrain type, distance) that NGHE Solution or Teleoperation must provide via Tasking interface, and how Vehicle translates these into phase-duration targets. (4) Define the Telemetry export schema (phase events, durations, p95 metrics) to enable Safety Services and external monitoring. (5) Reserve a contingency plan if Vehicle's embedded controller cannot meet real-time requirements; consider a dedicated edge controller or PLC as a sub-component of Vehicle."
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The Vehicle module owns the phase-state machine, sensor-based gating, and bounded-latency triggers, enabling direct measurement of cycle-time phases and p95 aggregation. Telemetry interface exports phase-transition events and duration metrics, allowing independent validation against CT_target acceptance criterion. Sensor inputs (position, load, proximity) are physically co-located with Vehicle, supporting deterministic latency verification. Safety Services can subscribe to Telemetry to validate p95 bounds in real time.",
+      "allocation_clarity": "Clear. FR requirement (execute load→travel→dump within CT_target) is allocated to Vehicle module via integrated DP (phase decomposition, duration targets, deterministic state-machine, sensor-based gating, bounded-latency triggers). External modules (NGHE Solution, Teleoperation, Safety Services) interact via well-defined interfaces: Tasking (inbound duty-cycle parameters), Telemetry (outbound phase events/metrics), SafetyAlert (outbound safety signals), Network Link (remote monitoring). Allocation is unambiguous and traceable."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP (integrated DP1 + DP4 + DP5) directly addresses FR. Phase decomposition with independent duration targets and variability margin (5–10% of CT_target) ensures p95(sum of phases) ≤ CT_target under agreed duty cycle. Deterministic state-machine transitions with sensor-based gating and bounded-latency triggers eliminate ambiguity in phase sequencing. DP is logically sound, measurable, and traceable to acceptance criterion (p95 ≤ CT_target). No logical gaps or contradictions detected."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Risk: Phase-state machine logic and sensor-based gating are embedded in Vehicle's real-time controller. If Vehicle's embedded firmware lacks sufficient computational capacity or deterministic scheduling guarantees, bounded-latency phase transitions may not be achievable. Mitigation: Validate Vehicle's hardware/firmware architecture (RTOS, CPU utilization, interrupt latency) early in design; specify maximum acceptable phase-transition latency (e.g., <100 ms) and verify against controller specifications.",
+        "Risk: Sensor latency and noise (GPS drift, load-cell jitter, proximity sensor hysteresis) may violate bounded-latency assumptions for phase-transition triggers. Diffusion: If sensor filtering, validation, and debouncing logic is scattered across Vehicle firmware and external Safety Services, phase-transition determinism is compromised. Mitigation: Centralize all sensor input processing (sampling, filtering, validation) within Vehicle module; define sensor accuracy/latency requirements in DP; use hysteresis and debouncing thresholds to tolerate noise.",
+        "Risk: Variability margin allocation (5–10% of CT_target) is static in current DP. If duty-cycle parameters (terrain roughness, load mass, distance) vary significantly across sites, margin may be insufficient or wasteful. Diffusion: Adaptive margin recalculation may require feedback from NGHE Solution or external monitoring, introducing coupling. Mitigation: Vehicle owns margin allocation logic; implement adaptive margin based on real-time phase-duration telemetry; NGHE Solution provides duty-cycle constraints (not margin values) via Tasking interface.",
+        "Risk: Network latency in Teleoperation or remote Telemetry streaming may introduce delays in phase-transition feedback or safety alerts. Diffusion: If phase-transition logic depends on network round-trips (e.g., waiting for remote confirmation), determinism is lost. Mitigation: Ensure phase-transition logic is fully autonomous on Vehicle; Network Link is used only for monitoring and high-level commands, not for real-time control loops. Telemetry exports are asynchronous and non-blocking.",
+        "Risk: Safety Services observes p95 bounds via Telemetry but does not own phase-transition logic. If Safety Services detects p95 violation, it can only issue SafetyAlert; Vehicle must implement corrective action (e.g., phase-target adjustment). Diffusion: Responsibility for p95 compliance is split between Vehicle (execution) and Safety Services (monitoring). Mitigation: Clearly define ownership: Vehicle owns phase-duration targets and execution; Safety Services owns p95 validation and alert generation. Vehicle responds to SafetyAlert by adjusting phase targets or triggering intervention."
+      ],
+      "containment_notes": "Excellent containment (0.92 score). Vehicle module naturally owns the integrated DP because it directly controls physical actuators (load mechanism, drive motor, dump hydraulics) and sensors (position, load cell, proximity). Phase-state machine, duration targets, and trigger logic are embedded in Vehicle's real-time controller, ensuring deterministic latency and tight coupling to sensor feedback. External modules interact via clean, unidirectional interfaces: Tasking (inbound duty-cycle parameters), Telemetry (outbound phase events/metrics), SafetyAlert (outbound safety signals), Network Link (remote monitoring). Minor diffusion arises from external dependencies (duty-cycle parameters from NGHE Solution, safety validation from Safety Services), but these are expected and well-managed via interface contracts. No evidence of scattered responsibilities or logic duplication across modules."
+    },
+    "recommended_revisions": [
+      "Revision 1: Explicitly specify in DP that the phase-state machine and trigger logic are embedded in Vehicle's real-time controller and are not delegated to external modules (NGHE Solution, Teleoperation, Safety Services). State the maximum acceptable phase-transition latency (e.g., <100 ms) and the real-time OS/hardware requirements (e.g., RTOS with deterministic scheduling, CPU utilization <70%).",
+      "Revision 2: Define sensor input requirements in DP: sampling rate (e.g., 10 Hz for position, 50 Hz for load cell), accuracy (e.g., ±5% for load, ±0.5 m for position), and latency (e.g., <50 ms end-to-end). Specify filtering, validation, and debouncing thresholds to tolerate sensor noise and ensure phase-transition determinism.",
+      "Revision 3: Clarify duty-cycle parameter flow: NGHE Solution or Teleoperation provides load mass, terrain type, and distance via Tasking interface. Vehicle translates these into phase-duration targets using a pre-calibrated model (e.g., load-time lookup table, terrain-speed mapping). Document the model and its validation criteria.",
+      "Revision 4: Define Telemetry export schema: phase-transition events (timestamp, phase name, trigger condition), elapsed phase duration, cumulative cycle time, and p95 metrics (rolling window, e.g., last 100 cycles). Specify export frequency (e.g., 1 Hz) and latency (e.g., <500 ms) to enable real-time monitoring by Safety Services.",
+      "Revision 5: Implement adaptive variability margin allocation: Vehicle monitors real-time phase durations and adjusts margin dynamically if p95 approaches CT_target. Define margin adjustment rules (e.g., increase margin by 1% if p95 > 0.95 × CT_target) and constraints (e.g., margin cannot exceed 15% of CT_target).",
+      "Revision 6: Add contingency plan: If Vehicle's embedded controller cannot meet real-time requirements (e.g., insufficient CPU, no RTOS), consider a dedicated edge controller (e.g., PLC, real-time microcontroller) as a sub-component of Vehicle. Define the interface between Vehicle and edge controller (e.g., CAN bus, shared memory) and ensure latency remains bounded.",
+      "Revision 7: Clarify SafetyAlert response protocol: Define what Vehicle does when SafetyAlert is triggered (e.g., reduce phase targets, pause cycle, request operator intervention). Specify response latency and success criteria (e.g., p95 returns to <CT_target within 5 cycles).",
+      "Revision 8: Validate p95 acceptance criterion under site variability: Specify the duty-cycle range (load mass, terrain type, distance) and site conditions (temperature, humidity, GPS availability) under which p95 ≤ CT_target must hold. Define acceptance testing protocol (e.g., 100-cycle baseline, statistical validation with 95% confidence)."
+    ]
+  },
+  "decision": {
+    "decision": "REVISE_CURRENT_LEVEL",
+    "justification": "Gate results show all three gates (FR-IM, FR-DP, DP-IM) pass with high confidence, but the DP-IM gate identifies 6 significant diffusion risks and the recommended_revisions list 8 concrete improvements. Given high safety criticality, these risks must be addressed before proceeding to sub-FR decomposition. The risks span critical areas: (1) embedded controller capacity and real-time guarantees, (2) sensor latency and noise tolerance, (3) adaptive margin allocation logic, (4) network latency isolation, (5) split responsibility between Vehicle and Safety Services, and (6) duty-cycle parameter translation. Revising the current DP and IM specifications to incorporate Revisions 1–8 will eliminate ambiguity, reduce execution risk, and establish a more robust foundation for lower-level decomposition. Proceeding to sub-FRs without these clarifications risks discovering architectural misalignment or infeasibility during detailed design.",
+    "next_level_sub_frs": [],
+    "revise": {
+      "target": "DP",
+      "why": "The integrated DP (DP1 + DP4 + DP5) is logically sound but lacks sufficient specificity in critical areas: (1) real-time controller requirements (RTOS, CPU utilization, phase-transition latency bounds), (2) sensor input specifications (sampling rate, accuracy, latency, filtering/debouncing thresholds), (3) duty-cycle parameter translation model (load-time lookup, terrain-speed mapping), (4) Telemetry export schema and frequency, (5) adaptive margin allocation rules, and (6) SafetyAlert response protocol. Revise DP to explicitly specify these details, reference Revisions 1–7 from gate output. Also revise IM to clarify the boundary between Vehicle's embedded controller (owns phase-state machine, sensor processing, margin allocation) and external modules (NGHE Solution provides duty-cycle parameters, Safety Services validates p95 and issues alerts). This revision will eliminate diffusion risks and establish clear ownership and interface contracts."
+    },
+    "record": {
+      "assumptions": [
+        "Vehicle's embedded real-time controller has sufficient computational capacity (CPU utilization <70%) and deterministic scheduling guarantees (RTOS with <100 ms phase-transition latency) to execute the phase-state machine and sensor-based gating logic without external delegation.",
+        "Sensor inputs (position, load cell, proximity) are physically co-located with Vehicle and can be sampled and processed deterministically within Vehicle's embedded firmware without network round-trips.",
+        "Duty-cycle parameters (load mass, terrain type, distance) provided by NGHE Solution or Teleoperation via Tasking interface are sufficient to calibrate phase-duration targets using a pre-defined model (e.g., lookup table, empirical mapping).",
+        "Variability margin (5–10% of CT_target) is statically allocated in the current DP but can be made adaptive based on real-time phase-duration telemetry without introducing coupling to external modules.",
+        "Safety Services can validate p95 bounds asynchronously via Telemetry exports and issue SafetyAlert without requiring real-time feedback from Vehicle's phase-transition logic.",
+        "Network latency in Teleoperation and remote Telemetry streaming does not affect phase-transition determinism because phase-transition logic is fully autonomous on Vehicle.",
+        "p95 acceptance criterion (p95 ≤ CT_target) is achievable under the specified duty-cycle range and site conditions (load mass, terrain type, distance, temperature, humidity, GPS availability)."
+      ],
+      "open_risks": [
+        "Risk: Vehicle's embedded controller may lack real-time OS or sufficient CPU capacity to guarantee <100 ms phase-transition latency. Mitigation: Validate hardware/firmware architecture early; specify RTOS requirements and CPU utilization limits in revised DP; consider dedicated edge controller (PLC, real-time microcontroller) as fallback (Revision 6).",
+        "Risk: Sensor latency and noise (GPS drift, load-cell jitter, proximity sensor hysteresis) may violate bounded-latency assumptions for phase-transition triggers. Mitigation: Define sensor accuracy/latency requirements in revised DP; centralize sensor input processing (filtering, validation, debouncing) within Vehicle module; use hysteresis thresholds to tolerate noise (Revision 2).",
+        "Risk: Duty-cycle parameter translation model (load-time lookup, terrain-speed mapping) may be inaccurate or incomplete, leading to phase-duration targets that do not achieve p95 ≤ CT_target across all sites. Mitigation: Document model assumptions and validation criteria in revised DP; conduct site-specific calibration and acceptance testing (Revision 3, Revision 8).",
+        "Risk: Adaptive margin allocation logic may introduce coupling between Vehicle and external modules (NGHE Solution, Safety Services) if margin adjustment requires feedback from external sources. Mitigation: Vehicle owns margin allocation logic and adjusts margin autonomously based on real-time phase-duration telemetry; NGHE Solution provides duty-cycle constraints only (Revision 5).",
+        "Risk: Split responsibility between Vehicle (phase-execution) and Safety Services (p95 validation) may lead to delayed or ineffective corrective action if p95 violation is detected. Mitigation: Define SafetyAlert response protocol and success criteria in revised DP; Vehicle must implement corrective action (phase-target adjustment, cycle pause) within specified latency (Revision 7).",
+        "Risk: Telemetry export schema and frequency may be insufficient for real-time p95 monitoring by Safety Services, or may introduce excessive network load. Mitigation: Define Telemetry export schema (phase-transition events, elapsed duration, cumulative cycle time, p95 metrics) and frequency (1 Hz) in revised DP; specify export latency (<500 ms) (Revision 4).",
+        "Risk: p95 acceptance criterion may not be achievable under site variability (load mass, terrain type, distance, temperature, humidity, GPS availability). Mitigation: Specify duty-cycle range and site conditions in revised DP; define acceptance testing protocol (100-cycle baseline, statistical validation with 95% confidence) (Revision 8)."
+      ],
+      "evidence_needed": [
+        "Vehicle's embedded controller specifications: RTOS type, CPU model, clock speed, available memory, interrupt latency, maximum CPU utilization under nominal load.",
+        "Sensor specifications: sampling rate, accuracy, latency, noise characteristics (GPS drift, load-cell jitter, proximity sensor hysteresis) for position, load cell, and proximity sensors.",
+        "Duty-cycle parameter translation model: load-time lookup table, terrain-speed mapping, calibration data, and validation results across representative sites.",
+        "Phase-duration target estimates: baseline durations for load, travel, and dump phases under nominal duty cycle; sensitivity analysis for load mass, terrain type, and distance variations.",
+        "Variability margin allocation: empirical distribution of phase durations (histogram, percentiles) from field trials or simulation; justification for 5–10% margin range.",
+        "Real-time controller implementation: phase-state machine logic (pseudocode or state diagram), sensor input processing (filtering, validation, debouncing thresholds), trigger conditions, and latency measurements.",
+        "Telemetry export implementation: schema definition (JSON or protobuf), export frequency and latency measurements, network bandwidth requirements.",
+        "SafetyAlert response protocol: corrective action rules (phase-target adjustment, cycle pause, operator intervention), response latency measurements, success criteria (p95 recovery time).",
+        "Acceptance testing protocol: duty-cycle range (load mass, terrain type, distance), site conditions (temperature, humidity, GPS availability), baseline cycle-time data (100+ cycles), statistical validation method (95% confidence interval for p95).",
+        "Contingency plan (if needed): edge controller specifications (PLC, real-time microcontroller), interface definition (CAN bus, shared memory), latency bounds, and integration testing results."
+      ]
+    }
+  }
+}

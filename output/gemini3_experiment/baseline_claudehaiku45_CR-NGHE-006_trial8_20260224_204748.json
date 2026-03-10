@@ -1,0 +1,179 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and designated work zones with sufficient fidelity to support autonomous path planning and operator situational awareness.",
+    "rationale": "The original FR was vague on scope (what constitutes 'area analysis') and lacked specificity on fidelity requirements, update cadence, and consumer functions. Refinement clarifies that the worksite model is a persistent, multi-layer representation consumed by planning (path planning, task sequencing) and execution (real-time collision avoidance, operator display). High safety criticality demands explicit hazard representation and real-time update capability.",
+    "verification_idea": "Acceptance: (1) Worksite model generated within 5 minutes of site entry; (2) Terrain elevation accuracy ±0.5 m over 95% of mapped area; (3) Static obstacles detected and represented with ≥90% recall; (4) Dynamic hazards (personnel) detected and updated at ≥2 Hz; (5) Model accessible to planning and execution subsystems via standardized interface; (6) Model persists across operator handoff and system restart.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire terrain elevation data (LiDAR, stereo, or fusion) and construct digital elevation model (DEM).",
+      "CR-NGHE-006.2: Detect and classify static obstacles (rocks, structures, vegetation) and represent as 3D geometry in worksite model.",
+      "CR-NGHE-006.3: Detect and track dynamic hazards (personnel, other equipment) in real-time and update model state.",
+      "CR-NGHE-006.4: Represent designated work zones (safe areas, exclusion zones, task boundaries) in worksite model.",
+      "CR-NGHE-006.5: Provide worksite model access to planning and execution functions via standardized query/subscription interface.",
+      "CR-NGHE-006.6: Validate worksite model consistency and alert operators/safety systems to model degradation or anomalies."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized perception pipeline (LiDAR + stereo fusion) → 3D point cloud processing → semantic segmentation (terrain, obstacles, hazards) → unified scene graph representation; model served via REST/gRPC API to planning and execution consumers.",
+      "DP-B: Distributed sensor-to-consumer architecture: LiDAR → terrain module, stereo → obstacle module, radar → hazard tracking module; each module maintains local representation and publishes updates to a shared message bus (e.g., ROS 2); planning/execution subscribe to relevant topics.",
+      "DP-C: Hybrid edge-cloud: Vehicle-mounted sensors feed local perception engine (lightweight DEM + obstacle detection); results streamed to cloud backend for enrichment (satellite imagery fusion, historical terrain database); cloud model pushed back to vehicle for planning; fallback to local model if connectivity lost.",
+      "DP-D: Operator-assisted mapping: Vehicle equipped with manual annotation tools; operator marks terrain, obstacles, and zones via touchscreen/voice; system auto-detects hazards via onboard radar/camera; hybrid model stored locally and synced to backend."
+    ],
+    "selected_dp": "DP-A: Centralized perception pipeline with unified scene graph and API-based model serving.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between terrain acquisition (LiDAR) and obstacle detection (stereo) is loose: both feed a common 3D processing stage but can be developed independently.",
+        "Coupling between scene graph representation and API layer is moderate: scene graph schema must be stable, but API can evolve without breaking internal representation.",
+        "Coupling to planning/execution is via well-defined interface (REST/gRPC), reducing downstream coupling."
+      ],
+      "notes": "DP-A exhibits acceptable coupling because the unified scene graph acts as a stable internal contract, and the API layer decouples consumers from representation details. DP-B would introduce higher coupling via message bus schema evolution; DP-C introduces cloud dependency risk; DP-D is operator-dependent and does not scale to autonomous operation."
+    },
+    "assumptions_risks": [
+      "Assumption: LiDAR and stereo sensors are available and calibrated on the vehicle.",
+      "Assumption: Computational resources (GPU/CPU) are sufficient for real-time 3D processing at ≥2 Hz.",
+      "Risk: Sensor occlusion (e.g., dust, rain) may degrade terrain/obstacle detection; mitigation: sensor fusion and model prediction.",
+      "Risk: Scene graph representation may become inconsistent under rapid dynamic changes; mitigation: versioning and conflict resolution logic.",
+      "Risk: API latency may impact real-time planning; mitigation: local caching and predictive prefetch."
+    ],
+    "recommended_revision": "Clarify computational budget (latency, memory, power) for perception pipeline. Specify sensor suite (LiDAR type, stereo baseline, radar if included). Define scene graph schema and API contract (REST vs. gRPC, query language, subscription model). Establish fallback behavior if perception degrades (e.g., conservative planning, operator takeover)."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "The Vehicle module encapsulates all onboard perception, localization, and local world modeling. Worksite mapping/modeling is a core Vehicle responsibility: sensor acquisition (LiDAR, stereo), 3D processing, scene graph construction, and local model persistence. The Vehicle module owns the perception pipeline and serves the worksite model to external consumers (planning, execution, teleoperation) via standardized interfaces."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle publishes worksite model state (terrain DEM, obstacle list, hazard positions, zone definitions) as telemetry to planning and execution subsystems. Telemetry includes model timestamp, confidence metrics, and sensor health status."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives task directives (e.g., 'map zone X', 'update hazard tracking') from planning/execution. Tasking may include region-of-interest specifications or model refresh requests."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Vehicle publishes safety alerts when worksite model detects anomalies (e.g., unexpected obstacle, personnel in exclusion zone, sensor degradation). SafetyAlert is consumed by Safety Services and operator display."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Vehicle uses Network Link to communicate with Teleoperation and backend services (if cloud enrichment is enabled). Network Link carries telemetry uploads and task downloads; fallback to local-only operation if link is lost."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "NGHE Solution is the top-level system container. Worksite mapping is a subsystem function, not a solution-level responsibility. Assigning IM to NGHE Solution would diffuse the mapping logic across multiple child modules (Vehicle, Teleoperation, Safety Services) and obscure ownership. Not recommended."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.95,
+        "diffusion_score": 0.05,
+        "notes": "Vehicle is the natural home for worksite mapping. It owns sensors, onboard compute, and local world model. Perception pipeline, scene graph, and model serving are Vehicle responsibilities. Minimal diffusion: all mapping logic is co-located. High containment: Vehicle is self-sufficient for local mapping; external consumers access model via interfaces."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Teleoperation is a remote operator interface and command channel. It may consume the worksite model for operator situational awareness, but it does not own perception or model generation. Assigning IM to Teleoperation would require duplicating sensor processing logic or creating tight coupling to Vehicle. Not recommended."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.15,
+        "diffusion_score": 0.85,
+        "notes": "Safety Services consumes worksite model to validate safety constraints (e.g., personnel exclusion zones, collision risk). It does not generate the model. Assigning IM to Safety Services would create a dependency inversion (Safety Services would need to own perception) and diffuse mapping logic. Not recommended."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module is the optimal IM boundary for worksite mapping because: (1) it owns the sensors and onboard compute required for perception; (2) it maintains the local world model as a persistent, versioned artifact; (3) it serves the model to external consumers (planning, execution, teleoperation, safety) via standardized interfaces (Telemetry, Tasking, SafetyAlert, Network Link); (4) it can operate autonomously if external connectivity is lost; (5) it minimizes diffusion by co-locating all perception logic.",
+    "containment_risks": [
+      "Risk: Vehicle module may become overloaded if perception pipeline is complex (LiDAR + stereo + radar fusion). Mitigation: decompose perception into sub-modules (LiDAR processor, stereo processor, fusion engine) within Vehicle, with clear internal contracts.",
+      "Risk: Worksite model may grow large (millions of 3D points, dynamic hazard tracks) and consume significant memory/storage. Mitigation: implement model compression, spatial indexing, and garbage collection; define retention policies (e.g., keep last N minutes of hazard tracks).",
+      "Risk: Real-time update cadence (≥2 Hz) may be difficult to achieve if Vehicle compute is constrained. Mitigation: prioritize dynamic hazard updates over static terrain; use predictive models to extrapolate hazard positions between sensor updates.",
+      "Risk: Sensor calibration and synchronization (LiDAR, stereo, IMU) must be maintained; miscalibration will corrupt the model. Mitigation: implement self-calibration checks and alert operators to calibration drift."
+    ],
+    "recommended_revision": "Define Vehicle sub-module structure for perception (e.g., SensorFusion, TerrainProcessor, ObstacleDetector, HazardTracker, SceneGraph). Specify model schema (point cloud format, obstacle representation, hazard state vector). Define API contract (REST endpoints or gRPC services) for model access. Establish model versioning and consistency guarantees. Specify fallback behavior if perception degrades (e.g., conservative planning, operator alert)."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-A (centralized perception pipeline with unified scene graph) directly addresses the refined FR. The DP specifies how to acquire terrain data, detect obstacles, track hazards, and serve the model to consumers. The DP is implementable, testable, and supports the acceptance criteria (model generation time, accuracy, update cadence, accessibility). No fundamental mismatch between FR and DP."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Risk: If perception pipeline is implemented as a monolithic Vehicle sub-module, future changes (e.g., adding a new sensor type) may require Vehicle-wide regression testing. Mitigation: define clear sub-module boundaries within Vehicle (SensorFusion, TerrainProcessor, etc.) to enable independent testing.",
+        "Risk: If the worksite model schema is tightly coupled to the Vehicle internal representation, changes to the model (e.g., adding new obstacle types) may require Vehicle code changes. Mitigation: use a stable, versioned API contract (REST/gRPC) that decouples internal representation from external consumers."
+      ],
+      "containment_notes": "Vehicle is the correct IM boundary. Containment score 0.95 indicates that all worksite mapping logic is naturally co-located in Vehicle. Diffusion score 0.05 indicates minimal risk of logic spreading to other modules. External interfaces (Telemetry, Tasking, SafetyAlert, Network Link) are well-defined and stable."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible. Acceptance criteria can be measured: (1) model generation time via instrumentation; (2) terrain accuracy via ground-truth comparison; (3) obstacle recall via labeled test datasets; (4) hazard update latency via sensor-to-model timing; (5) API accessibility via integration tests; (6) model persistence via system restart tests. Vehicle module can be tested in isolation (unit tests) and in integration with planning/execution (system tests).",
+      "allocation_clarity": "Allocation is clear. Vehicle owns worksite mapping. Planning and execution consume the model via Telemetry interface. Safety Services consumes SafetyAlert. Teleoperation consumes Telemetry for operator display. No ambiguity in responsibility or interface ownership."
+    },
+    "recommended_revisions": [
+      "Refine the worksite model schema: specify point cloud format (e.g., PCL, ROS PointCloud2), obstacle representation (e.g., bounding boxes, mesh), hazard state vector (position, velocity, confidence), zone representation (polygon, grid cell).",
+      "Define API contract: specify REST endpoints (GET /model/terrain, GET /model/obstacles, GET /model/hazards, POST /model/zones) or gRPC service definition. Include query parameters (region-of-interest, time range, confidence threshold).",
+      "Establish model versioning: define how model updates are versioned and how consumers detect stale data. Consider eventual consistency model if cloud enrichment is added later.",
+      "Specify sensor suite: confirm LiDAR type (e.g., Velodyne, Ouster), stereo baseline, radar if included. Define sensor calibration and synchronization requirements.",
+      "Define fallback behavior: specify what happens if perception degrades (e.g., LiDAR failure, stereo occlusion). Should Vehicle revert to conservative planning, alert operator, or use predictive model?"
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The refined FR is well-formed and decomposable into six atomic sub-FRs (terrain acquisition, obstacle detection, hazard tracking, zone representation, model access, model validation). DP-A is sound and exhibits acceptable coupling. Vehicle is the correct IM boundary with high containment (0.95) and low diffusion (0.05). All gates pass. However, the sub-FRs are not yet atomic and require further decomposition to enable detailed design and implementation. Proceeding to the next level will clarify sensor selection, processing algorithms, model schema, and API contract.",
+    "justification_detail": "CR-NGHE-006 is a system-level requirement that spans multiple design concerns (perception, representation, serving). The refined FR and selected DP are sound, but they are not yet detailed enough to guide implementation. The six sub-FRs (CR-NGHE-006.1 through CR-NGHE-006.6) are candidates for the next decomposition level. Each sub-FR will have its own FR-DP-IM analysis, leading to concrete design decisions (e.g., LiDAR processor algorithm, obstacle classifier, hazard tracker, scene graph schema, API endpoints).",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire terrain elevation data (LiDAR, stereo, or fusion) and construct digital elevation model (DEM).",
+      "CR-NGHE-006.2: Detect and classify static obstacles (rocks, structures, vegetation) and represent as 3D geometry in worksite model.",
+      "CR-NGHE-006.3: Detect and track dynamic hazards (personnel, other equipment) in real-time and update model state.",
+      "CR-NGHE-006.4: Represent designated work zones (safe areas, exclusion zones, task boundaries) in worksite model.",
+      "CR-NGHE-006.5: Provide worksite model access to planning and execution functions via standardized query/subscription interface.",
+      "CR-NGHE-006.6: Validate worksite model consistency and alert operators/safety systems to model degradation or anomalies."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "LiDAR and stereo sensors are available and calibrated on the Vehicle.",
+        "Computational resources (GPU/CPU) are sufficient for real-time 3D processing at ≥2 Hz.",
+        "Worksite model is a persistent, versioned artifact maintained by Vehicle.",
+        "External consumers (planning, execution, teleoperation, safety) access the model via standardized interfaces (Telemetry, Tasking, SafetyAlert, Network Link).",
+        "Vehicle can operate autonomously if external connectivity is lost (local-only mode).",
+        "Terrain elevation accuracy requirement is ±0.5 m over 95% of mapped area.",
+        "Dynamic hazard detection and update cadence is ≥2 Hz.",
+        "Worksite model is generated within 5 minutes of site entry."
+      ],
+      "open_risks": [
+        "Sensor occlusion (dust, rain) may degrade terrain/obstacle detection.",
+        "Scene graph representation may become inconsistent under rapid dynamic changes.",
+        "API latency may impact real-time planning.",
+        "Vehicle module may become overloaded if perception pipeline is complex.",
+        "Worksite model may consume significant memory/storage.",
+        "Real-time update cadence (≥2 Hz) may be difficult to achieve if Vehicle compute is constrained.",
+        "Sensor calibration and synchronization must be maintained; miscalibration will corrupt the model.",
+        "Worksite model schema may need to evolve as new obstacle types or hazards are discovered."
+      ],
+      "evidence_needed": [
+        "Sensor specifications (LiDAR type, stereo baseline, resolution, range, update rate).",
+        "Computational budget (latency, memory, power) for perception pipeline.",
+        "Worksite model schema (point cloud format, obstacle representation, hazard state vector, zone representation).",
+        "API contract (REST endpoints or gRPC service definition, query parameters, response format).",
+        "Model versioning and consistency guarantees.",
+        "Fallback behavior if perception degrades (e.g., conservative planning, operator alert).",
+        "Sensor calibration and synchronization procedures.",
+        "Test datasets for terrain accuracy, obstacle recall, hazard detection.",
+        "Performance benchmarks (model generation time, API latency, memory usage).",
+        "Integration test plan for planning/execution/teleoperation/safety consumers."
+      ]
+    }
+  }
+}

@@ -1,0 +1,169 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall enable execution of the load→travel→dump cycle within the customer-defined cycle time target.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting/enabling the capability to achieve cycle time, and (2) actually achieving the measured KPI. The refined FR is atomic and solution-neutral by focusing on the functional obligation—enabling the cycle to execute within the time envelope—without prescribing how (e.g., speed optimization, path planning, operator training, equipment tuning). The actual achievement of p95 ≤ CT_target is a verification criterion tied to duty cycle and site conditions, not a functional requirement of the system itself. This separation allows design parameters (e.g., hydraulic flow rates, transmission ratios, control algorithms) to be evaluated independently of operational context.",
+    "verification_idea": "Measure end-to-end cycle time (load start to dump completion) under controlled duty cycle and representative site conditions. Confirm p95 ≤ CT_target. Verify that no design bottleneck (e.g., actuator speed, control latency, path constraints) prevents the operator from achieving the target when operating within normal parameters.",
+    "sub_frs": [
+      "FR-NGHE-002.1: The NGHE solution shall enable the load phase (bucket fill and engagement) to complete within the allocated time budget.",
+      "FR-NGHE-002.2: The NGHE solution shall enable the travel phase (loaded and unloaded transit) to complete within the allocated time budget.",
+      "FR-NGHE-002.3: The NGHE solution shall enable the dump phase (bucket discharge and retraction) to complete within the allocated time budget.",
+      "FR-NGHE-002.4: The NGHE solution shall minimize transition delays between load, travel, and dump phases."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Decompose the load→travel→dump cycle into independent sub-processes (load, travel, dump) with dedicated control logic and resource allocation per phase, enabling sequential execution with phase-specific optimization.",
+      "DP2: Implement a unified state machine that orchestrates all cycle phases through a single control entity, with phase transitions triggered by sensor feedback and time-based guards, ensuring deterministic sequencing.",
+      "DP3: Allocate cycle time budget across phases (load_time, travel_time, dump_time) with real-time monitoring and adaptive phase duration adjustment based on measured vs. target performance, maintaining p95 compliance through feedback control.",
+      "DP4: Design a hierarchical task scheduler that prioritizes cycle-critical operations (load, travel, dump) over secondary tasks, with preemption rules and resource reservation to guarantee phase completion within allocated time windows.",
+      "DP5: Establish a cycle-time contract model where each phase declares its worst-case duration under site conditions, with built-in slack allocation and contingency buffers to absorb variability and ensure p95 ≤ CT_target."
+    ],
+    "selected_dp": "DP3 + DP5 (integrated): Allocate cycle time budget across phases with real-time monitoring and adaptive adjustment, underpinned by a cycle-time contract model that declares worst-case phase durations and incorporates contingency buffers to absorb site-condition variability and guarantee p95 ≤ CT_target.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "DP3 and DP5 are complementary: DP5 provides the static contract (worst-case bounds, buffers), while DP3 provides the dynamic feedback loop (real-time monitoring, adaptive adjustment). Together they decouple phase logic from cycle-time assurance.",
+        "Risk of tight coupling if adaptive adjustment in DP3 becomes reactive rather than predictive; mitigation: establish phase-level SLOs and trigger adjustment only when p95 trend exceeds threshold, not on every cycle.",
+        "DP1 (independent sub-processes) and DP2 (unified state machine) are mutually exclusive; DP3+DP5 is agnostic to this choice and can work with either, reducing coupling to the orchestration layer."
+      ],
+      "notes": "DP3+DP5 achieves low coupling by separating concerns: DP5 handles static capacity planning (contract negotiation, buffer allocation), DP3 handles dynamic execution (monitoring, feedback). Neither depends on specific phase implementations, only on their declared durations and variability profiles."
+    },
+    "assumptions_risks": [
+      "Assumption: Site conditions (terrain, load mass, ambient temperature) are measurable and repeatable within the agreed duty cycle; Risk: If conditions vary beyond the contract bounds, p95 guarantee fails. Mitigation: Establish site characterization protocol and update contract if conditions drift.",
+      "Assumption: Phase durations (load, travel, dump) can be accurately predicted or measured in advance; Risk: Systematic underestimation of worst-case times leads to p95 violation. Mitigation: Conduct pilot runs under worst-case conditions and apply safety factor (e.g., 1.2x) to measured times.",
+      "Assumption: Adaptive adjustment logic in DP3 has sufficient authority to modify phase execution (e.g., reduce load mass, increase travel speed) without violating safety or operational constraints; Risk: If adjustment knobs are limited, feedback control becomes ineffective. Mitigation: Define adjustment authority matrix and validate against safety plan.",
+      "Assumption: Real-time monitoring infrastructure (sensors, telemetry, data pipeline) is reliable and introduces negligible latency; Risk: Monitoring overhead or data loss degrades feedback fidelity. Mitigation: Specify monitoring SLOs and validate end-to-end latency.",
+      "Assumption: p95 is the appropriate metric for acceptance; Risk: If customer's actual need is p99 or max, DP3+DP5 may not allocate sufficient buffer. Mitigation: Clarify acceptance criteria and adjust buffer allocation accordingly.",
+      "Assumption: Contingency buffers can be pre-allocated without reducing operational throughput; Risk: Over-buffering reduces effective cycle time and customer satisfaction. Mitigation: Use statistical analysis (e.g., Monte Carlo) to right-size buffers based on measured variability."
+    ],
+    "recommended_revision": "Refine the FR to explicitly state the acceptance metric (p95 vs. p99 vs. max) and the site characterization protocol. Decompose DP3+DP5 into two sub-DPs: (DP3a) Real-time cycle-time monitoring and feedback loop design, and (DP5a) Static cycle-time contract and buffer allocation methodology. For each sub-DP, define the IM layer: DP3a → telemetry module + control feedback loop; DP5a → cycle-time planning artifact + safety validation gate. This clarifies ownership and enables independent testing of monitoring vs. planning logic."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "Centralized cycle-time budget allocation engine with real-time monitoring, adaptive adjustment logic, and cycle-time contract model enforcement across all operational phases"
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Inbound phase duration observations, site-condition variability signals, and actual cycle-time measurements from Vehicle and Teleoperation subsystems"
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Outbound phase-duration constraints, contingency buffer allocations, and adaptive cycle-time directives to Vehicle and Teleoperation for execution"
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "Bidirectional safety-critical cycle-time contract violations and emergency contingency triggers; inbound alerts from Safety Services, outbound enforcement signals"
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Highest cohesion: cycle-time budget allocation, contract model, and adaptive adjustment are core NGHE orchestration responsibilities. Minimal diffusion: only telemetry ingestion and tasking/safety egress required; no algorithmic leakage into Vehicle or Teleoperation."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor fit: Vehicle is a physical execution platform, not a planning/monitoring entity. Cycle-time contract model and adaptive budget logic would diffuse across Vehicle control loops, safety systems, and teleoperation interfaces. Violates separation of concerns."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Weak fit: Teleoperation handles operator commands and remote control, not cycle-time orchestration. Budget allocation and contract enforcement would scatter across command parsing, latency compensation, and safety interlocks. High coupling to Vehicle and Safety Services."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.45,
+        "diffusion_score": 0.55,
+        "notes": "Moderate-weak fit: Safety Services enforces safety constraints but does not own cycle-time planning or budget allocation. Contingency buffers and adaptive adjustment belong to mission planning, not safety validation. Would create bidirectional coupling and responsibility confusion."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "The NGHE Solution module is the natural owner of cycle-time budget allocation and contract-model enforcement because it is the system-level orchestrator responsible for mission planning, phase sequencing, and real-time adaptation. The DP (integrated cycle-time budgeting with monitoring and adaptation) is a core planning and control function that must remain cohesive at the solution level to avoid algorithmic fragmentation and to maintain a single source of truth for cycle-time contracts. Vehicle and Teleoperation are execution agents that consume tasking directives; Safety Services validates safety margins but does not allocate budgets.",
+    "containment_risks": [
+      "Risk: Telemetry ingestion latency may degrade real-time monitoring fidelity if network link introduces jitter; mitigation: buffer telemetry with time-series smoothing and validate freshness before adaptive adjustment.",
+      "Risk: Adaptive adjustment logic may conflict with Safety Services constraints if contingency buffers are reduced too aggressively; mitigation: enforce minimum buffer thresholds and coordinate with SafetyAlert interface.",
+      "Risk: Vehicle and Teleoperation may not respect tasking directives if phase-duration constraints are unrealistic; mitigation: validate contract feasibility during mission planning and include operator override with safety interlock.",
+      "Risk: Cycle-time contract model complexity may grow unbounded if site-condition variability is not well-characterized; mitigation: define a fixed set of variability classes and pre-compute contingency profiles."
+    ],
+    "recommended_revision": "No revision to DP required. The integrated DP (DP3 + DP5) is well-suited to NGHE Solution containment. However, recommend explicit decomposition of the DP into two sub-DPs for clarity: (1) DP3a: Allocate cycle-time budget across phases with contingency buffers based on site-condition variability model; (2) DP5a: Monitor phase durations in real-time and adaptively adjust contingency allocations to maintain p95 ≤ CT_target. Both sub-DPs remain within NGHE Solution but clarify the planning vs. control boundary."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP (integrated DP3 + DP5) directly addresses the FR by proposing a cycle-time budget allocation mechanism with real-time monitoring and adaptive adjustment, underpinned by a cycle-time contract model. The DP explicitly targets the acceptance criterion (p95 ≤ CT_target) through contingency buffers and site-condition variability absorption. The logic is sound: allocate budgets → monitor execution → adapt dynamically → guarantee p95 performance. No logical gap between requirement and solution concept."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Telemetry ingestion latency: Real-time monitoring fidelity depends on network link quality and telemetry freshness. If jitter or delays exceed buffer assumptions, adaptive adjustment may operate on stale data, degrading p95 guarantee. Mitigation: implement time-series smoothing and freshness validation before triggering adaptive logic.",
+        "Adaptive adjustment vs. Safety Services coupling: Contingency buffer reduction during adaptive adjustment may conflict with Safety Services minimum thresholds. Bidirectional SafetyAlert interface creates potential for oscillation or deadlock if constraints are not explicitly coordinated. Mitigation: enforce minimum buffer floor and define clear precedence rules (safety constraints are inviolable).",
+        "Vehicle/Teleoperation tasking feasibility: Phase-duration constraints issued by NGHE Solution may be unrealistic given Vehicle dynamics or Teleoperation latency. If execution agents cannot meet tasking directives, cycle-time contract is violated. Mitigation: validate contract feasibility during mission planning phase and include operator override with safety interlock.",
+        "Cycle-time contract model complexity: Site-condition variability characterization may be incomplete or unbounded, leading to contract model bloat and maintenance burden. Mitigation: define a fixed, enumerated set of variability classes and pre-compute contingency profiles rather than computing dynamically."
+      ],
+      "containment_notes": "NGHE Solution achieves 0.92 containment score with minimal diffusion (0.08). The integrated DP is well-suited to this module boundary because: (1) cycle-time budget allocation is a core mission-planning responsibility; (2) the contract model is a single source of truth that must remain cohesive to avoid algorithmic fragmentation; (3) real-time monitoring and adaptive adjustment are orchestration-level control functions, not execution-level concerns. Vehicle (0.35 containment) and Teleoperation (0.4 containment) are correctly positioned as execution agents consuming tasking directives, not as owners of planning logic. Safety Services (0.45 containment) appropriately validates safety margins but does not own budget allocation. The IM boundary is well-defined with clear external interfaces (Telemetry in, Tasking out, SafetyAlert bidirectional). No algorithmic leakage detected into Vehicle or Teleoperation subsystems."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Acceptance criterion (p95 ≤ CT_target) is directly measurable via telemetry inbound to NGHE Solution. Real-time monitoring of phase durations and cycle-time measurements provides empirical data to validate p95 performance under agreed duty cycle and site conditions. Adaptive adjustment logic can be traced and audited through cycle-time contract state and contingency buffer allocations. Verification is feasible provided: (1) telemetry data quality is assured (freshness, accuracy); (2) site-condition variability is well-characterized and mapped to contingency profiles; (3) Vehicle and Teleoperation execution fidelity is validated independently. Worksite safety plan and operational policies are enforced via SafetyAlert interface and minimum buffer thresholds.",
+      "allocation_clarity": "Allocation is clear: NGHE Solution owns cycle-time budget allocation, contract model, and adaptive adjustment. Vehicle owns phase execution within tasking constraints. Teleoperation owns operator command translation and latency compensation. Safety Services owns safety constraint validation. Interfaces are explicit (Telemetry, Tasking, SafetyAlert) with defined directions and semantics. However, recommend explicit decomposition of the integrated DP into two sub-DPs to clarify the planning vs. control boundary: (1) DP3a: Allocate cycle-time budget across phases with contingency buffers (planning); (2) DP5a: Monitor and adaptively adjust contingency allocations (control). This decomposition improves traceability and reduces cognitive load during implementation."
+    },
+    "recommended_revisions": [
+      "Decompose integrated DP (DP3 + DP5) into two explicit sub-DPs: DP3a (budget allocation with contingency) and DP5a (real-time monitoring and adaptive adjustment). Both remain within NGHE Solution but clarify the planning vs. control boundary and improve implementation traceability.",
+      "Define a fixed, enumerated set of site-condition variability classes (e.g., 'nominal', 'high-friction', 'steep-grade', 'soft-terrain') and pre-compute contingency buffer profiles for each class. Avoid dynamic variability characterization to prevent contract model complexity bloat.",
+      "Establish explicit minimum buffer floor thresholds in coordination with Safety Services. Document precedence rule: safety constraints are inviolable; adaptive adjustment cannot reduce buffers below safety-validated minimums.",
+      "Implement telemetry freshness validation and time-series smoothing in NGHE Solution's Telemetry ingestion layer. Define acceptable latency bounds and jitter tolerance; reject stale or anomalous data before triggering adaptive adjustment.",
+      "Validate cycle-time contract feasibility during mission planning phase. Include Vehicle dynamics simulation and Teleoperation latency modeling to ensure tasking directives are achievable. Provide operator override mechanism with safety interlock for exceptional cases.",
+      "Document SafetyAlert interface semantics explicitly: define inbound alert types (e.g., 'buffer_violation', 'emergency_stop'), outbound enforcement signals (e.g., 'reduce_phase_duration', 'activate_contingency'), and conflict resolution rules (e.g., safety alerts take precedence)."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass with high confidence. The integrated DP is logically sound, well-contained within NGHE Solution (0.92 containment), and verification is feasible. However, the gate review explicitly recommends decomposing the integrated DP into two sub-DPs to clarify the planning vs. control boundary and improve implementation traceability. Given high safety criticality, this decomposition is prudent to reduce cognitive load during implementation and enable independent verification of planning logic (DP3a) and adaptive control logic (DP5a). The FR itself remains valid and does not require revision; the decomposition is a refinement of the solution concept (DP) to improve architectural clarity and risk mitigation. Proceeding with next-level sub-FRs derived from the two explicit sub-DPs will strengthen the design and reduce implementation risk.",
+    "next_level_sub_frs": [
+      "FR3a: Allocate cycle-time budget across mission phases with contingency buffers that absorb site-condition variability and guarantee p95 cycle-time performance under agreed duty cycle.",
+      "FR5a: Monitor real-time phase execution telemetry and adaptively adjust contingency buffer allocations to maintain p95 cycle-time guarantee as site conditions evolve during mission execution."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "Decompose integrated DP (DP3 + DP5) into two explicit sub-DPs to clarify planning vs. control boundary: (1) DP3a: Cycle-time budget allocation mechanism with pre-computed contingency profiles indexed by enumerated site-condition variability classes, enforcing minimum safety-validated buffer floors. (2) DP5a: Real-time telemetry monitoring with freshness validation and time-series smoothing, triggering adaptive contingency adjustment only when execution variance exceeds pre-defined thresholds and safety constraints remain inviolable. This decomposition improves traceability, reduces implementation complexity, and enables independent verification of planning and control logic."
+    },
+    "record": {
+      "assumptions": [
+        "Site-condition variability can be characterized as a fixed, enumerated set of classes (e.g., 'nominal', 'high-friction', 'steep-grade', 'soft-terrain') with pre-computed contingency profiles.",
+        "Telemetry ingestion latency and jitter are bounded and can be mitigated via freshness validation and time-series smoothing.",
+        "Vehicle dynamics and Teleoperation latency are predictable and can be validated during mission planning phase.",
+        "Safety Services provides explicit minimum buffer floor thresholds that are inviolable by adaptive adjustment logic.",
+        "Cycle-time contract model remains cohesive within NGHE Solution and is not fragmented across Vehicle or Teleoperation subsystems.",
+        "Operator override mechanism with safety interlock is available for exceptional cases where tasking directives are infeasible."
+      ],
+      "open_risks": [
+        "Telemetry ingestion latency: Real-time monitoring fidelity depends on network link quality and telemetry freshness. Stale data may degrade p95 guarantee. Mitigation: implement time-series smoothing and freshness validation before triggering adaptive logic.",
+        "Adaptive adjustment vs. Safety Services coupling: Contingency buffer reduction may conflict with Safety Services minimum thresholds, creating oscillation or deadlock. Mitigation: enforce minimum buffer floor and define clear precedence rules (safety constraints are inviolable).",
+        "Vehicle/Teleoperation tasking feasibility: Phase-duration constraints may be unrealistic given Vehicle dynamics or Teleoperation latency. Mitigation: validate contract feasibility during mission planning and include operator override with safety interlock.",
+        "Cycle-time contract model complexity: Site-condition variability characterization may be incomplete or unbounded. Mitigation: define fixed, enumerated variability classes and pre-compute contingency profiles.",
+        "SafetyAlert interface deadlock: Bidirectional SafetyAlert interface between NGHE Solution and Safety Services may create circular dependencies if conflict resolution rules are not explicit. Mitigation: document SafetyAlert semantics and precedence rules explicitly."
+      ],
+      "evidence_needed": [
+        "Telemetry data quality specification: acceptable latency bounds, jitter tolerance, freshness thresholds, and anomaly detection criteria.",
+        "Site-condition variability characterization: enumerated classes, frequency distribution, and pre-computed contingency buffer profiles for each class.",
+        "Vehicle dynamics model: phase-duration constraints, acceleration/deceleration profiles, and feasibility validation criteria.",
+        "Teleoperation latency model: operator command translation delay, network round-trip time, and latency compensation strategy.",
+        "Safety Services minimum buffer floor thresholds: explicit values for each phase and site-condition class, with justification and validation evidence.",
+        "SafetyAlert interface specification: inbound alert types, outbound enforcement signals, conflict resolution rules, and precedence semantics.",
+        "Mission planning phase validation: process for validating cycle-time contract feasibility, including Vehicle dynamics simulation and Teleoperation latency modeling.",
+        "Operator override mechanism specification: activation criteria, safety interlock logic, and audit trail requirements.",
+        "Adaptive adjustment trigger thresholds: execution variance bounds that trigger contingency reallocation, with sensitivity analysis and robustness validation."
+      ]
+    }
+  }
+}

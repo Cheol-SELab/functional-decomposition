@@ -1,0 +1,174 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and work-zone boundaries, with sufficient fidelity to support autonomous path planning and operator situational awareness.",
+    "rationale": "The original FR was vague on fidelity requirements, update frequency, and data sources. Refinement clarifies that the model must support both planning (path generation) and execution (real-time awareness), distinguishes static from dynamic content, and anchors acceptance to the stated constraint that the model be 'available to planning/execution functions.' High safety criticality demands explicit hazard representation.",
+    "verification_idea": "Acceptance test: (1) Terrain model accuracy within ±0.5 m vertical over mapped area; (2) obstacle detection latency <2 s for static features, <1 s for dynamic hazards; (3) model accessible via documented API to planning and execution subsystems; (4) coverage of agreed site features per worksite safety plan.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire terrain and obstacle data from onboard sensors and external sources.",
+      "CR-NGHE-006.2: Fuse multi-source sensor data into a unified spatial model.",
+      "CR-NGHE-006.3: Detect and classify static obstacles (terrain, structures, vegetation).",
+      "CR-NGHE-006.4: Detect and track dynamic hazards (personnel, equipment) in real-time.",
+      "CR-NGHE-006.5: Represent work-zone boundaries and operational constraints in the model.",
+      "CR-NGHE-006.6: Expose worksite model via standardized interface to planning and execution functions.",
+      "CR-NGHE-006.7: Validate model completeness and accuracy against worksite safety plan."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized mapping service (LiDAR + camera fusion on vehicle, periodic upload to cloud, planning/execution query cloud model)",
+      "DP-B: Distributed edge mapping (onboard vehicle perception pipeline generates local model, broadcast via network link to all consumers)",
+      "DP-C: Hybrid mapping (vehicle generates local model; tele-operator station augments with external sensor feeds; fused model pushed to vehicle and planning services)",
+      "DP-D: Federated mapping (multiple vehicles and fixed sensors each maintain local models; central coordinator reconciles and publishes consensus model)"
+    ],
+    "selected_dp": "DP-B: Distributed edge mapping with onboard perception pipeline. Vehicle acquires terrain/obstacle data via integrated LiDAR, stereo camera, and IMU; onboard compute fuses data into a local 3D occupancy grid and feature map; model is broadcast to planning/execution and tele-operator via Network Link interface. This approach minimizes latency (critical for safety), reduces dependency on external infrastructure, and aligns with autonomous operation requirements.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling to Vehicle sensor suite (LiDAR, camera, IMU availability and calibration)—mitigated by explicit sensor interface contract.",
+        "Coupling to Network Link bandwidth and latency—mitigated by model compression and priority queuing.",
+        "Coupling to planning/execution API contract—mitigated by standardized Tasking and Telemetry interfaces."
+      ],
+      "notes": "DP-B decouples worksite modeling from external infrastructure (cloud, fixed sensors), reducing single points of failure. Onboard compute is a dependency; recommend redundancy analysis at IM level."
+    },
+    "assumptions_risks": [
+      "Assumption: Vehicle is equipped with sufficient onboard compute (GPU/FPGA) for real-time sensor fusion and occupancy grid generation.",
+      "Assumption: Network Link has sufficient bandwidth to broadcast model updates at required frequency (e.g., 10 Hz for dynamic hazards).",
+      "Risk: Onboard compute failure → loss of mapping capability; mitigation: fallback to degraded-fidelity model or tele-operator override.",
+      "Risk: Sensor occlusion or degradation (rain, dust, darkness) → incomplete model; mitigation: Safety Services validates model completeness and alerts operator.",
+      "Risk: Model drift over time (accumulated odometry error); mitigation: periodic loop closure or external reference updates."
+    ],
+    "recommended_revision": "Clarify sensor suite specification (LiDAR range/resolution, camera specs, IMU grade) and onboard compute platform (GPU model, memory, power budget) before DP finalization. Specify model update frequency and compression strategy for Network Link broadcast."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "The Vehicle module owns the onboard perception pipeline: sensor acquisition (LiDAR, camera, IMU), sensor fusion (calibration, time synchronization), occupancy grid generation, feature extraction, and local model maintenance. The Vehicle module broadcasts the worksite model via Telemetry interface and receives operational constraints via Tasking interface."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle broadcasts worksite model (occupancy grid, feature map, dynamic hazard positions, timestamp) to planning/execution and tele-operator. Frequency: 10 Hz for dynamic hazards, 1 Hz for static features. Format: compressed 3D grid + feature list (JSON or binary)."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives work-zone boundary definitions, operational constraints, and model validation requests from planning/execution. Used to configure model generation (e.g., focus region, feature classes to detect)."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Vehicle reports model quality metrics (coverage, confidence, staleness) and sensor faults to Safety Services. Triggers alerts if model is incomplete or unreliable."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Underlying transport for Telemetry, Tasking, and SafetyAlert. Vehicle must handle network latency and packet loss gracefully (e.g., model buffering, retransmission)."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "Vehicle is the natural owner: it has direct access to sensors, onboard compute, and real-time constraints. Perception pipeline is tightly coupled to vehicle dynamics and sensor geometry. Minor diffusion: model broadcast via Telemetry (owned by network layer, not Vehicle)."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Teleoperation is a consumer of the worksite model, not a producer. Assigning mapping to Teleoperation would require tele-operator station to acquire and fuse sensor data, creating latency and dependency on operator availability. Not appropriate."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 30,
+        "diffusion_score": 70,
+        "notes": "Safety Services validates and monitors model quality but does not generate the model. Assigning mapping to Safety Services would create a separate perception pipeline, leading to duplication and inconsistency. Safety Services should consume Telemetry and SafetyAlert from Vehicle."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 40,
+        "diffusion_score": 60,
+        "notes": "NGHE Solution is the system-level container but is too abstract to own the perception pipeline. Mapping must be assigned to a concrete module (Vehicle) that has sensors and compute. NGHE Solution orchestrates the mapping capability but does not implement it."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module is the optimal owner because it has direct access to sensors (LiDAR, camera, IMU), onboard compute resources, and real-time constraints. The perception pipeline is physically and logically co-located with the vehicle platform. Mapping is a core capability of autonomous operation, not a service provided by external systems.",
+    "containment_risks": [
+      "Risk: Onboard compute capacity is insufficient for real-time fusion and grid generation; mitigation: specify compute platform upfront, prototype algorithm on target hardware.",
+      "Risk: Sensor calibration and synchronization are complex; mitigation: establish sensor integration team within Vehicle module, define calibration procedures.",
+      "Risk: Model broadcast via Telemetry creates dependency on network availability; mitigation: implement local model caching and graceful degradation if network is unavailable.",
+      "Risk: Vehicle module becomes too large (sensors + fusion + grid + broadcast); mitigation: decompose into sub-modules (Sensor Acquisition, Fusion Engine, Model Store, Broadcast) at next level."
+    ],
+    "recommended_revision": "Confirm that Vehicle module has sufficient onboard compute and power budget for perception pipeline. Define sensor integration contract (calibration, synchronization, failure modes). Specify model broadcast protocol and compression strategy. Plan for sub-module decomposition at next level to manage complexity."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-B (distributed edge mapping) directly addresses the refined FR: it generates a real-time worksite model on the vehicle, represents terrain/obstacles/hazards, and exposes the model via standardized interfaces to planning/execution. The DP is feasible, aligns with autonomous operation requirements, and is appropriate for high-safety-criticality applications (low latency, reduced external dependencies)."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Model broadcast via Telemetry interface is owned by network layer, not Vehicle; Vehicle must implement serialization and compression logic. Mitigation: define Telemetry payload schema and compression standard upfront.",
+        "Sensor acquisition and fusion are tightly coupled to Vehicle hardware; changes to sensor suite require Vehicle module updates. Mitigation: define sensor abstraction layer to isolate fusion logic from hardware specifics.",
+        "Onboard compute is a shared resource; mapping competes with other vehicle functions (control, diagnostics). Mitigation: specify compute allocation and priority scheduling."
+      ],
+      "containment_notes": "Vehicle is the clear owner with 95% containment score. No diffusion to other modules. Minor external dependencies (Telemetry transport, Tasking input, SafetyAlert output) are well-defined via interfaces."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible: (1) Unit tests for sensor fusion algorithms (simulation + hardware-in-loop); (2) Integration tests for model generation and broadcast (testbed with vehicle and network simulator); (3) Field trials to validate model accuracy and latency against acceptance criteria.",
+      "allocation_clarity": "Allocation is clear: Vehicle module owns perception pipeline and model generation. Planning/execution and Teleoperation are consumers. Safety Services monitors model quality. Interfaces (Telemetry, Tasking, SafetyAlert) are explicit and testable."
+    },
+    "recommended_revisions": [
+      "Refine sensor suite specification (LiDAR range/resolution, camera specs, IMU grade) and onboard compute platform before detailed design.",
+      "Define Telemetry payload schema and compression standard (e.g., ROS PointCloud2, OctoMap binary format).",
+      "Specify model update frequency and latency requirements for dynamic hazard detection (<1 s).",
+      "Plan for sub-module decomposition of Vehicle at next level (Sensor Acquisition, Fusion Engine, Model Store, Broadcast).",
+      "Establish sensor calibration and synchronization procedures as part of Vehicle integration plan."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The refined FR is well-defined and the DP is sound, but the FR is not atomic—it comprises seven sub-FRs (sensor acquisition, fusion, static/dynamic detection, work-zone representation, API exposure, validation). The Vehicle IM is the correct owner, but the module is complex and requires decomposition. Proceeding to the next level of functional decomposition is necessary to allocate the sub-FRs to concrete sub-modules (e.g., Sensor Acquisition, Fusion Engine, Model Store, Broadcast) and define their interfaces.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire terrain and obstacle data from onboard sensors (LiDAR, stereo camera, IMU) with specified accuracy and latency.",
+      "CR-NGHE-006.2: Fuse multi-source sensor data into a unified spatial model (occupancy grid + feature map) with time synchronization and calibration.",
+      "CR-NGHE-006.3: Detect and classify static obstacles (terrain, structures, vegetation) using point cloud processing and semantic segmentation.",
+      "CR-NGHE-006.4: Detect and track dynamic hazards (personnel, equipment) in real-time using motion detection and object tracking.",
+      "CR-NGHE-006.5: Represent work-zone boundaries and operational constraints in the model based on Tasking input.",
+      "CR-NGHE-006.6: Expose worksite model via Telemetry interface (serialization, compression, broadcast) to planning/execution and tele-operator.",
+      "CR-NGHE-006.7: Validate model completeness and accuracy; report quality metrics and faults via SafetyAlert interface."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Vehicle is equipped with LiDAR, stereo camera, and IMU with specified accuracy and synchronization.",
+        "Onboard compute platform has sufficient GPU/FPGA capacity for real-time sensor fusion (estimated 50–100 GFLOPS for occupancy grid generation at 10 Hz).",
+        "Network Link has sufficient bandwidth to broadcast model updates (estimated 1–10 Mbps depending on compression).",
+        "Planning/execution and Teleoperation systems can consume Telemetry interface (occupancy grid + feature map format).",
+        "Worksite safety plan defines agreed set of site features and work-zone boundaries that model must represent.",
+        "Model accuracy requirement is ±0.5 m vertical for terrain, ±0.2 m for obstacles, with 95% confidence."
+      ],
+      "open_risks": [
+        "Onboard compute capacity may be insufficient; prototype required to validate real-time performance.",
+        "Sensor calibration and synchronization are complex; integration team must be established early.",
+        "Model broadcast via Telemetry creates dependency on network availability; graceful degradation strategy needed.",
+        "Sensor occlusion (rain, dust, darkness) may degrade model quality; Safety Services must validate and alert operator.",
+        "Model drift over time (accumulated odometry error); loop closure or external reference updates needed.",
+        "Tele-operator may expect augmented model (external sensor feeds); hybrid mapping (DP-C) may be required if tele-operator input is critical."
+      ],
+      "evidence_needed": [
+        "Sensor suite specification and datasheet (LiDAR, camera, IMU).",
+        "Onboard compute platform specification (GPU model, memory, power budget).",
+        "Sensor fusion algorithm prototype (simulation + hardware-in-loop test results).",
+        "Network bandwidth and latency measurements (testbed with vehicle and network simulator).",
+        "Worksite safety plan and agreed set of site features.",
+        "Model accuracy and latency acceptance criteria (from Site Manager, Safety Manager).",
+        "Telemetry payload schema and compression standard (ROS, OctoMap, or custom format)."
+      ]
+    }
+  }
+}

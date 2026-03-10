@@ -1,0 +1,164 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall establish and maintain end-to-end teleoperation communication with p95 latency ≤ 150 ms under agreed network conditions to enable safe remote operation by tele-operators.",
+    "rationale": "CR-NGHE-008 addresses a critical safety and operational requirement. Teleoperation latency directly impacts operator situational awareness, control responsiveness, and safety margins. The p95 percentile metric ensures consistent performance under variable network conditions rather than optimistic average-case assumptions. High safety criticality demands explicit latency budgeting and verification.",
+    "verification_idea": "Measure end-to-end latency (command transmission → vehicle sensor acquisition → telemetry reception at operator console) across representative network conditions (bandwidth, jitter, packet loss) using instrumented test scenarios. Collect p95 statistics over minimum 1000 samples per condition.",
+    "sub_frs": [
+      "FR-NGHE-008.1: The teleoperation system shall acquire and encode vehicle state (position, orientation, sensor data) at ≥ 10 Hz minimum.",
+      "FR-NGHE-008.2: The teleoperation system shall transmit operator commands (movement, tool control) with deterministic latency budgeting.",
+      "FR-NGHE-008.3: The teleoperation system shall receive and decode remote commands with bounded processing delay.",
+      "FR-NGHE-008.4: The network link shall support bidirectional communication with latency contribution ≤ 100 ms p95 under agreed conditions.",
+      "FR-NGHE-008.5: The teleoperation system shall detect and alert operators to latency degradation or communication loss."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Implement dedicated low-latency teleoperation stack with hardware-accelerated encoding/decoding, priority queuing, and network-aware adaptive bitrate control.",
+      "DP-B: Integrate commercial off-the-shelf (COTS) teleoperation middleware (e.g., ROS 2 with DDS QoS tuning) with standard network protocols.",
+      "DP-C: Hybrid approach: use COTS middleware for command/telemetry routing but implement custom low-latency codec and network prioritization layer.",
+      "DP-D: Implement latency-optimized architecture with edge computing (vehicle-side preprocessing) and operator-side predictive rendering to mask network latency."
+    ],
+    "selected_dp": "DP-C: Hybrid approach combining COTS teleoperation middleware (ROS 2 DDS with QoS tuning for deterministic latency) with custom low-latency codec and network prioritization layer to achieve p95 ≤ 150 ms while maintaining modularity and maintainability.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Codec implementation tightly coupled to network transport layer (mitigated by interface abstraction).",
+        "QoS tuning interdependent with vehicle sensor acquisition rate and operator command frequency (requires coordinated design).",
+        "Network prioritization logic must coordinate with Safety Services for alert transmission (SafetyAlert interface dependency)."
+      ],
+      "notes": "DP-C exhibits moderate coupling but remains decomposable. The hybrid approach decouples middleware selection from latency-critical codec/network layers, enabling independent evolution. Coupling is primarily through well-defined interfaces (Telemetry, Tasking, SafetyAlert) rather than internal implementation details."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Network conditions remain within agreed parameters (bandwidth ≥ 5 Mbps, jitter ≤ 50 ms, packet loss ≤ 1%).",
+      "ASSUMPTION: Vehicle sensor acquisition can sustain ≥ 10 Hz update rate without saturating communication bandwidth.",
+      "RISK: Custom codec development introduces schedule and validation risk; recommend COTS codec evaluation (H.264, VP9) before custom implementation.",
+      "RISK: Network prioritization may conflict with other system traffic (e.g., safety alerts, maintenance telemetry); requires traffic shaping policy.",
+      "RISK: p95 latency target is aggressive; edge computing (DP-D) may be necessary if DP-C cannot meet target under worst-case conditions."
+    ],
+    "recommended_revision": "Refine DP-C to explicitly specify: (1) codec selection criteria and fallback options, (2) network QoS parameters (priority levels, bandwidth reservation), (3) latency budget allocation across vehicle acquisition, encoding, transmission, decoding, and operator rendering, (4) monitoring and adaptive control mechanisms to detect and respond to latency degradation."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Encapsulates all teleoperation-specific logic: command reception from operator console, vehicle state acquisition and encoding, network transmission/reception, command decoding and execution, latency monitoring, and operator feedback. Owns the low-latency codec, network prioritization layer, and QoS management. Interfaces with Vehicle for sensor/actuator access, Network Link for communication, and Safety Services for alert coordination."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Teleoperation module transmits vehicle state (position, orientation, sensor readings, latency metrics) to operator console at ≥ 10 Hz. Encoded with low-latency codec. Includes timestamp for latency measurement."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Teleoperation module receives operator commands (movement vectors, tool control, mode changes) from remote operator console. Decoded and validated before transmission to Vehicle module."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Teleoperation module uses Network Link for bidirectional communication. Applies QoS prioritization, adaptive bitrate control, and latency monitoring. Coordinates with Safety Services for priority handling of SafetyAlert messages."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "in",
+        "details": "Teleoperation module receives safety alerts from Safety Services and prioritizes transmission to operator console. May trigger command lockout or mode restrictions based on alert severity."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "Teleoperation module is the natural owner of all latency-critical teleoperation logic. Codec, QoS management, and network prioritization are core responsibilities. Minimal diffusion: only external dependencies are Vehicle (sensor access), Network Link (communication), and Safety Services (alert coordination)."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 15,
+        "diffusion_score": 85,
+        "notes": "Vehicle module should not own teleoperation logic; it owns vehicle dynamics, actuators, and sensors. Teleoperation is a use case of Vehicle, not a core responsibility. High diffusion risk if teleoperation codec/QoS logic is embedded in Vehicle."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Safety Services owns safety policy enforcement and alert generation. Teleoperation latency monitoring and network QoS are operational concerns, not safety policy. Coordination required via SafetyAlert interface, but ownership belongs to Teleoperation."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 10,
+        "diffusion_score": 90,
+        "notes": "NGHE Solution is the system-level container. Teleoperation is a subsystem component, not a system-level responsibility. Assigning to NGHE Solution would diffuse ownership and prevent clear accountability."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the optimal owner of CR-NGHE-008 realization. It encapsulates all latency-critical logic (codec, QoS, network prioritization) and owns the primary interfaces (Telemetry, Tasking, Network Link). External dependencies (Vehicle, Safety Services) are coordinated via well-defined interfaces, minimizing coupling and diffusion.",
+    "containment_risks": [
+      "RISK: Teleoperation module may become a bottleneck if it owns both command processing and vehicle state acquisition. Mitigation: ensure Vehicle module handles sensor acquisition independently; Teleoperation only receives pre-processed telemetry.",
+      "RISK: Network Link interface may not provide sufficient control over QoS parameters. Mitigation: define explicit QoS API in Network Link interface (priority levels, bandwidth reservation, latency monitoring).",
+      "RISK: Safety Services coordination may introduce latency if SafetyAlert processing is synchronous. Mitigation: implement asynchronous alert handling with priority queue in Teleoperation module."
+    ],
+    "recommended_revision": "Clarify the boundary between Teleoperation and Vehicle: Teleoperation owns command/telemetry encoding/decoding and network QoS; Vehicle owns sensor acquisition and actuator control. Define explicit latency budgets for each module (e.g., Vehicle acquisition ≤ 20 ms, Teleoperation codec ≤ 30 ms, Network Link ≤ 100 ms). Establish monitoring interface to track latency contributions from each module."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid COTS middleware + custom codec/QoS layer) directly addresses FR-NGHE-008 requirement for p95 ≤ 150 ms latency. The approach is technically sound: COTS middleware provides reliability and maintainability, while custom layers enable latency optimization. Decomposition into sub-FRs (acquisition, transmission, reception, network, monitoring) is well-aligned with DP-C architecture. No fundamental mismatch between functional requirement and design approach."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "DIFFUSION RISK (LOW): Teleoperation module owns codec and QoS logic, which are latency-critical. If these responsibilities diffuse to Vehicle or Safety Services, latency targets become unachievable. Mitigation: enforce clear module boundaries and interface contracts.",
+        "DIFFUSION RISK (MEDIUM): Network Link interface must provide sufficient control over QoS parameters. If Network Link is too abstracted, Teleoperation cannot implement adaptive bitrate control. Mitigation: define detailed QoS API in Network Link interface specification."
+      ],
+      "containment_notes": "Teleoperation module achieves 95% containment score. All latency-critical logic (codec, QoS, network prioritization) is owned by Teleoperation. External dependencies (Vehicle, Network Link, Safety Services) are coordinated via well-defined interfaces. Ownership is clear and accountability is unambiguous."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "CR-NGHE-008 is verifiable via instrumented testing: measure end-to-end latency across representative network conditions, collect p95 statistics, and validate against 150 ms target. Teleoperation module provides latency monitoring interface (timestamps in Telemetry messages) enabling direct measurement. Verification is feasible and repeatable.",
+      "allocation_clarity": "Allocation of CR-NGHE-008 to Teleoperation module is clear. Sub-FRs (acquisition, transmission, reception, network, monitoring) map directly to Teleoperation responsibilities. Latency budget allocation across sub-FRs is explicit and measurable. No ambiguity in ownership or verification approach."
+    },
+    "recommended_revisions": [
+      "REVISION 1: Refine DP-C to specify codec selection criteria, QoS parameters, and latency budget allocation. Include fallback options (e.g., COTS codec if custom codec development exceeds schedule).",
+      "REVISION 2: Define explicit latency budgets for each sub-FR and corresponding module (Vehicle acquisition, Teleoperation codec, Network Link transmission, etc.). Establish monitoring interface to track latency contributions.",
+      "REVISION 3: Clarify Network Link interface specification to include QoS API (priority levels, bandwidth reservation, latency monitoring). Ensure Teleoperation module can implement adaptive control.",
+      "REVISION 4: Establish coordination protocol between Teleoperation and Safety Services for SafetyAlert handling. Ensure safety alerts do not introduce latency spikes in command/telemetry path."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "CR-NGHE-008 is not atomic and requires further decomposition. Sub-FRs (acquisition, transmission, reception, network, monitoring) are well-defined and ready for next-level design. DP-C is sound but requires refinement (codec selection, QoS parameters, latency budgets). Teleoperation module assignment is clear and well-justified. Proceeding to next decomposition level is appropriate to detail codec implementation, network QoS tuning, and latency monitoring mechanisms.",
+    "next_level_sub_frs": [
+      "FR-NGHE-008.1: The teleoperation system shall acquire and encode vehicle state (position, orientation, sensor data) at ≥ 10 Hz minimum.",
+      "FR-NGHE-008.2: The teleoperation system shall transmit operator commands (movement, tool control) with deterministic latency budgeting.",
+      "FR-NGHE-008.3: The teleoperation system shall receive and decode remote commands with bounded processing delay.",
+      "FR-NGHE-008.4: The network link shall support bidirectional communication with latency contribution ≤ 100 ms p95 under agreed conditions.",
+      "FR-NGHE-008.5: The teleoperation system shall detect and alert operators to latency degradation or communication loss."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Network conditions remain within agreed parameters (bandwidth ≥ 5 Mbps, jitter ≤ 50 ms, packet loss ≤ 1%).",
+        "Vehicle sensor acquisition can sustain ≥ 10 Hz update rate without saturating communication bandwidth.",
+        "Operator console can render telemetry at ≥ 10 Hz with acceptable latency.",
+        "Safety Services can process and transmit SafetyAlert messages without blocking command/telemetry path.",
+        "Network Link interface provides sufficient control over QoS parameters for adaptive bitrate control."
+      ],
+      "open_risks": [
+        "RISK: Custom codec development introduces schedule and validation risk. Recommend COTS codec evaluation (H.264, VP9) before custom implementation.",
+        "RISK: p95 latency target (150 ms) is aggressive. If DP-C cannot meet target under worst-case conditions, edge computing (DP-D) may be necessary.",
+        "RISK: Network prioritization may conflict with other system traffic. Requires traffic shaping policy and coordination with Safety Services.",
+        "RISK: Teleoperation module may become bottleneck if it owns both command processing and vehicle state acquisition. Mitigation: ensure Vehicle module handles sensor acquisition independently."
+      ],
+      "evidence_needed": [
+        "Network latency characterization under agreed conditions (bandwidth, jitter, packet loss).",
+        "Vehicle sensor acquisition rate and bandwidth requirements.",
+        "Codec performance benchmarks (latency, compression ratio, CPU/memory overhead).",
+        "QoS tuning parameters for ROS 2 DDS (priority levels, bandwidth reservation, latency monitoring).",
+        "Latency budget allocation across sub-FRs (acquisition, encoding, transmission, decoding, rendering).",
+        "Operator console rendering latency and acceptable latency budget.",
+        "Safety Services alert transmission latency and impact on command/telemetry path."
+      ]
+    }
+  }
+}

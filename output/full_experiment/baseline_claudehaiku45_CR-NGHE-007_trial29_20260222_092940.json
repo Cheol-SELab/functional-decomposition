@@ -1,0 +1,163 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current equipment state, environmental conditions, and operational events with a p95 latency not exceeding the customer-defined target (baseline 1.0 s) across all supported update scenarios.",
+    "rationale": "CR-NGHE-007 addresses a critical operational requirement: timely situational awareness for safe and effective equipment operation. The refined statement explicitly bounds the latency constraint (p95 ≤ 1.0 s), identifies the scope of updates (equipment state, environment, events), and acknowledges customer-specific tailoring. High safety criticality demands that latency failures be detectable and that the system gracefully degrade rather than silently stale.",
+    "verification_idea": "Measure end-to-end latency from sensor acquisition through worksite model update across representative scenarios (e.g., position update, obstacle detection, operator command acknowledgment). Validate p95 percentile under nominal and degraded network conditions. Confirm that stale data is flagged and does not trigger unsafe actions.",
+    "sub_frs": [
+      "FR-007.1: Acquire and transmit telemetry from vehicle to worksite model with bounded latency.",
+      "FR-007.2: Process and integrate telemetry into worksite model with bounded latency.",
+      "FR-007.3: Detect and flag stale or missing updates to prevent unsafe decisions.",
+      "FR-007.4: Adapt update frequency and fidelity based on network conditions and safety state."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized worksite model server with direct telemetry ingestion and real-time update propagation; minimize network hops and processing queues.",
+      "DP-B: Distributed edge-cached worksite models with eventual consistency; accept higher latency variance in exchange for resilience.",
+      "DP-C: Hybrid: primary centralized model with edge caches; prioritize critical updates (safety-relevant) with low-latency path; defer non-critical updates.",
+      "DP-D: Adaptive latency control: dynamically adjust telemetry sampling rate, compression, and update batching based on network RTT and safety state."
+    ],
+    "selected_dp": "DP-C (Hybrid centralized-edge with safety-prioritized low-latency path) combined with DP-D (adaptive latency control). Rationale: DP-C provides deterministic latency for safety-critical updates (e.g., collision avoidance, operator commands) via a dedicated low-latency path to the primary model, while non-critical updates (e.g., fuel level, maintenance logs) use standard ingestion. DP-D allows the system to adapt to variable network conditions, reducing p95 tail latency by throttling non-critical telemetry when bandwidth is constrained. This combination satisfies the 1.0 s p95 constraint while maintaining safety and operational effectiveness.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between telemetry acquisition rate (FR-007.1) and model update processing (FR-007.2): mitigated by adaptive batching and priority queuing.",
+        "Coupling between network link quality and update latency: mitigated by DP-D's adaptive control and DP-C's fallback to edge caches.",
+        "Coupling between safety state and update prioritization: requires tight integration with Safety Services (FR-007.3)."
+      ],
+      "notes": "The selected DP decouples safety-critical and non-critical update paths, reducing coupling. Adaptive control (DP-D) decouples network variability from latency guarantees by adjusting telemetry load dynamically."
+    },
+    "assumptions_risks": [
+      "Assumption: Network RTT is measurable and stable enough to predict latency within ±100 ms. Risk: Highly variable networks (e.g., satellite, congested cellular) may violate this; mitigation: implement conservative latency budgets and fallback to edge-only mode.",
+      "Assumption: Safety-critical telemetry (e.g., position, obstacle) can be identified and prioritized a priori. Risk: Misclassification could delay safety-relevant updates; mitigation: Safety Services validates classification.",
+      "Assumption: Edge caches can be kept synchronized with primary model within acceptable staleness bounds. Risk: Network partitions could cause divergence; mitigation: implement conflict resolution and eventual consistency protocols.",
+      "Assumption: Customer-defined latency target is achievable with available network and compute resources. Risk: Target may be infeasible; mitigation: conduct feasibility study early and negotiate realistic targets."
+    ],
+    "recommended_revision": "Refine DP-C and DP-D to explicitly define: (1) the classification criteria for safety-critical vs. non-critical telemetry, (2) the latency budget allocation across acquisition, transmission, and processing, (3) the adaptive control algorithm (e.g., feedback loop parameters, thresholds for throttling), and (4) the edge cache consistency protocol. These details are essential for IM assignment and verification."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "The Teleoperation module owns the end-to-end latency control for worksite model updates. It integrates telemetry ingestion (from Vehicle via Telemetry interface), prioritizes updates based on safety state (via SafetyAlert interface), processes and caches updates locally, and propagates critical updates to the primary worksite model (via Tasking interface for command/state synchronization). Teleoperation also manages the adaptive latency control logic (DP-D) and edge cache consistency."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Receives raw telemetry (position, velocity, sensor readings, operator input) from Vehicle. Teleoperation buffers and prioritizes this stream based on safety state and network conditions."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "in",
+        "details": "Receives safety state updates from Safety Services (e.g., hazard detected, safe mode active). Teleoperation uses this to classify telemetry as safety-critical and adjust update prioritization."
+      },
+      {
+        "name": "Tasking",
+        "direction": "inout",
+        "details": "Sends prioritized worksite model updates to NGHE Solution (primary model) and receives acknowledgments. Also receives operator commands that must be reflected in the model with minimal latency."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Manages network transmission of telemetry and model updates. Teleoperation monitors RTT and bandwidth to inform adaptive control decisions."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "NGHE Solution is the top-level system and would own the primary worksite model, but latency control logic (DP-C, DP-D) is better localized in Teleoperation to minimize hops and enable real-time adaptation. Assigning to NGHE Solution would diffuse latency control across multiple sub-modules and increase coupling."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Vehicle is the source of telemetry but does not own the worksite model or latency control logic. Assigning latency control to Vehicle would couple it tightly to network and model architecture, violating separation of concerns."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.9,
+        "diffusion_score": 0.1,
+        "notes": "Teleoperation is the natural owner of latency control. It sits between Vehicle (telemetry source) and NGHE Solution (primary model), manages the tele-operated control loop, and can implement adaptive latency control and edge caching with minimal diffusion. High containment: all latency control logic, prioritization, and caching can be localized here."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Safety Services owns safety state and hazard detection but not the worksite model or latency control. It provides input (SafetyAlert) to Teleoperation's prioritization logic but should not own the latency control itself."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "Teleoperation can fully contain the latency control logic (DP-C and DP-D) by implementing: (1) a telemetry ingestion and prioritization queue, (2) an adaptive control loop that monitors network RTT and adjusts sampling/batching, (3) an edge cache for non-critical updates, and (4) a low-latency path for safety-critical updates to the primary model. All of these are within Teleoperation's scope as the tele-operation control layer.",
+    "containment_risks": [
+      "Risk: Teleoperation may not have direct access to the primary worksite model schema and update semantics. Mitigation: define a clear Tasking interface contract that specifies model update format and acknowledgment protocol.",
+      "Risk: Adaptive control logic may require real-time feedback from Safety Services and Network Link, creating tight coupling. Mitigation: use event-driven interfaces (SafetyAlert, Network Link status) to decouple timing.",
+      "Risk: Edge cache consistency with primary model requires coordination. Mitigation: implement a simple eventual consistency protocol (e.g., periodic sync, conflict resolution rules) owned by Teleoperation."
+    ],
+    "recommended_revision": "Clarify the Tasking interface contract to specify: (1) the format and semantics of worksite model updates, (2) the latency SLA for acknowledgments, (3) the handling of update conflicts or rejections. Also define the SafetyAlert interface to specify which safety states trigger prioritization changes and how Teleoperation should respond (e.g., switch to safety-critical-only mode)."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "The selected DP (hybrid centralized-edge with safety-prioritized path + adaptive latency control) directly addresses the FR requirement for p95 ≤ 1.0 s latency. DP-C ensures deterministic latency for safety-critical updates via a dedicated low-latency path, and DP-D adapts to network variability to reduce tail latency. The DP is feasible and testable."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Risk: If Teleoperation does not have sufficient compute resources or network bandwidth allocation, latency control may fail. Mitigation: conduct resource planning and allocate dedicated bandwidth for safety-critical updates.",
+        "Risk: If the Tasking interface is not well-defined, Teleoperation may not be able to reliably propagate updates to the primary model. Mitigation: finalize Tasking interface contract before detailed design."
+      ],
+      "containment_notes": "Teleoperation is a strong containment candidate (score 0.9). The module sits at the right architectural layer to own latency control without diffusion. All required interfaces (Telemetry, SafetyAlert, Tasking, Network Link) are available and well-scoped."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Latency can be verified via end-to-end testing: inject telemetry at Vehicle, measure time to worksite model update at NGHE Solution, and validate p95 percentile across scenarios. Adaptive control can be verified by simulating network conditions and confirming that latency remains within bounds.",
+      "allocation_clarity": "The allocation is clear: Teleoperation owns latency control and worksite model update logic. Vehicle owns telemetry acquisition. Safety Services owns safety state. NGHE Solution owns the primary worksite model. Interfaces are well-defined."
+    },
+    "recommended_revisions": [
+      "Finalize the Tasking interface contract to specify model update format, latency SLA, and conflict resolution.",
+      "Define the SafetyAlert interface to specify which safety states trigger prioritization changes.",
+      "Conduct a feasibility study to confirm that the 1.0 s p95 latency target is achievable with available network and compute resources.",
+      "Define the adaptive control algorithm in detail: feedback loop parameters, thresholds for throttling, and fallback behavior under extreme network degradation."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The refined FR is not atomic and has been decomposed into four sub-FRs (FR-007.1 through FR-007.4). Each sub-FR addresses a distinct aspect of the latency control problem: telemetry acquisition, model processing, staleness detection, and adaptive control. The selected DP and assigned IM are sound and pass all gates, but further decomposition is needed to allocate these sub-FRs to specific design parameters and implementation modules. Proceeding to the next level will clarify the detailed architecture and enable verification planning.",
+    "justification_detail": "The current level establishes the high-level strategy (hybrid centralized-edge with adaptive control) and assigns ownership to Teleoperation. The next level must decompose each sub-FR into detailed DPs and IMs, such as: (1) telemetry buffering and prioritization logic, (2) model update processing and caching, (3) staleness detection and flagging, and (4) adaptive control feedback loop. This will enable detailed design, resource allocation, and verification.",
+    "next_level_sub_frs": [
+      "FR-007.1: Acquire and transmit telemetry from vehicle to worksite model with bounded latency.",
+      "FR-007.2: Process and integrate telemetry into worksite model with bounded latency.",
+      "FR-007.3: Detect and flag stale or missing updates to prevent unsafe decisions.",
+      "FR-007.4: Adapt update frequency and fidelity based on network conditions and safety state."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Network RTT is measurable and stable enough to predict latency within ±100 ms.",
+        "Safety-critical telemetry can be identified and prioritized a priori.",
+        "Edge caches can be kept synchronized with primary model within acceptable staleness bounds.",
+        "Customer-defined latency target (1.0 s p95) is achievable with available resources.",
+        "Teleoperation module has sufficient compute and network resources to implement adaptive control.",
+        "Tasking interface can reliably propagate updates to the primary worksite model."
+      ],
+      "open_risks": [
+        "Network variability may exceed adaptive control's ability to maintain p95 ≤ 1.0 s latency.",
+        "Misclassification of safety-critical vs. non-critical telemetry could delay safety-relevant updates.",
+        "Edge cache divergence from primary model under network partitions.",
+        "Feasibility of 1.0 s p95 latency target with available network and compute resources.",
+        "Complexity of adaptive control algorithm may introduce bugs or unpredictable behavior."
+      ],
+      "evidence_needed": [
+        "Feasibility study: confirm 1.0 s p95 latency target is achievable.",
+        "Network characterization: measure RTT, bandwidth, and variability in target deployment environments.",
+        "Safety-critical telemetry classification: define criteria and validate with Safety Manager.",
+        "Tasking interface specification: finalize format, latency SLA, and conflict resolution.",
+        "Adaptive control algorithm design: specify feedback loop parameters and fallback behavior.",
+        "End-to-end latency testing: validate p95 percentile across representative scenarios."
+      ]
+    }
+  }
+}

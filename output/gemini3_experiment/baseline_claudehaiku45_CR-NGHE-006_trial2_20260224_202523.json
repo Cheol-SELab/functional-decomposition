@@ -1,0 +1,161 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and designated work zones with sufficient fidelity to support autonomous path planning and operator situational awareness.",
+    "rationale": "The original FR was vague on scope (what constitutes 'area analysis') and lacked specificity on fidelity requirements, update frequency, and consumer functions. Refinement clarifies that the worksite model must be dynamic, multi-layered (terrain + obstacles + hazards + zones), and explicitly linked to downstream planning/execution. High safety criticality demands explicit hazard representation.",
+    "verification_idea": "Acceptance: (1) Model generated within 5 minutes of site entry; (2) Terrain elevation accuracy ±0.5 m over 95% of mapped area; (3) Static obstacles detected with 90% recall; (4) Dynamic hazards updated at ≥2 Hz; (5) Work zones editable by Site Manager and persisted; (6) Model accessible to planning and execution subsystems via standardized interface.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire and fuse multi-sensor data (LIDAR, camera, IMU, GNSS) to construct terrain elevation map.",
+      "CR-NGHE-006.2: Detect and classify static obstacles (rocks, structures, vegetation) and represent them in 3D model.",
+      "CR-NGHE-006.3: Detect and track dynamic hazards (personnel, equipment) in real-time with position and velocity.",
+      "CR-NGHE-006.4: Define, edit, and persist work-zone boundaries (geofences) with access control.",
+      "CR-NGHE-006.5: Publish worksite model to planning and execution functions with guaranteed latency and consistency."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized mapping service (on-vehicle compute) that fuses LIDAR, camera, and IMU data into a 3D occupancy grid; publishes via ROS/middleware to planning and execution nodes.",
+      "DP-B: Distributed edge mapping where Vehicle acquires raw sensor data, transmits to remote Teleoperation center for processing, and returns model via network link.",
+      "DP-C: Hybrid approach: Vehicle performs local SLAM (Simultaneous Localization and Mapping) for real-time obstacle avoidance; Teleoperation center performs offline refinement and work-zone annotation; model synchronized bidirectionally."
+    ],
+    "selected_dp": "DP-C: Hybrid on-vehicle + remote processing with bidirectional model synchronization. Vehicle performs real-time SLAM (terrain + obstacle detection) using onboard LIDAR and camera; Teleoperation center receives raw sensor streams and model snapshots via Telemetry interface, performs offline refinement (classification, work-zone annotation), and pushes updates back to Vehicle via Tasking interface. Work-zone definitions originate from Site Manager (via Teleoperation UI) and are synchronized to Vehicle.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between Vehicle SLAM and Teleoperation refinement is decoupled via asynchronous Telemetry/Tasking interfaces; no tight real-time dependency.",
+        "Work-zone definition (Site Manager → Teleoperation → Vehicle) is loosely coupled through Tasking; Vehicle can operate with stale work-zone data if network fails.",
+        "Safety criticality (high) is addressed by ensuring Vehicle maintains local obstacle map independent of remote updates; remote refinement is advisory, not control-critical."
+      ],
+      "notes": "DP-C avoids single-point-of-failure risk of DP-B (remote processing dependency) and reduces on-vehicle compute burden vs. DP-A. Hybrid approach aligns with tele-operated safety model: Vehicle is autonomous-capable, Teleoperation is supervisory."
+    },
+    "assumptions_risks": [
+      "Assumption: Vehicle has sufficient onboard compute (GPU/FPGA) for real-time SLAM; risk if compute budget exhausted by other functions.",
+      "Assumption: Network link (Telemetry/Tasking) is reliable enough for periodic model sync; risk of model divergence if network is intermittent.",
+      "Assumption: Site Manager can define work zones via Teleoperation UI with acceptable latency; risk if UI is cumbersome or network-dependent.",
+      "Risk: SLAM drift over long missions may require periodic global refinement from Teleoperation; mitigation via loop-closure detection and GNSS aiding."
+    ],
+    "recommended_revision": "Clarify compute budget allocation for Vehicle SLAM vs. other autonomy functions. Define acceptable model divergence tolerance and sync frequency. Specify SLAM algorithm (e.g., ORB-SLAM2, LIO-SAM) and sensor fusion strategy (EKF, graph-based). Confirm Teleoperation center has sufficient bandwidth and compute for offline refinement."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "On-vehicle SLAM and real-time obstacle detection subsystem. Owns sensor acquisition (LIDAR, camera, IMU), local mapping (occupancy grid, feature map), and dynamic hazard tracking. Publishes model snapshots and sensor telemetry to Teleoperation; receives work-zone updates and model refinements via Tasking."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle publishes raw sensor streams (LIDAR point clouds, camera frames, IMU data) and local SLAM state (pose, occupancy grid, detected obstacles) to Teleoperation center at configurable frequency (e.g., 1–10 Hz depending on bandwidth)."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives work-zone definitions, model refinements (e.g., reclassified obstacles, loop-closure corrections), and mapping mode commands (e.g., 'map this region', 'pause mapping') from Teleoperation center."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Vehicle publishes detected dynamic hazards (personnel, equipment) and geofence violations to Safety Services for real-time alerting and intervention."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Vehicle is the natural owner of real-time SLAM and sensor fusion; all core mapping logic resides here. Minor diffusion: work-zone definitions originate in Teleoperation (Site Manager input) but are applied locally on Vehicle. Hazard alerts diffuse to Safety Services."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.65,
+        "diffusion_score": 0.35,
+        "notes": "Teleoperation could host offline model refinement and work-zone UI, but real-time SLAM must remain on Vehicle for safety and latency. High diffusion if Teleoperation owns mapping logic; creates network dependency for critical path."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Safety Services consumes hazard data from Vehicle mapping but does not own mapping logic. Hazard detection is a byproduct of mapping, not a primary function of Safety Services."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "NGHE Solution is the system-level container; mapping is a subsystem function. Assigning IM to NGHE Solution would be too coarse and would not clarify ownership or interface boundaries."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "Vehicle owns real-time SLAM and obstacle detection because (1) sensors are physically on Vehicle, (2) real-time latency is critical for safety, (3) Vehicle must operate autonomously if network fails, (4) SLAM algorithms are compute-intensive and best executed locally. Teleoperation owns offline refinement and work-zone management as a supervisory function.",
+    "containment_risks": [
+      "Risk: If Vehicle SLAM compute is insufficient, mapping may degrade under high-load scenarios (e.g., dense obstacle fields, high-speed traversal). Mitigation: Allocate dedicated compute core; implement adaptive SLAM (reduce feature density under load).",
+      "Risk: Work-zone definitions are created in Teleoperation but applied on Vehicle; if network is down, Vehicle operates with stale work zones. Mitigation: Vehicle caches last-known work zones; Site Manager is alerted if zones are >5 min old.",
+      "Risk: Hazard detection (dynamic obstacles) is tightly coupled to SLAM; if SLAM fails, hazard detection may fail. Mitigation: Implement independent hazard detector (e.g., background subtraction on camera) as fallback.",
+      "Risk: Model divergence between Vehicle and Teleoperation if sync is infrequent or lossy. Mitigation: Implement model versioning and conflict resolution (e.g., Teleoperation refinement is merged, not overwritten)."
+    ],
+    "recommended_revision": "Specify Vehicle compute architecture (CPU/GPU allocation for SLAM). Define model sync protocol (frequency, compression, conflict resolution). Clarify fallback behavior if network is lost (Vehicle operates with local map only; Teleoperation is notified). Confirm that hazard detection is independent of SLAM refinement for safety."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid on-vehicle + remote processing) directly addresses all sub-FRs: (1) Vehicle SLAM acquires and fuses sensor data for terrain/obstacle mapping; (2) real-time detection of dynamic hazards; (3) work-zone definitions are received via Tasking and applied locally; (4) model is published via Telemetry to planning/execution. DP-C avoids single-point-of-failure and aligns with tele-operated safety model. No functional gaps identified."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Work-zone definitions originate in Teleoperation (Site Manager input) but are applied on Vehicle; this is acceptable diffusion because Teleoperation is supervisory and Vehicle is the executor. Mitigation: Tasking interface is the contract; Vehicle caches work zones locally.",
+        "Hazard alerts diffuse to Safety Services; this is intentional and acceptable because Safety Services is the consumer of hazard data for alerting/intervention. Mitigation: SafetyAlert interface is the contract; Vehicle publishes hazards at ≥2 Hz."
+      ],
+      "containment_notes": "Vehicle is the clear owner of real-time SLAM and sensor fusion (containment_score 0.92). Teleoperation is the owner of offline refinement and work-zone UI (not assigned to this IM but noted for completeness). Diffusion is minimal and justified by functional decomposition."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible: (1) SLAM accuracy can be measured against ground-truth maps (e.g., RTK-GNSS survey); (2) obstacle detection recall/precision can be measured in controlled test scenarios; (3) dynamic hazard tracking latency can be measured via timestamped sensor data; (4) work-zone persistence can be verified via database queries; (5) model availability to planning/execution can be verified via interface monitoring.",
+      "allocation_clarity": "Allocation is clear: Vehicle owns real-time mapping and hazard detection. Teleoperation owns offline refinement and work-zone UI (not in scope of this IM assignment but noted). Safety Services owns hazard alerting (consumes SafetyAlert interface). Planning/execution functions consume model via Telemetry interface (not assigned to this IM)."
+    },
+    "recommended_revisions": [
+      "Specify SLAM algorithm and sensor fusion strategy (e.g., LIO-SAM with EKF for dynamic hazards).",
+      "Define model sync protocol: frequency (e.g., 1 Hz), compression (e.g., octree), conflict resolution (e.g., Teleoperation refinement is advisory).",
+      "Clarify fallback behavior if network is lost: Vehicle operates with local map; Teleoperation is notified; Site Manager can manually intervene.",
+      "Specify hazard detection latency requirement (e.g., ≤500 ms from detection to SafetyAlert publication).",
+      "Define work-zone cache policy: Vehicle caches last N work zones; alerts Site Manager if zones are stale (>5 min)."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "CR-NGHE-006 is not atomic; it decomposes into five sub-FRs (sensor fusion, obstacle detection, hazard tracking, work-zone management, model publication). Each sub-FR requires further refinement and DP selection. DP-C and Vehicle IM assignment are sound at this level, but sub-FRs must be decomposed to clarify algorithms, interfaces, and compute allocation. High safety criticality (hazard detection) and network dependency (model sync) warrant detailed sub-level analysis.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire and fuse multi-sensor data (LIDAR, camera, IMU, GNSS) to construct terrain elevation map.",
+      "CR-NGHE-006.2: Detect and classify static obstacles (rocks, structures, vegetation) and represent them in 3D model.",
+      "CR-NGHE-006.3: Detect and track dynamic hazards (personnel, equipment) in real-time with position and velocity.",
+      "CR-NGHE-006.4: Define, edit, and persist work-zone boundaries (geofences) with access control.",
+      "CR-NGHE-006.5: Publish worksite model to planning and execution functions with guaranteed latency and consistency."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Vehicle has sufficient onboard compute (GPU/FPGA) for real-time SLAM; compute budget is allocated and validated.",
+        "Network link (Telemetry/Tasking) is reliable enough for periodic model sync; acceptable latency is ≤2 sec for work-zone updates.",
+        "Site Manager can define work zones via Teleoperation UI with acceptable latency (≤10 sec); UI is intuitive and network-independent for local caching.",
+        "SLAM algorithm (e.g., LIO-SAM, ORB-SLAM2) is mature and suitable for heavy equipment environment (dust, vibration, variable lighting).",
+        "Hazard detection (dynamic obstacles) can be decoupled from SLAM refinement for safety; independent fallback detector is feasible.",
+        "Planning and execution functions can consume model via Telemetry interface; model format (e.g., occupancy grid, point cloud) is agreed."
+      ],
+      "open_risks": [
+        "SLAM drift over long missions (>1 hour) may require periodic global refinement; loop-closure detection and GNSS aiding are critical.",
+        "Model divergence between Vehicle and Teleoperation if sync is infrequent or lossy; conflict resolution strategy must be defined.",
+        "Hazard detection latency may exceed safety requirements if SLAM is compute-saturated; adaptive SLAM or independent detector is needed.",
+        "Work-zone definitions may be lost if Vehicle cache is cleared; persistence strategy (local database, cloud backup) must be defined.",
+        "Network bandwidth may be insufficient for high-frequency sensor streams (LIDAR point clouds); compression and adaptive streaming are needed."
+      ],
+      "evidence_needed": [
+        "Compute budget analysis: Vehicle CPU/GPU allocation for SLAM vs. other autonomy functions.",
+        "Network bandwidth analysis: Telemetry stream size (LIDAR, camera, IMU) and acceptable frequency.",
+        "SLAM algorithm evaluation: Accuracy, latency, robustness in heavy equipment environment (dust, vibration, variable lighting).",
+        "Hazard detection evaluation: Latency, recall, precision for personnel and equipment detection.",
+        "Work-zone UI mockup: Usability study with Site Manager; latency measurement for zone creation/update.",
+        "Model sync protocol specification: Frequency, compression, conflict resolution, fallback behavior.",
+        "Safety analysis: FMEA for SLAM failure, network loss, hazard detection failure; mitigation strategies."
+      ]
+    }
+  }
+}

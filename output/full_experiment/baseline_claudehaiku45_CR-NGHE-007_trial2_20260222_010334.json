@@ -1,0 +1,162 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current equipment state, environmental conditions, and operational events with a p95 latency not exceeding the customer-defined target (baseline 1.0 s) across all supported update scenarios.",
+    "rationale": "CR-NGHE-007 requires clarification of scope (what constitutes 'worksite model'), measurement basis (p95 latency across which scenarios), and customer-specific acceptance criteria. The refined FR explicitly binds latency to operational use cases and acknowledges customer tailoring. Safety criticality (high) implies that latency failures could impact hazard detection and operator decision-making.",
+    "verification_idea": "Measure end-to-end latency from sensor/event generation through model update completion across representative scenarios (e.g., equipment position update, obstacle detection, safety alert propagation). Collect p95 percentile over statistically significant sample. Compare against customer acceptance threshold.",
+    "sub_frs": [
+      "FR-NGHE-007.1: Acquire real-time telemetry from vehicle sensors and subsystems with sufficient fidelity and frequency to support worksite model accuracy.",
+      "FR-NGHE-007.2: Transmit telemetry and operational events to the worksite model service with bounded network latency.",
+      "FR-NGHE-007.3: Process and integrate incoming telemetry into the worksite model representation with minimal computational latency.",
+      "FR-NGHE-007.4: Distribute updated worksite model state to authorized consumers (operators, tele-operators, safety services) with bounded dissemination latency."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized worksite model service with real-time event streaming (Kafka/RabbitMQ) from vehicle telemetry sources; model updates via in-memory state machine with periodic persistence.",
+      "DP-B: Distributed edge-based model replicas on vehicle and tele-operation console with eventual consistency synchronization; reduces central bottleneck but increases complexity.",
+      "DP-C: Hybrid approach: lightweight model cache on vehicle (for local operator feedback) + authoritative central model (for site-wide coordination); dual-path latency optimization.",
+      "DP-D: Direct sensor-to-consumer push with minimal intermediation; high coupling, difficult to maintain consistency and safety invariants."
+    ],
+    "selected_dp": "DP-C: Hybrid dual-path model architecture with vehicle-local cache (low-latency operator feedback) and authoritative central worksite model (site-wide consistency and safety coordination). Telemetry flows via event streaming; model updates via publish-subscribe pattern with priority queuing for safety-critical events.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Synchronization between vehicle cache and central model could introduce race conditions if not carefully managed; requires explicit conflict resolution policy.",
+        "Safety-critical events must bypass normal queuing to meet latency SLA; introduces dual-path logic that must be verified.",
+        "Network partition scenarios could cause cache divergence; requires explicit handling and operator notification."
+      ],
+      "notes": "DP-C decouples local responsiveness (vehicle cache) from global consistency (central model), reducing coupling compared to pure centralized (DP-A) or pure distributed (DP-B) approaches. Coupling is manageable via event-driven architecture and explicit synchronization semantics."
+    },
+    "assumptions_risks": [
+      "Assumption: Network link is available and provides bounded latency for central model updates; risk: network outage or congestion could violate p95 SLA.",
+      "Assumption: Vehicle-local cache can be kept synchronized with central model within acceptable drift; risk: cache invalidation complexity could introduce bugs.",
+      "Assumption: Safety-critical events can be identified and prioritized at source; risk: misclassification could delay critical alerts.",
+      "Assumption: Customer accepts dual-path model (eventual consistency for non-critical updates); risk: operator confusion if local and global views diverge."
+    ],
+    "recommended_revision": "Refine DP-C to explicitly specify: (1) event classification rules (safety-critical vs. routine), (2) priority queue discipline, (3) cache synchronization protocol (e.g., vector clocks or CRDT), (4) network failure handling (fallback to local-only mode with operator notification), (5) latency measurement points and SLA allocation across sub-paths."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "End-to-end worksite model update pipeline: telemetry ingestion from Vehicle, event streaming and model state management, distribution to Teleoperation and Safety Services consumers. Includes central model service, event broker, and model synchronization logic."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Inbound telemetry stream from Vehicle (position, sensor readings, operational state). Feeds model update pipeline."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Outbound task/command stream to Vehicle and Teleoperation based on worksite model state and operator intent. May include model-derived guidance."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Outbound safety alerts to Safety Services and operator consoles derived from worksite model analysis (e.g., collision risk, geofence violation)."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Underlying network transport for all telemetry, tasking, and safety alert flows. Latency of Network Link directly impacts p95 SLA."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "NGHE Solution is the system-level container. Worksite model update is a core system function. High containment: model service, event broker, and synchronization logic are naturally owned by NGHE Solution. Low diffusion: minimal leakage to other modules."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 40,
+        "diffusion_score": 60,
+        "notes": "Vehicle owns telemetry generation and local cache (DP-C vehicle-side). However, central model and site-wide coordination belong to NGHE Solution. Assigning entire DP to Vehicle would scatter model logic and violate separation of concerns."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 30,
+        "diffusion_score": 70,
+        "notes": "Teleoperation is a consumer of worksite model updates, not the owner. Assigning model update responsibility to Teleoperation would create inappropriate coupling and duplicate logic across operator consoles."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 35,
+        "diffusion_score": 65,
+        "notes": "Safety Services consumes model state to generate alerts but does not own the model update pipeline. Assigning model updates to Safety Services would conflate safety analysis with model management."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "NGHE Solution is the natural owner of the worksite model update pipeline. It integrates telemetry from Vehicle, manages the central model state, and distributes updates to Teleoperation and Safety Services. Vehicle owns local cache and telemetry generation; Safety Services and Teleoperation are consumers. This assignment respects separation of concerns and minimizes diffusion.",
+    "containment_risks": [
+      "Risk: If NGHE Solution becomes a monolithic service, latency could degrade under high telemetry load. Mitigation: design internal architecture with event streaming and async processing.",
+      "Risk: Tight coupling between model update and safety alert generation could violate safety isolation. Mitigation: Safety Services should subscribe to model updates asynchronously; NGHE Solution should not directly invoke Safety Services.",
+      "Risk: Network Link latency is outside NGHE Solution's direct control. Mitigation: NGHE Solution must design for network variability (e.g., local cache fallback, priority queuing)."
+    ],
+    "recommended_revision": "Confirm that NGHE Solution includes a dedicated worksite model service component (not scattered across Vehicle, Teleoperation, Safety Services). Define internal module boundaries within NGHE Solution (e.g., Telemetry Ingestion, Model State Manager, Event Broker, Distribution Service) to support DP-C architecture and enable independent testing/scaling."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid dual-path model) directly addresses the refined FR requirement for bounded p95 latency. The vehicle-local cache provides low-latency feedback for operator responsiveness; the central model ensures site-wide consistency and safety coordination. DP-C is traceable to all sub-FRs (telemetry acquisition, transmission, processing, distribution). No logical gaps identified."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "DP-C requires coordination between Vehicle (local cache) and NGHE Solution (central model). If ownership boundaries are unclear, synchronization logic could diffuse across modules. Mitigation: define explicit sync protocol and assign ownership of conflict resolution to NGHE Solution.",
+        "Event streaming and priority queuing logic must be centralized in NGHE Solution to avoid duplication in Vehicle or Teleoperation. Risk: if each module implements its own event handling, latency and consistency will suffer. Mitigation: NGHE Solution owns event broker; Vehicle and Teleoperation are clients."
+      ],
+      "containment_notes": "NGHE Solution is the appropriate container for the central model and event broker. Vehicle owns telemetry generation and local cache (partial DP realization). Teleoperation and Safety Services are consumers. Containment is clear; diffusion risks are manageable with explicit interface contracts."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Latency can be measured end-to-end via instrumentation at telemetry source (Vehicle), model update completion (NGHE Solution), and consumer delivery (Teleoperation, Safety Services). p95 percentile is computable from production telemetry logs. Verification is feasible.",
+      "allocation_clarity": "FR-NGHE-007 is allocated to NGHE Solution with clear sub-FR allocation: Vehicle owns telemetry acquisition (FR-007.1), Network Link owns transmission (FR-007.2), NGHE Solution owns processing (FR-007.3) and distribution (FR-007.4). Allocation is clear and testable."
+    },
+    "recommended_revisions": [
+      "Refine DP-C to specify event classification rules and priority queue discipline. Define SLA allocation across sub-paths (e.g., safety-critical events p95 ≤ 100 ms, routine updates p95 ≤ 1.0 s).",
+      "Define synchronization protocol between Vehicle cache and central model (e.g., vector clocks, CRDT, or explicit ack-based sync). Document conflict resolution policy.",
+      "Specify network failure handling: what happens if Network Link latency exceeds SLA? Does Vehicle fall back to local-only mode? How is operator notified?",
+      "Confirm that NGHE Solution internal architecture includes dedicated components for event broker, model state manager, and distribution service to avoid monolithic bottleneck."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-NGHE-007 is not atomic; it decomposes into four sub-FRs (telemetry acquisition, transmission, processing, distribution). DP-C is sound and traceable to the refined FR. NGHE Solution is the correct IM owner. However, the DP requires further refinement (event classification, priority queuing, sync protocol, network failure handling) before detailed design. Recommend decomposing sub-FRs to the next level to drive DP refinement and validate latency allocation across sub-paths.",
+    "next_level_sub_frs": [
+      "FR-NGHE-007.1: Acquire real-time telemetry from vehicle sensors and subsystems with sufficient fidelity and frequency to support worksite model accuracy.",
+      "FR-NGHE-007.2: Transmit telemetry and operational events to the worksite model service with bounded network latency.",
+      "FR-NGHE-007.3: Process and integrate incoming telemetry into the worksite model representation with minimal computational latency.",
+      "FR-NGHE-007.4: Distribute updated worksite model state to authorized consumers (operators, tele-operators, safety services) with bounded dissemination latency."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Network Link provides bounded latency for central model updates (customer-defined SLA).",
+        "Vehicle-local cache can be kept synchronized with central model within acceptable drift.",
+        "Safety-critical events can be identified and prioritized at source.",
+        "Customer accepts dual-path model with eventual consistency for non-critical updates.",
+        "Worksite model is defined and scoped by customer (e.g., equipment positions, obstacles, geofences).",
+        "Telemetry frequency and fidelity are sufficient to support model accuracy (to be validated in sub-FR decomposition)."
+      ],
+      "open_risks": [
+        "Network outage or congestion could violate p95 SLA; mitigation strategy needed (fallback, local-only mode).",
+        "Cache invalidation complexity could introduce synchronization bugs; requires rigorous protocol design and testing.",
+        "Misclassification of safety-critical events could delay critical alerts; requires clear classification rules and validation.",
+        "Operator confusion if local and global model views diverge; requires clear UI/UX guidance and notification strategy.",
+        "NGHE Solution could become a monolithic bottleneck under high telemetry load; requires internal architecture design (event streaming, async processing, horizontal scaling)."
+      ],
+      "evidence_needed": [
+        "Customer acceptance criteria for worksite model update latency (p95 target, supported scenarios).",
+        "Telemetry frequency and fidelity requirements from Vehicle subsystems.",
+        "Network Link SLA (latency, availability, bandwidth) from infrastructure team.",
+        "Safety-critical event classification rules and priority levels from Safety Manager.",
+        "Worksite model schema and update semantics (e.g., position updates, obstacle detection, geofence violations).",
+        "Prototype or simulation results validating DP-C latency allocation across sub-paths."
+      ]
+    }
+  }
+}

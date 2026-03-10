@@ -1,0 +1,168 @@
+{
+  "refined_fr": {
+    "refined_fr": "Enable measurement and reporting of material throughput in volumetric or mass units per unit time.",
+    "rationale": "The original FR conflates two distinct obligations: (1) the system's capability to measure/report throughput metrics, and (2) the achievement of a customer-defined target. The latter is a success criterion dependent on operational execution, not a system requirement. The refined FR isolates the system's functional obligation—providing visibility into throughput—which is solution-neutral and testable independent of whether a specific productivity target is met. The target itself belongs in acceptance criteria or KPI definitions, not in the FR.",
+    "verification_idea": "Demonstrate that the NGHE solution captures and reports material throughput (m³/h or ton/h) during representative operations. Verify data accuracy against independent measurement. Confirm reporting is accessible to Site Manager and relevant stakeholders in real time or near-real time.",
+    "sub_frs": [
+      "Acquire material throughput data (volume or mass per time interval) during equipment operation.",
+      "Calculate and aggregate throughput metrics from acquired data.",
+      "Report throughput metrics to authorized stakeholders in human-readable format."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Continuous volumetric flow measurement via inline sensor with real-time signal conditioning and local data buffering",
+      "DP2: Periodic mass-based sampling with calibrated weighing and extrapolation to throughput rate over fixed time windows",
+      "DP3: Indirect throughput inference from operational state (runtime, equipment speed, material density) combined with pre-calibrated conversion factors",
+      "DP4: Hybrid dual-path measurement (volumetric primary + mass-based verification) with automated cross-validation and anomaly flagging",
+      "DP5: Decoupled measurement acquisition (sensor data collection) from reporting logic (aggregation, filtering, output formatting) via standardized data interface"
+    ],
+    "selected_dp": "DP5: Decouple measurement acquisition from reporting logic via standardized data interface, instantiated as: (a) Acquisition module: continuous or periodic sensor input with local buffering and timestamping; (b) Reporting module: stateless aggregation, filtering, and output formatting consuming timestamped measurement records; (c) Interface contract: schema-defined measurement records (timestamp, value, unit, quality flag, sensor_id) enabling independent evolution and multi-sensor composition.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Tight coupling between sensor selection and reporting logic if DP1–DP3 chosen monolithically; DP5 decouples by enforcing interface contract.",
+        "Acceptance criteria dependency on evaluation period and target threshold; DP5 remains agnostic to acceptance logic (deferred to higher-level FR).",
+        "Safety-critical measurement integrity (e.g., sensor failure detection) must be addressed in acquisition module; DP5 supports explicit quality flags in interface.",
+        "Multi-sensor or redundancy scenarios (e.g., cross-validation per DP4) require composition; DP5 enables this via standardized record schema."
+      ],
+      "notes": "DP5 achieves low coupling by separating concerns: acquisition (sensor-specific, real-time) from reporting (stateless, composable). This allows independent selection of measurement method (volumetric, mass, indirect) without redesigning reporting. Quality flags and timestamping support safety and traceability without embedding acceptance logic."
+    },
+    "assumptions_risks": [
+      "Assumption: Measurement method (volumetric, mass, or indirect) is selected at a lower FR level; DP5 is method-agnostic but requires that method to produce timestamped records.",
+      "Risk: If sensor failure or data loss occurs, DP5 does not inherently guarantee continuity; acquisition module must implement buffering and fault detection.",
+      "Risk: Acceptance criteria ('≥ productivity_target over evaluation period') is not embedded in DP5; reporting module must support configurable aggregation windows and threshold comparison at a higher level.",
+      "Risk: Worksite safety plan may impose real-time alerting or shutdown logic; DP5 supports this via quality flags but does not prescribe safety-critical response (deferred to safety-critical FR).",
+      "Assumption: Standardized data interface (schema, transport) is feasible; if legacy sensors or systems lack this, adaptation layer (IM) may be required."
+    ],
+    "recommended_revision": "Refine FR to explicitly separate concerns: (1) FR_Acq: 'Acquire timestamped measurement records (volumetric or mass) with quality metadata'; (2) FR_Report: 'Aggregate and format measurement records to report throughput rate and cumulative productivity against target'; (3) FR_Safety: 'Detect and flag measurement anomalies or sensor faults to support safety response'. This decomposition aligns with DP5 and clarifies ownership boundaries (acquisition IM vs. reporting IM vs. safety-critical IM). Additionally, specify acceptance criteria as a separate FR_Acceptance: 'Validate that reported productivity ≥ productivity_target over evaluation period with documented measurement uncertainty and traceability'."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "Encapsulates sensor acquisition (continuous/periodic input with local buffering and timestamping) and measurement record schema definition; exports standardized measurement records via Telemetry interface for consumption by reporting and safety logic."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Exports timestamped measurement records (timestamp, value, unit, quality flag, sensor_id) to downstream reporting and safety consumers; enables decoupling of acquisition from reporting logic."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives acquisition configuration directives (sampling rate, sensor selection, buffering parameters) to control measurement acquisition behavior."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.85,
+        "diffusion_score": 0.15,
+        "notes": "Strong containment: sensor hardware, acquisition logic, buffering, and timestamping are naturally Vehicle-owned. Measurement schema definition resides here. Minor diffusion: Telemetry interface exports records; Tasking interface receives configuration. This is the natural locus of sensor ownership and acquisition responsibility."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.45,
+        "diffusion_score": 0.55,
+        "notes": "Weak containment: NGHE is a system-level orchestrator, not a sensor/acquisition owner. Acquisition hardware and buffering logic would diffuse across Vehicle and NGHE. Reporting logic might reside here, but acquisition decoupling requires Vehicle to own the measurement schema and export interface. High coupling risk."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Poor containment: Teleoperation is a control/command domain, not a measurement acquisition domain. Sensor hardware, buffering, and timestamping belong to Vehicle. Reporting logic may consume Teleoperation commands, but acquisition is orthogonal. Severe diffusion if acquisition logic placed here."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor containment: Safety Services consumes measurement records for safety decisions but does not own sensor acquisition. Placing acquisition logic here violates separation of concerns. Measurement schema and buffering are Vehicle responsibilities. Safety Services should be a consumer of Telemetry, not the owner of acquisition."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module is the natural owner of sensor acquisition, local buffering, timestamping, and measurement schema definition. By exporting standardized measurement records via the Telemetry interface, the Vehicle decouples acquisition from reporting and safety logic. Reporting modules (whether in NGHE Solution, Safety Services, or Teleoperation) consume Telemetry records without knowledge of acquisition internals. This achieves the DP goal: independent evolution of acquisition and reporting, multi-sensor composition via schema, and stateless aggregation downstream.",
+    "containment_risks": [
+      "Risk: If Vehicle module is not the authoritative owner of sensor hardware and acquisition logic, the DP cannot be properly realized. Verify that Vehicle owns all sensor drivers and acquisition threads.",
+      "Risk: If Telemetry interface is not consistently used by all reporting consumers (e.g., Safety Services bypasses Telemetry and directly queries sensors), decoupling is violated. Enforce interface contract.",
+      "Risk: If measurement schema (timestamp, value, unit, quality flag, sensor_id) is not centrally defined and versioned in Vehicle, schema drift will cause reporting logic to diverge. Establish schema governance.",
+      "Risk: If buffering and timestamping logic is duplicated across multiple modules (e.g., Vehicle and Safety Services both buffer), cohesion is lost. Ensure single source of truth in Vehicle.",
+      "Risk: If Tasking interface does not provide sufficient control over acquisition parameters (sampling rate, sensor selection), reporting logic may be forced to work around acquisition limitations, reducing independence."
+    ],
+    "recommended_revision": "No revision to DP required. The DP is well-suited to Vehicle ownership. Ensure that: (1) Vehicle is the sole owner of sensor hardware, acquisition threads, buffering, and timestamping; (2) Measurement schema is formally defined and versioned in Vehicle; (3) All reporting and safety logic consumes measurements exclusively via Telemetry interface; (4) Tasking interface provides sufficient acquisition configuration control to enable independent reporting evolution. If Vehicle does not currently own sensor hardware, consider refactoring to consolidate acquisition ownership before implementing this DP."
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. Acceptance criteria (reported productivity ≥ productivity_target over evaluation period) is directly measurable via Telemetry interface exports from Vehicle module. Measurement records (timestamp, value, unit, quality flag, sensor_id) provide traceability for audit and validation. Worksite safety plan integration is achievable through Safety Services consumption of Telemetry records.",
+      "allocation_clarity": "Clear. Vehicle module owns sensor acquisition, buffering, timestamping, and schema definition. Reporting and safety logic are downstream consumers of Telemetry interface. Ownership boundary is well-defined and aligns with physical system architecture (sensors are vehicle-resident)."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP5 directly addresses FR by decoupling measurement acquisition from reporting logic via standardized Telemetry interface. The three-part design (acquisition module with buffering/timestamping, reporting module with stateless aggregation, and schema-defined interface contract) is logically sound and enables independent evolution. Measurement records schema (timestamp, value, unit, quality flag, sensor_id) supports both volumetric and mass unit reporting and multi-sensor composition."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Risk: Telemetry interface contract must be enforced across all consumers (Safety Services, NGHE Solution, Teleoperation). If any consumer bypasses Telemetry and directly accesses Vehicle sensor state, decoupling is violated and acquisition logic becomes tightly coupled to reporting.",
+        "Risk: Measurement schema (timestamp, value, unit, quality flag, sensor_id) must be centrally versioned and governed in Vehicle module. Schema drift across reporting consumers will fragment the DP and create hidden dependencies on acquisition internals.",
+        "Risk: Buffering and timestamping logic must reside exclusively in Vehicle acquisition module. If reporting modules implement local buffering or re-timestamp records, the single source of truth is lost and acquisition-reporting decoupling degrades.",
+        "Risk: Tasking interface (inbound configuration) must provide sufficient granularity to control sampling rate, sensor selection, and buffering parameters. If Tasking interface is too coarse, reporting logic may be forced to work around acquisition limitations, reducing independence and creating implicit coupling.",
+        "Risk: If Vehicle module does not own all sensor hardware and acquisition threads (e.g., some sensors are managed by Safety Services or NGHE Solution), acquisition logic will diffuse across module boundaries. Verify that Vehicle is the sole authoritative owner of sensor drivers and acquisition lifecycle."
+      ],
+      "containment_notes": "Vehicle module exhibits strong containment (0.85 score) for sensor acquisition, buffering, timestamping, and schema definition. Telemetry and Tasking interfaces are well-designed to decouple acquisition from reporting. However, containment depends critically on: (1) Vehicle owning all sensor hardware and acquisition threads; (2) All reporting/safety consumers using Telemetry interface exclusively; (3) Schema governance and versioning in Vehicle; (4) No duplication of buffering or timestamping logic downstream. NGHE Solution, Teleoperation, and Safety Services are appropriate consumers of Telemetry but must not own or duplicate acquisition logic. Minor diffusion risk exists at interface boundaries (Telemetry export, Tasking import) but is acceptable and necessary for decoupling. Recommend formal interface contract documentation and enforcement mechanisms (e.g., schema validation, interface mocking in tests) to prevent diffusion creep."
+    },
+    "recommended_revisions": [
+      "Establish formal Telemetry interface contract specification (OpenAPI, Protobuf, or equivalent) with versioning and backward-compatibility policy. Document schema (timestamp, value, unit, quality flag, sensor_id) as canonical Vehicle export.",
+      "Verify that Vehicle module owns all sensor hardware, drivers, and acquisition threads. If sensors are currently distributed across multiple modules, refactor to consolidate ownership in Vehicle before DP implementation.",
+      "Define Tasking interface specification with explicit control parameters (sampling rate, sensor selection, buffering size, quality thresholds). Ensure sufficient granularity to enable independent reporting evolution without workarounds.",
+      "Implement schema validation and versioning in Vehicle module. Require all Telemetry consumers to validate incoming records against schema version. Document schema evolution policy and deprecation timeline.",
+      "Add interface enforcement mechanisms: (a) Unit tests verifying all reporting/safety consumers use Telemetry interface exclusively; (b) Static analysis or linting rules preventing direct sensor access outside Vehicle module; (c) Integration tests validating Telemetry contract across all consumers.",
+      "Document measurement record lifecycle: acquisition timestamp (Vehicle), export timestamp (Telemetry), consumption timestamp (reporting module). Clarify which timestamp is authoritative for productivity calculations to ensure acceptance criteria are met consistently.",
+      "Establish governance for sensor configuration changes (sampling rate, unit conversion, quality flags). Require Tasking interface to be the sole mechanism for acquisition parameter changes; prohibit direct configuration of Vehicle sensors by reporting modules."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-IM, FR-DP, DP-IM) pass with high confidence. Verification feasibility is high (Telemetry interface exports are directly measurable), allocation clarity is clear (Vehicle module owns sensor acquisition), and DP logic is sound. However, the diffusion risks and containment notes reveal critical dependencies on downstream implementation choices (schema governance, interface enforcement, sensor ownership consolidation) that cannot be verified at this level. The recommended revisions are architectural guardrails, not design flaws. Proceeding to next-level decomposition of the Telemetry interface and Tasking interface sub-systems is justified to make these dependencies explicit and allocate ownership for enforcement mechanisms. Safety criticality (high) reinforces the need to decompose interface contracts and validation logic into verifiable sub-FRs.",
+    "next_level_sub_frs": [
+      "FR5.1: Provide standardized Telemetry interface contract (schema, versioning, backward-compatibility) that all reporting and safety consumers must validate against.",
+      "FR5.2: Enforce exclusive use of Telemetry interface by all reporting, safety, and teleoperation consumers; prevent direct sensor access outside Vehicle module.",
+      "FR5.3: Centrally govern measurement record schema (timestamp, value, unit, quality flag, sensor_id) with versioning and deprecation policy in Vehicle module.",
+      "FR5.4: Provide Tasking interface with sufficient granularity (sampling rate, sensor selection, buffering size, quality thresholds) to enable independent reporting evolution without workarounds.",
+      "FR5.5: Consolidate all sensor hardware ownership, drivers, and acquisition threads in Vehicle module; eliminate distributed sensor management across Safety Services, NGHE Solution, or Teleoperation.",
+      "FR5.6: Establish measurement record lifecycle traceability (acquisition timestamp, export timestamp, consumption timestamp) and define authoritative timestamp for productivity acceptance criteria."
+    ],
+    "revise": {
+      "target": null,
+      "why": "No revisions needed at current level. FR5, DP5, and IM5 are sound. Revisions are implementation guardrails (interface contracts, schema governance, enforcement mechanisms) that belong in next-level decomposition, not current-level redesign."
+    },
+    "record": {
+      "assumptions": [
+        "Vehicle module will be designated as sole authoritative owner of all sensor hardware, drivers, and acquisition threads.",
+        "Telemetry interface will be enforced as the exclusive mechanism for reporting, safety, and teleoperation consumers to access measurement data.",
+        "Schema versioning and governance will be implemented in Vehicle module with formal contract specification (OpenAPI, Protobuf, or equivalent).",
+        "Tasking interface will provide sufficient control granularity (sampling rate, sensor selection, buffering parameters) to prevent reporting modules from implementing workarounds.",
+        "Measurement record lifecycle will be clearly defined with authoritative timestamp designated for productivity acceptance criteria calculations.",
+        "Interface enforcement mechanisms (unit tests, static analysis, integration tests) will be implemented to prevent diffusion creep at module boundaries."
+      ],
+      "open_risks": [
+        "Risk: If Vehicle module does not own all sensor hardware (e.g., some sensors managed by Safety Services or NGHE Solution), acquisition logic will diffuse across boundaries and DP decoupling will degrade. Mitigation: Verify sensor ownership consolidation before DP implementation.",
+        "Risk: If reporting/safety consumers bypass Telemetry interface and directly access Vehicle sensor state, decoupling is violated. Mitigation: Implement static analysis and interface enforcement tests.",
+        "Risk: Schema drift across reporting consumers will fragment DP and create hidden dependencies on acquisition internals. Mitigation: Centralize schema versioning in Vehicle; require all consumers to validate against canonical schema.",
+        "Risk: If Tasking interface is too coarse, reporting modules may implement local buffering or re-timestamp records, losing single source of truth. Mitigation: Define Tasking interface with explicit control parameters.",
+        "Risk: Measurement record timestamp ambiguity (acquisition vs. export vs. consumption) may cause inconsistent productivity calculations. Mitigation: Establish lifecycle traceability and designate authoritative timestamp in acceptance criteria."
+      ],
+      "evidence_needed": [
+        "Formal Telemetry interface contract specification (OpenAPI, Protobuf, or equivalent) with schema definition, versioning policy, and backward-compatibility guarantees.",
+        "Verification that Vehicle module owns all sensor hardware, drivers, and acquisition threads; evidence of sensor ownership consolidation if currently distributed.",
+        "Tasking interface specification with explicit control parameters (sampling rate, sensor selection, buffering size, quality thresholds) and granularity justification.",
+        "Schema governance policy document: versioning strategy, deprecation timeline, and change control process for measurement record schema.",
+        "Measurement record lifecycle specification: definition of acquisition timestamp, export timestamp, consumption timestamp, and authoritative timestamp for productivity acceptance criteria.",
+        "Interface enforcement mechanism design: unit tests validating Telemetry-exclusive consumption, static analysis rules preventing direct sensor access, integration tests validating contract across all consumers.",
+        "Safety criticality assessment: confirmation that Telemetry interface contract and schema governance are safety-critical and require formal verification."
+      ]
+    }
+  }
+}

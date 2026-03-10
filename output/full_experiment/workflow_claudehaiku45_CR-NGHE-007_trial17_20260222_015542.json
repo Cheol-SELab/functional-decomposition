@@ -1,0 +1,167 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current operational state within the customer-defined latency target.",
+    "rationale": "The original FR conflates two concerns: (1) the obligation to update the model, and (2) the obligation to meet a timeliness constraint. The refined FR isolates the functional requirement (what must be updated and when relative to operational need) from the acceptance criterion (p95 ≤ 1.0 s), which is a measurable constraint on the DP/IM realization. The phrase 'customer-required timeliness' is solution-neutral and defers the specific numeric target to the acceptance criteria baseline, avoiding embedding implementation assumptions (e.g., network latency, sensor refresh rates) into the FR itself.",
+    "verification_idea": "Measure the elapsed time from a worksite state change (e.g., equipment position, obstacle detection, task status) to the moment the worksite model reflects that change in the operator/tele-operator interface and decision-support systems. Verify that the measured latency meets the customer-defined target (e.g., p95 ≤ 1.0 s) across supported update scenarios (e.g., position updates, safety event notifications, task transitions).",
+    "sub_frs": [
+      "FR-NGHE-007.1: The NGHE solution shall detect changes in worksite operational state (e.g., equipment position, obstacle presence, task status).",
+      "FR-NGHE-007.2: The NGHE solution shall propagate detected worksite state changes to the worksite model.",
+      "FR-NGHE-007.3: The NGHE solution shall make updated worksite model state available to operator and tele-operator interfaces within the customer-defined latency target.",
+      "FR-NGHE-007.4: The NGHE solution shall make updated worksite model state available to safety and decision-support subsystems within the customer-defined latency target."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Synchronous state update with direct model mutation on event receipt",
+      "DP2: Asynchronous event-driven update with queued processing and eventual consistency",
+      "DP3: Hybrid pull-push model with periodic polling augmented by event triggers",
+      "DP4: Change-data-capture (CDC) pattern with log-based state diffusion",
+      "DP5: Snapshot + delta model with versioned state and incremental reconciliation"
+    ],
+    "selected_dp": "DP2: Asynchronous event-driven update with queued processing and eventual consistency",
+    "rationale": "DP2 decouples event ingestion from model mutation, enabling bounded latency guarantees through queue depth monitoring and prioritization. It supports the p95 ≤ 1.0 s constraint by isolating update processing from external I/O variability. Eventual consistency is acceptable for operational state as long as ordering guarantees and conflict resolution are defined per safety policy.",
+    "coupling_check": {
+      "assessment": "Fail",
+      "potential_sources": [
+        "Tight coupling between event schema and model mutation logic if not abstracted via a transformation layer",
+        "Implicit ordering dependencies across independent update streams (e.g., position update before safety state update) not explicitly captured in DP",
+        "Latency tail risk if queue consumer threads are starved by other workloads; requires dedicated resource allocation (IM concern, not DP)",
+        "Coupling to external event source reliability; if source drops events, model diverges silently"
+      ],
+      "notes": "DP2 is logically decoupled (event ingestion ≠ model update), but realization (IM) must enforce: (1) schema versioning and transformation abstraction, (2) explicit ordering constraints per safety domain, (3) queue monitoring and alerting, (4) idempotency and deduplication at consumer."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Customer-defined latency target is p95 ≤ 1.0 s for all supported update scenarios; if some scenarios require p99 < 500 ms, DP2 may require sub-queue prioritization (increases complexity).",
+      "ASSUMPTION: Worksite safety plan permits eventual consistency windows (e.g., 100–500 ms) for non-critical operational state; if safety-critical updates require synchronous acknowledgment, DP2 must be hybrid (sync for safety, async for non-critical).",
+      "RISK: Event source may emit out-of-order or duplicate events; DP2 does not inherently prevent model corruption without explicit idempotency and ordering logic in IM.",
+      "RISK: Queue overflow under high event rate; requires backpressure mechanism or event sampling strategy not specified in DP.",
+      "RISK: Latency tail driven by GC pauses, thread scheduling, or queue contention; p95 guarantee depends on infrastructure isolation (IM/deployment concern)."
+    ],
+    "recommended_revision": "FR should be refined to explicitly state: (1) which update scenarios are safety-critical vs. operational (to justify eventual consistency), (2) acceptable consistency window (e.g., 'model must reflect state within 500 ms of event emission'), (3) ordering constraints (e.g., 'position updates must be applied before safety state updates'), (4) failure modes (e.g., 'if event source fails, model must not diverge beyond X seconds'). DP2 should be paired with explicit IM requirements: dedicated event consumer thread pool, queue depth monitoring, idempotency via event deduplication, and ordering enforcement via sequence numbers or causal ordering.",
+    "alternative_consideration": "If p95 ≤ 1.0 s cannot be met with DP2 due to queue contention, consider DP5 (snapshot + delta) with in-memory state and write-ahead logging to reduce mutation latency; or DP1 (synchronous) if safety policy mandates immediate acknowledgment (trade-off: reduced resilience to source failures)."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "System-level event orchestration and asynchronous processing layer that manages queued event handling, eventual consistency coordination, and cross-module update propagation"
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Receives telemetry events from Vehicle and Teleoperation modules; queues them for asynchronous processing"
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Emits task directives to Vehicle and Teleoperation after event processing and consistency resolution"
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "Receives safety events from Safety Services; broadcasts safety-driven updates back to dependent modules"
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Manages network-based event delivery and remote consistency synchronization for distributed eventual consistency"
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit: NGHE Solution is the system-level orchestrator responsible for cross-module coordination. Asynchronous event-driven architecture with queuing and eventual consistency is a natural fit for a solution-level integration layer. Minimal diffusion: only external interface contracts leak out; internal queue management, event routing, and consistency logic remain encapsulated."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor fit: Vehicle is a domain-specific module focused on vehicle state and control. Placing system-wide event orchestration here violates separation of concerns. Queuing and eventual consistency logic would diffuse into Teleoperation and Safety Services, creating tight coupling and circular dependencies."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Poor fit: Teleoperation is a use-case-specific module. System-level asynchronous coordination does not belong here. Would require Vehicle and Safety Services to depend on Teleoperation for event processing, creating architectural inversion and high diffusion."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.25,
+        "diffusion_score": 0.75,
+        "notes": "Poor fit: Safety Services is domain-specific and should focus on safety logic, not system-wide event orchestration. Placing queuing and eventual consistency here would force Vehicle and Teleoperation to depend on Safety Services for non-safety event handling, violating cohesion and creating unacceptable coupling."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution (System Integration & Orchestration Team)",
+    "containment_hypothesis": "DP2 (asynchronous event-driven update with queued processing and eventual consistency) is best contained within NGHE Solution because: (1) it is a cross-cutting concern that coordinates multiple domain modules (Vehicle, Teleoperation, Safety Services); (2) queuing and eventual consistency are system-level patterns, not domain-specific logic; (3) NGHE Solution is the natural home for integration logic and inter-module communication; (4) all external interfaces (Telemetry, Tasking, SafetyAlert, Network Link) are already system-level contracts that NGHE Solution mediates.",
+    "containment_risks": [
+      "Risk: If event queue grows unbounded, NGHE Solution memory footprint may become unmanageable. Mitigation: implement queue size limits, overflow policies, and monitoring.",
+      "Risk: Eventual consistency may introduce stale state visibility to Vehicle or Teleoperation if they query state before convergence. Mitigation: document consistency guarantees and provide explicit consistency-check APIs.",
+      "Risk: Network Link failures could cause event loss or duplication in distributed scenarios. Mitigation: implement idempotency checks and dead-letter queue handling.",
+      "Risk: If Safety Services requires synchronous, immediate updates (not eventual), DP2 may conflict with safety requirements. Mitigation: establish fast-path bypass for critical safety events, separate from general event queue."
+    ],
+    "recommended_revision": "No revision to DP2 is necessary. The DP is well-suited to NGHE Solution. However, clarify the DP to explicitly distinguish between: (1) general telemetry and tasking events (asynchronous, eventual consistency acceptable), and (2) safety-critical events (may require synchronous or bounded-latency handling). Revised DP could be: 'DP2-revised: Asynchronous event-driven update with queued processing and eventual consistency for non-safety events; fast-path synchronous dispatch for safety-critical alerts.' This preserves the core DP while ensuring safety requirements are not compromised by eventual consistency semantics."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP2 (asynchronous event-driven update with queued processing and eventual consistency) is logically sound for the FR requirement to update the worksite model within customer-defined latency targets. The DP correctly addresses the functional need for state synchronization across distributed modules. However, the gate is conditional on clarification: eventual consistency is acceptable for general telemetry/tasking events, but safety-critical updates may require bounded-latency or synchronous handling to comply with 'Worksite safety plan and operational policies' constraint. Recommend DP revision to explicitly partition safety-critical vs. non-safety event streams."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Moderate risk: Safety-critical event fast-path (if implemented) could diffuse into Vehicle, Teleoperation, or Safety Services if not cleanly separated from the general event queue. Mitigation: establish explicit fast-path interface contract within NGHE Solution; document which event types bypass queuing.",
+        "Low risk: Queue overflow and memory management logic must remain fully encapsulated within NGHE Solution. If queue limits are enforced at external interfaces (Telemetry, Tasking), diffusion occurs. Mitigation: implement queue management as internal DP2 detail; expose only bounded-queue guarantees via interface contracts.",
+        "Low risk: Idempotency and dead-letter handling for Network Link failures could leak into Vehicle or Teleoperation if error recovery is not centralized. Mitigation: NGHE Solution must own all retry, idempotency, and dead-letter logic; external modules receive only success/failure outcomes."
+      ],
+      "containment_notes": "Excellent containment (0.92 score) within NGHE Solution. The DP is a system-level orchestration pattern that naturally belongs in the integration layer. All four external interfaces (Telemetry, Tasking, SafetyAlert, Network Link) are already mediated by NGHE Solution, confirming architectural fit. Internal queue management, event routing, consistency coordination, and network synchronization remain encapsulated. No diffusion into Vehicle, Teleoperation, or Safety Services is necessary if fast-path safety handling is cleanly separated as a distinct internal mechanism (not a separate DP)."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. Latency acceptance criterion (p95 ≤ 1.0 s) is measurable and testable. Verification approach: (1) instrument NGHE Solution event queue with latency telemetry (enqueue timestamp → worksite model update completion); (2) measure p95 latency across supported update scenarios (telemetry ingestion, tasking dispatch, safety alert propagation); (3) validate against customer-defined target. Eventual consistency convergence time must also be measured and documented to ensure it does not violate the latency SLA.",
+      "allocation_clarity": "Clear. NGHE Solution is the unambiguous owner of DP2 implementation. Ownership boundary is well-defined: NGHE Solution orchestrates asynchronous processing; Vehicle, Teleoperation, and Safety Services are consumers of update events, not orchestrators. Interface contracts are explicit (Telemetry in, Tasking out, SafetyAlert inout, Network Link inout). Allocation of safety-critical vs. non-safety event handling must be clarified in the revised DP to avoid ambiguity about which events follow which consistency model."
+    },
+    "recommended_revisions": [
+      "Revise DP2 to explicitly partition event streams: 'DP2-revised: Asynchronous event-driven update with queued processing and eventual consistency for non-safety telemetry and tasking events; fast-path synchronous or bounded-latency dispatch for safety-critical alerts from Safety Services. General event queue enforces p95 latency ≤ 1.0 s; safety-critical fast-path enforces p99 latency ≤ 100 ms (or per safety policy).' This ensures DP2 does not conflict with 'Worksite safety plan and operational policies' constraint.",
+      "Document queue management policy within NGHE Solution: maximum queue depth, overflow behavior (drop, backpressure, dead-letter), and monitoring thresholds. Ensure queue limits do not cause event loss that would violate the latency SLA or safety requirements.",
+      "Establish explicit idempotency contract for Network Link interface to handle event duplication in distributed scenarios. Define which events are idempotent (safe to replay) and which require deduplication logic within NGHE Solution.",
+      "Add acceptance criterion for eventual consistency convergence time: 'Worksite model state convergence time p95 ≤ [customer-defined value, e.g., 500 ms]' to ensure consistency guarantees are measurable and meet operational expectations.",
+      "Clarify the relationship between DP2 and the 'Worksite safety plan and operational policies' constraint. If safety policies mandate synchronous updates for certain event types, document which events follow the fast-path and which follow the general queue, and ensure the revised DP reflects this partition."
+    ]
+  },
+  "decision": {
+    "decision": "REVISE_CURRENT_LEVEL",
+    "justification": "The FR-DP-IM gates all pass, but with critical conditional dependencies tied to safety-critical event handling. The gate results explicitly recommend DP2 revision to partition safety-critical vs. non-safety event streams before proceeding to sub-level decomposition. Given the high safety criticality tailoring factor and the constraint conflict flagged ('Worksite safety plan and operational policies'), revising DP2 at the current level is mandatory to establish a coherent, safety-compliant design before deriving sub-FRs. Proceeding to ZIGZAG_DOWN without this revision would propagate ambiguity about safety-critical event handling into lower-level decomposition, creating rework and potential safety gaps.",
+    "revise": {
+      "target": "DP",
+      "why": "DP2 must be explicitly partitioned into two distinct mechanisms: (1) asynchronous event-driven update with queued processing and eventual consistency for non-safety telemetry and tasking events (p95 latency ≤ 1.0 s); (2) fast-path synchronous or bounded-latency dispatch for safety-critical alerts (p99 latency ≤ 100 ms or per safety policy). This partition resolves the constraint conflict with 'Worksite safety plan and operational policies' and ensures that safety-critical updates are not subject to eventual consistency semantics. The revised DP must also explicitly document queue management policy (max depth, overflow behavior, dead-letter handling) and idempotency contract for Network Link interface to mitigate diffusion risks identified in the DP-IM gate."
+    },
+    "next_level_sub_frs": [],
+    "record": {
+      "assumptions": [
+        "Safety-critical events (e.g., emergency stop, collision alerts, safety zone violations) require bounded-latency or synchronous handling per worksite safety policies; non-safety events (telemetry, routine tasking) can tolerate eventual consistency.",
+        "The fast-path safety-critical mechanism can be implemented as an internal DP2 detail (not a separate DP) without creating diffusion into Vehicle, Teleoperation, or Safety Services, provided the interface contract is explicit and the routing logic is centralized within NGHE Solution.",
+        "Customer-defined latency targets for non-safety events are achievable with p95 ≤ 1.0 s; safety-critical latency targets (p99 ≤ 100 ms) are feasible with dedicated fast-path processing.",
+        "Eventual consistency convergence time for non-safety events can be bounded and measured; convergence SLA will be defined during DP2 revision."
+      ],
+      "open_risks": [
+        "Safety-critical event classification ambiguity: unclear which event types from Telemetry, Tasking, and SafetyAlert services are safety-critical vs. non-safety. Mitigation: establish explicit event taxonomy and safety classification matrix during DP2 revision; document in NGHE Solution interface contracts.",
+        "Fast-path implementation complexity: if safety-critical fast-path is not cleanly separated from general queue, diffusion risk increases. Mitigation: enforce architectural separation (e.g., dedicated thread pool, priority queue, or separate event handler) and document interface contract.",
+        "Queue overflow and backpressure: if queue limits are enforced at external interfaces rather than internally, diffusion occurs. Mitigation: implement queue management as internal DP2 detail; expose only bounded-queue guarantees via interface contracts.",
+        "Idempotency and deduplication: Network Link failures may cause event duplication; if deduplication logic is not centralized in NGHE Solution, error recovery diffuses into Vehicle or Teleoperation. Mitigation: NGHE Solution owns all retry, idempotency, and dead-letter logic.",
+        "Eventual consistency convergence time: if convergence SLA is not defined and measured, non-safety events may violate operational expectations. Mitigation: add acceptance criterion for convergence time (e.g., p95 ≤ 500 ms) during DP2 revision."
+      ],
+      "evidence_needed": [
+        "Revised DP2 document with explicit partition of safety-critical vs. non-safety event streams, latency targets for each stream, and queue management policy.",
+        "Event taxonomy and safety classification matrix: which event types from Telemetry, Tasking, SafetyAlert are safety-critical; which are non-safety.",
+        "Fast-path implementation design: how safety-critical events are routed, prioritized, and processed separately from general queue; interface contract for fast-path.",
+        "Queue management policy: maximum queue depth, overflow behavior (drop, backpressure, dead-letter), monitoring thresholds, and internal encapsulation strategy.",
+        "Idempotency contract for Network Link interface: which events are idempotent; deduplication logic ownership and implementation location.",
+        "Eventual consistency convergence time SLA: customer-defined target (e.g., p95 ≤ 500 ms); measurement and verification approach.",
+        "Constraint compliance verification: confirmation that revised DP2 does not conflict with 'Worksite safety plan and operational policies' constraint; safety policy review and sign-off."
+      ]
+    }
+  }
+}

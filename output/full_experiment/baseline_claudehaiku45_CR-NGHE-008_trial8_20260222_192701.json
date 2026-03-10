@@ -1,0 +1,168 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall establish and maintain end-to-end teleoperation communication with p95 latency ≤ 150 ms under agreed network conditions to enable safe remote operation by tele-operators.",
+    "rationale": "CR-NGHE-008 addresses a critical safety and operational requirement. Teleoperation latency directly impacts operator situational awareness, control responsiveness, and safety margins. The p95 percentile metric ensures consistent performance under variable network conditions rather than optimistic average-case assumptions. High safety criticality demands explicit latency budgeting and verification.",
+    "verification_idea": "Measure end-to-end latency (command transmission → vehicle sensor acquisition → telemetry reception at operator console) across representative network conditions (bandwidth, jitter, packet loss) using instrumented test scenarios. Collect p95 statistics over minimum 1000 samples per condition.",
+    "sub_frs": [
+      "FR-NGHE-008.1: The teleoperation system shall acquire and encode vehicle state (position, orientation, sensor data) at ≥ 10 Hz sampling rate.",
+      "FR-NGHE-008.2: The teleoperation system shall transmit operator commands (movement, tool control) with deterministic latency budget allocation.",
+      "FR-NGHE-008.3: The teleoperation system shall receive and decode remote commands with bounded processing delay.",
+      "FR-NGHE-008.4: The network link shall deliver telemetry and tasking packets with p95 transit time ≤ [allocated budget] ms.",
+      "FR-NGHE-008.5: The teleoperation system shall detect and report latency violations or network degradation to the safety manager."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Implement low-latency teleoperation stack with hardware-accelerated encoding/decoding, priority queuing, and adaptive bitrate control to meet p95 ≤ 150 ms under variable network conditions.",
+      "DP-B: Deploy edge computing (MEC) node co-located with vehicle to reduce round-trip latency by offloading sensor fusion and command preprocessing.",
+      "DP-C: Establish dedicated low-latency network slice (5G/private network) with QoS guarantees and latency SLA enforcement.",
+      "DP-D: Hybrid approach combining DP-A (software optimization) + DP-C (network SLA) with fallback to DP-B (edge compute) under degraded conditions."
+    ],
+    "selected_dp": "DP-D: Hybrid low-latency teleoperation architecture combining optimized software stack (hardware-accelerated codec, priority queuing, minimal-copy buffers), dedicated network slice with QoS enforcement (p95 ≤ 100 ms network budget), and optional edge compute offload for sensor fusion under high-latency conditions. Includes real-time latency monitoring and safety-critical fallback to operator-controlled safe state.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "DP-D couples teleoperation software stack (Teleoperation module) with network infrastructure (Network Link interface) and vehicle sensor/actuator timing (Vehicle module). Coupling is acceptable because latency is inherently a system-level property requiring coordination across these domains.",
+        "DP-D couples safety monitoring (SafetyAlert interface) with latency detection logic. This is intentional and required for high safety criticality.",
+        "No circular dependencies detected. Information flow is unidirectional: Vehicle → Teleoperation → Operator, with SafetyAlert as independent safety channel."
+      ],
+      "notes": "Hybrid approach reduces single-point-of-failure risk compared to DP-B or DP-C alone. Software optimization (DP-A) is necessary but insufficient without network SLA (DP-C). Edge compute (DP-B) is optional enhancement, not critical path."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Network infrastructure can provide dedicated QoS slice with p95 ≤ 100 ms transit time. RISK: If network provider cannot guarantee SLA, fallback to edge compute (DP-B) becomes mandatory.",
+      "ASSUMPTION: Vehicle sensors can be sampled and encoded within 20 ms budget. RISK: If sensor integration time exceeds budget, latency target becomes unachievable without hardware redesign.",
+      "ASSUMPTION: Operator console can decode and render telemetry within 20 ms. RISK: Display latency (monitor refresh, GPU processing) may consume significant budget; requires validation.",
+      "ASSUMPTION: Safe fallback state (e.g., vehicle stops, operator regains manual control) is acceptable operational mode. RISK: If mission requires continuous autonomous operation, fallback strategy must be redesigned.",
+      "RISK: Adaptive bitrate control may introduce variable latency; requires careful tuning to maintain p95 guarantee under all conditions."
+    ],
+    "recommended_revision": "Explicitly decompose DP-D into three sub-DPs with clear latency budgets: (1) Software stack: ≤ 30 ms (sensor acquisition + encoding + decoding + rendering), (2) Network: ≤ 100 ms (p95 transit), (3) Edge compute: optional, ≤ 20 ms (sensor fusion offload). Add explicit requirement for latency monitoring telemetry and safety-critical alert mechanism."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Encapsulates all teleoperation-specific logic: command reception from remote operator, vehicle state telemetry acquisition and encoding, network packet marshaling/unmarshaling, latency monitoring, and adaptive control. Owns the teleoperation software stack, codec implementations, and real-time scheduling logic. Does NOT own vehicle sensors/actuators (Vehicle module) or network transport (Network Link interface)."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Teleoperation module outputs encoded vehicle state (position, orientation, sensor readings, latency metrics) to remote operator console. Frequency: ≥ 10 Hz. Latency budget: ≤ 30 ms (encoding + marshaling)."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Teleoperation module receives operator commands (movement vectors, tool control, mode changes) from remote console. Latency budget: ≤ 30 ms (unmarshaling + decoding + command dispatch to Vehicle)."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Teleoperation module interfaces with network transport layer for packet transmission/reception. Teleoperation owns serialization/deserialization; Network Link owns QoS enforcement and latency SLA. Latency budget: ≤ 100 ms (p95 network transit)."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Teleoperation module outputs latency violation alerts (p95 exceeded, network degradation detected) to Safety Services. Triggers operator notification and potential safe fallback state activation."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "Teleoperation is the natural home for teleoperation-specific logic. Codec, command processing, and latency monitoring are core responsibilities. Minimal diffusion: only external interfaces are Network Link (transport) and SafetyAlert (safety channel). High cohesion within module."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 15,
+        "diffusion_score": 85,
+        "notes": "Vehicle module owns sensors and actuators, not teleoperation logic. Placing teleoperation stack in Vehicle would create tight coupling and poor separation of concerns. Vehicle should be agnostic to whether control is local or remote."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Safety Services owns safety policies and alerts, not teleoperation implementation. Latency monitoring is a teleoperation concern; Safety Services consumes the SafetyAlert output. Placing teleoperation logic in Safety Services would violate single responsibility principle."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 10,
+        "diffusion_score": 90,
+        "notes": "NGHE Solution is the top-level system container. Teleoperation is a subsystem, not a system-level concern. Placing implementation logic at system level would prevent reuse and create architectural bloat."
+      }
+    ],
+    "ownership_candidate": "Teleoperation module (primary owner). Secondary stakeholders: Vehicle module (sensor/actuator interface), Network Link (transport SLA), Safety Services (alert consumption).",
+    "containment_hypothesis": "Teleoperation module is the correct architectural boundary for teleoperation latency DP. The module encapsulates all software-level latency optimization (codec, scheduling, buffering) while delegating network transport to Network Link and safety response to Safety Services. This separation enables independent optimization and testing of each concern.",
+    "containment_risks": [
+      "RISK: If vehicle sensor acquisition time is not budgeted separately, Teleoperation module may be blamed for latency violations caused by Vehicle module delays. MITIGATION: Establish explicit sensor-to-telemetry latency budget (≤ 20 ms) and measure Vehicle module compliance independently.",
+      "RISK: Network Link module may not enforce QoS SLA, causing Teleoperation module to miss p95 target despite correct implementation. MITIGATION: Establish network SLA contract with explicit p95 ≤ 100 ms guarantee; include network latency monitoring in Telemetry interface.",
+      "RISK: Operator console rendering latency (display, GPU) may exceed budget, making end-to-end latency unachievable. MITIGATION: Teleoperation module should measure and report console-side latency separately; establish operator console latency budget (≤ 20 ms).",
+      "RISK: Adaptive bitrate control in Teleoperation module may introduce variable latency, violating p95 guarantee. MITIGATION: Implement latency-aware bitrate adaptation with hard upper bound on encoding time; prioritize latency over quality under congestion."
+    ],
+    "recommended_revision": "Explicitly define latency budget allocation across three layers: (1) Vehicle sensor acquisition: ≤ 20 ms, (2) Teleoperation software: ≤ 30 ms, (3) Network transport: ≤ 100 ms, (4) Operator console: ≤ 20 ms. Add latency monitoring telemetry to Telemetry interface to enable end-to-end visibility. Establish separate acceptance criteria for each layer to enable independent verification and fault isolation."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-D (hybrid low-latency architecture) directly addresses FR-NGHE-008 (teleoperation latency ≤ 150 ms p95). DP-D combines software optimization, network SLA, and optional edge compute to achieve the latency target under variable conditions. No functional gaps identified. DP-D is implementable with current technology (hardware-accelerated codecs, 5G QoS, edge computing). Assumptions are documented and risks are manageable."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Teleoperation module depends on Vehicle module for sensor data and actuator control. This is a necessary dependency, not diffusion. Interface is well-defined (Tasking in, Telemetry out).",
+        "Teleoperation module depends on Network Link for packet transport. This is a necessary dependency. Interface is well-defined (Network Link inout).",
+        "Teleoperation module depends on Safety Services for alert consumption. This is a necessary dependency. Interface is well-defined (SafetyAlert out).",
+        "No diffusion detected. All external dependencies are through well-defined interfaces. Teleoperation module has high cohesion and low coupling."
+      ],
+      "containment_notes": "Teleoperation module is the correct architectural boundary for DP-D. Codec, command processing, latency monitoring, and adaptive control are all teleoperation-specific concerns. Vehicle, Network Link, and Safety Services are external dependencies with clear interface contracts. Module containment score of 95 confirms strong fit."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "FR-NGHE-008 is verifiable through end-to-end latency measurement under representative network conditions. Teleoperation module can be tested in isolation (with mock Vehicle and Network Link) to verify software latency budget (≤ 30 ms). Integration testing can verify end-to-end latency (≤ 150 ms p95) with real Vehicle and Network Link. Latency monitoring telemetry enables continuous verification in production.",
+      "allocation_clarity": "Latency budget is clearly allocated: Vehicle (≤ 20 ms) + Teleoperation (≤ 30 ms) + Network (≤ 100 ms) + Console (≤ 20 ms) = 170 ms total, with 20 ms margin for contingency. Each module has explicit responsibility and measurable acceptance criteria. Allocation is feasible and verifiable."
+    },
+    "recommended_revisions": [
+      "Add explicit latency monitoring telemetry to Telemetry interface. Include per-layer latency breakdown (sensor acquisition, encoding, network transit, decoding, rendering) to enable fault isolation.",
+      "Establish network SLA contract with Network Link module specifying p95 ≤ 100 ms transit time. Include penalty clauses for SLA violations.",
+      "Define safe fallback state (e.g., vehicle stops, operator regains manual control) and add explicit FR for fallback activation when latency exceeds threshold.",
+      "Add acceptance test plan specifying test conditions (network bandwidth, jitter, packet loss), sample size (≥ 1000 samples per condition), and pass/fail criteria (p95 ≤ 150 ms)."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-NGHE-008 is not atomic and requires further decomposition. The refined FR identifies five sub-FRs (FR-NGHE-008.1 through FR-NGHE-008.5) that address distinct concerns: sensor acquisition, command transmission, command reception, network transport, and latency monitoring. Each sub-FR requires separate DP selection and IM assignment. Proceeding to next decomposition level is necessary to achieve sufficient detail for implementation planning and verification.",
+    "next_level_sub_frs": [
+      "FR-NGHE-008.1: The teleoperation system shall acquire and encode vehicle state (position, orientation, sensor data) at ≥ 10 Hz sampling rate with latency ≤ 20 ms.",
+      "FR-NGHE-008.2: The teleoperation system shall transmit operator commands (movement, tool control) with deterministic latency budget allocation ≤ 30 ms.",
+      "FR-NGHE-008.3: The teleoperation system shall receive and decode remote commands with bounded processing delay ≤ 30 ms.",
+      "FR-NGHE-008.4: The network link shall deliver telemetry and tasking packets with p95 transit time ≤ 100 ms under agreed network conditions.",
+      "FR-NGHE-008.5: The teleoperation system shall detect and report latency violations (p95 exceeded, network degradation) to the safety manager via SafetyAlert interface."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Network infrastructure can provide dedicated QoS slice with p95 ≤ 100 ms transit time.",
+        "Vehicle sensors can be sampled and encoded within 20 ms budget.",
+        "Operator console can decode and render telemetry within 20 ms.",
+        "Safe fallback state (vehicle stops, operator regains manual control) is acceptable operational mode.",
+        "Teleoperation latency is measured end-to-end from operator command input to vehicle response output.",
+        "p95 percentile metric is appropriate for safety-critical teleoperation (not average or p50)."
+      ],
+      "open_risks": [
+        "Network SLA may not be achievable with current infrastructure; fallback to edge compute (DP-B) may be required.",
+        "Operator console rendering latency may exceed 20 ms budget, making end-to-end target unachievable.",
+        "Adaptive bitrate control may introduce variable latency, violating p95 guarantee.",
+        "Vehicle sensor integration time may exceed 20 ms budget due to hardware constraints.",
+        "Safety fallback mechanism may not be operationally acceptable for all mission profiles."
+      ],
+      "evidence_needed": [
+        "Network latency measurement data under representative conditions (bandwidth, jitter, packet loss).",
+        "Vehicle sensor acquisition and encoding latency measurements.",
+        "Operator console rendering latency measurements (display refresh, GPU processing).",
+        "Codec performance benchmarks (encoding/decoding time, quality vs. latency tradeoffs).",
+        "Safety analysis of fallback state and operator response time.",
+        "Acceptance test plan and pass/fail criteria for p95 ≤ 150 ms latency."
+      ]
+    }
+  }
+}

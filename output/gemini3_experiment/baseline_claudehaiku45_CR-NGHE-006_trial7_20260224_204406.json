@@ -1,0 +1,169 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and work-zone boundaries, with sufficient fidelity to support autonomous path planning and operator situational awareness.",
+    "rationale": "The original FR was vague regarding fidelity requirements, update frequency, and intended consumers. Refinement clarifies that the model must serve both planning (offline) and execution (real-time) functions, must distinguish static from dynamic features, and must be safety-critical (high criticality factor). This enables verification against acceptance criteria: 'worksite model/map is generated and available to planning/execution functions for an agreed set of site features.'",
+    "verification_idea": "Acceptance test: (1) Terrain model accuracy within ±0.5 m RMS error over 10 ha test site; (2) Obstacle detection latency <2 s for static features, <500 ms for dynamic hazards; (3) Model availability to planning and execution subsystems via documented interface; (4) Coverage of agreed feature set (terrain, obstacles, work zones, personnel zones).",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire and fuse multi-sensor terrain and obstacle data (LiDAR, camera, radar) into unified coordinate frame.",
+      "CR-NGHE-006.2: Detect, classify, and track dynamic hazards (personnel, moving equipment) with safety-critical latency.",
+      "CR-NGHE-006.3: Represent work-zone boundaries and exclusion zones in worksite model.",
+      "CR-NGHE-006.4: Distribute worksite model to planning and execution functions via standardized interface.",
+      "CR-NGHE-006.5: Validate model completeness and consistency against safety plan and operational policies."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized perception pipeline (sensor fusion engine) producing a unified 3D occupancy grid + feature map, updated at 10 Hz, published to a shared model server accessible to planning and execution modules.",
+      "DP-B: Distributed sensor processing with local obstacle detection on each sensor node, aggregated via message bus into a consensus map updated at 5 Hz.",
+      "DP-C: Hybrid approach: real-time local hazard detection (dynamic obstacles) via onboard processing; terrain and static obstacle mapping via periodic offline survey data + incremental updates from onboard sensors."
+    ],
+    "selected_dp": "DP-A: Centralized perception pipeline with unified 3D occupancy grid and feature map, updated at 10 Hz, published to shared model server. Rationale: (1) Ensures single source of truth for safety-critical worksite model, reducing inconsistency risks; (2) Simplifies verification and validation of model fidelity; (3) Supports both real-time execution (10 Hz sufficient for equipment dynamics) and planning functions; (4) Aligns with high safety criticality by centralizing hazard detection logic and enabling comprehensive logging/audit trails.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Sensor fusion engine depends on multiple sensor inputs (LiDAR, camera, radar) – moderate coupling to sensor acquisition subsystem.",
+        "Model server must interface with planning and execution subsystems – moderate coupling to downstream consumers.",
+        "Safety validation logic couples to safety policies and operational constraints – acceptable, as this is intentional."
+      ],
+      "notes": "No evidence of unintended functional coupling. Sensor dependencies are explicit and manageable. Model distribution is decoupled via publish-subscribe pattern, reducing tight coupling to consumers."
+    },
+    "assumptions_risks": [
+      "Assumption: Multi-sensor fusion can achieve ±0.5 m terrain accuracy at 10 Hz update rate. Risk: Sensor noise, occlusion, and computational latency may degrade accuracy; mitigation: prototype sensor fusion algorithm and validate against test site.",
+      "Assumption: Shared model server can sustain 10 Hz publication rate without bottleneck. Risk: Network congestion or server overload may cause latency spikes; mitigation: implement priority queuing and latency monitoring.",
+      "Assumption: Dynamic hazard detection (personnel, moving equipment) can achieve <500 ms latency. Risk: Occlusion, lighting conditions, and algorithm complexity may exceed latency budget; mitigation: implement multi-hypothesis tracking and fallback to conservative safety margins.",
+      "Assumption: Worksite model fidelity is sufficient for autonomous path planning. Risk: Model may lack fine-grained detail (e.g., small rocks, ruts) needed for safe autonomous navigation; mitigation: define minimum feature size and validate against path planning requirements."
+    ],
+    "recommended_revision": "Refine DP-A to explicitly specify: (1) sensor fusion algorithm (e.g., Bayesian occupancy grid, Kalman filter for dynamic objects); (2) model representation format (e.g., voxel grid, point cloud, feature map); (3) update frequency and latency budget; (4) model server architecture (centralized vs. distributed); (5) fallback behavior if sensor fusion fails or model becomes stale. This will reduce ambiguity and support detailed design."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "The NGHE Solution module is the top-level system boundary. It contains all subsystems required to deliver worksite mapping/modeling capability, including perception (sensor fusion), model storage/distribution, and integration with planning/execution functions. The worksite model is a system-level artifact owned by NGHE Solution and made available to downstream consumers (Vehicle, Teleoperation, Safety Services) via standardized interfaces."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Sensor data streams (LiDAR, camera, radar) from Vehicle and onboard sensors; includes raw sensor measurements and timestamps."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Worksite model and planning directives distributed to planning/execution functions; includes terrain map, obstacle locations, work-zone boundaries, and dynamic hazard alerts."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Safety-critical alerts (e.g., personnel detected in exclusion zone, model inconsistency detected) distributed to Safety Services and operators."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Communication backbone for model server, sensor data aggregation, and distribution to planning/execution subsystems."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "Worksite mapping is a core NGHE capability and must be owned at system level to ensure consistency, safety validation, and integration with all downstream functions. Minimal diffusion: model generation logic is centralized in perception pipeline; distribution is via standard interfaces."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 30,
+        "diffusion_score": 70,
+        "notes": "Vehicle module may host onboard sensor acquisition and local hazard detection, but should NOT own the unified worksite model. Rationale: (1) Model must be accessible to Teleoperation and Safety Services, not just Vehicle; (2) Centralizing model in Vehicle creates tight coupling and complicates multi-vehicle scenarios; (3) Safety validation requires system-level oversight, not vehicle-local logic."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Teleoperation module consumes the worksite model for operator situational awareness but should NOT own model generation. Rationale: (1) Model is needed by autonomous planning functions, not just tele-operators; (2) Centralizing in Teleoperation creates single point of failure for safety-critical data; (3) Tele-operator is a consumer, not a producer, of the model."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 40,
+        "diffusion_score": 60,
+        "notes": "Safety Services may validate the worksite model against safety policies and generate alerts, but should NOT own model generation. Rationale: (1) Safety Services is a consumer and validator, not a producer; (2) Model generation is a perception/sensing function, not a safety function; (3) Coupling Safety Services to model generation creates circular dependencies."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "The worksite mapping/modeling capability is best contained within the NGHE Solution module as a system-level service. The perception pipeline (sensor fusion engine) and model server are owned by NGHE Solution. Sensor data is acquired from Vehicle (via Telemetry interface). The generated model is distributed to Vehicle, Teleoperation, and Safety Services (via Tasking and SafetyAlert interfaces). This architecture ensures: (1) single source of truth for the worksite model; (2) centralized safety validation; (3) decoupled consumers; (4) clear ownership and accountability.",
+    "containment_risks": [
+      "Risk: NGHE Solution module may become a bottleneck if model server is not sufficiently scalable. Mitigation: design model server with redundancy and load balancing; implement caching at consumer level.",
+      "Risk: Sensor data from Vehicle may be delayed or lossy, degrading model fidelity. Mitigation: implement sensor fusion with explicit handling of missing/delayed data; define acceptable model staleness thresholds.",
+      "Risk: Tight coupling between perception pipeline and model server may complicate independent testing. Mitigation: define clear interface between sensor fusion and model storage; implement mock model server for testing.",
+      "Risk: Multi-vehicle scenarios may require model merging or conflict resolution. Mitigation: define model versioning and conflict resolution policies; implement model synchronization protocol."
+    ],
+    "recommended_revision": "Explicitly define the internal architecture of NGHE Solution's perception subsystem: (1) sensor fusion engine (algorithm, update rate, latency budget); (2) model server (storage format, query interface, consistency guarantees); (3) model distribution mechanism (publish-subscribe, request-response, or hybrid); (4) fallback behavior if model becomes unavailable or inconsistent. This will clarify ownership boundaries and enable detailed design of internal interfaces."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "Selected DP-A (centralized perception pipeline with unified 3D occupancy grid) directly addresses the refined FR requirement to generate and maintain a real-time worksite model. The DP specifies a concrete solution approach (sensor fusion, 10 Hz update rate, shared model server) that is verifiable and traceable to acceptance criteria. No functional gaps identified."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Moderate risk: Sensor fusion engine depends on multiple sensor inputs from Vehicle. If sensor acquisition is not reliably integrated into Vehicle module, model generation may fail. Mitigation: define clear Telemetry interface contract and implement sensor health monitoring.",
+        "Moderate risk: Model server must be accessible to multiple consumers (Vehicle, Teleoperation, Safety Services). If network infrastructure is unreliable, model distribution may be delayed or incomplete. Mitigation: implement redundant network paths and local caching at consumer level.",
+        "Low risk: Safety validation logic is tightly coupled to safety policies. If policies change, model validation logic must be updated. Mitigation: parameterize safety policies and implement policy versioning."
+      ],
+      "containment_notes": "NGHE Solution is the appropriate IM boundary for worksite mapping. The module contains the perception pipeline and model server, which are the core assets for this capability. Sensor data flows in via Telemetry interface; model and alerts flow out via Tasking and SafetyAlert interfaces. No evidence of diffusion across multiple modules. Ownership is clear: NGHE Solution is responsible for model generation, validation, and distribution."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The refined FR specifies measurable acceptance criteria (terrain accuracy ±0.5 m, obstacle detection latency <2 s for static / <500 ms for dynamic, model availability, feature coverage). These can be verified via: (1) test site validation with ground truth; (2) latency measurements on prototype; (3) interface testing to confirm model availability to planning/execution functions; (4) safety plan compliance audit.",
+      "allocation_clarity": "High. The FR is allocated to NGHE Solution module, which owns the perception pipeline and model server. Sub-FRs are allocated to specific subsystems: CR-NGHE-006.1 (sensor fusion) to perception pipeline; CR-NGHE-006.2 (dynamic hazard detection) to perception pipeline with safety validation; CR-NGHE-006.3 (work-zone representation) to model server; CR-NGHE-006.4 (model distribution) to model server and network infrastructure; CR-NGHE-006.5 (validation) to Safety Services with model server support. Clear ownership and traceability."
+    },
+    "recommended_revisions": [
+      "Refine DP-A to specify sensor fusion algorithm, model representation format, and fallback behavior (see selected_dp.recommended_revision).",
+      "Define detailed interface contracts for Telemetry (sensor data format, update rate, latency), Tasking (model query interface, subscription mechanism), and SafetyAlert (alert types, priority levels, delivery guarantees).",
+      "Establish acceptance test plan with specific test cases for terrain accuracy, obstacle detection latency, model availability, and feature coverage.",
+      "Define model versioning and consistency guarantees (e.g., eventual consistency, strong consistency, causal consistency) to support multi-vehicle scenarios.",
+      "Specify fallback behavior if model server becomes unavailable or model becomes stale (e.g., use cached model, revert to conservative safety margins, alert operators)."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The refined FR is well-defined and traceable to acceptance criteria. The selected DP is concrete and verifiable. The assigned IM (NGHE Solution) is appropriate and has high containment score (95). All three gates (FR-DP, DP-IM, FR-IM) pass. However, the FR is not atomic: it comprises five sub-FRs (sensor fusion, dynamic hazard detection, work-zone representation, model distribution, validation). To proceed with detailed design, each sub-FR must be decomposed to the next level. Recommend ZIGZAG_DOWN to decompose sub-FRs and refine DP-A with algorithm and architecture details.",
+    "justification_detail": "The current level of decomposition is appropriate for system-level architecture review. The FR has been refined from a vague requirement to a specific, measurable, and verifiable statement. The DP has been selected from three candidates and evaluated for coupling and assumptions. The IM has been assigned to NGHE Solution with clear ownership and interface definitions. However, the sub-FRs (CR-NGHE-006.1 through CR-NGHE-006.5) require further decomposition to support detailed design and implementation. Recommend proceeding to next level with focus on: (1) sensor fusion algorithm selection and validation; (2) dynamic hazard detection latency optimization; (3) work-zone representation format and query interface; (4) model distribution mechanism (publish-subscribe vs. request-response); (5) safety validation logic and policy integration.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire and fuse multi-sensor terrain and obstacle data (LiDAR, camera, radar) into unified coordinate frame.",
+      "CR-NGHE-006.2: Detect, classify, and track dynamic hazards (personnel, moving equipment) with safety-critical latency (<500 ms).",
+      "CR-NGHE-006.3: Represent work-zone boundaries and exclusion zones in worksite model.",
+      "CR-NGHE-006.4: Distribute worksite model to planning and execution functions via standardized interface.",
+      "CR-NGHE-006.5: Validate model completeness and consistency against safety plan and operational policies."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Multi-sensor fusion can achieve ±0.5 m terrain accuracy at 10 Hz update rate.",
+        "Shared model server can sustain 10 Hz publication rate without bottleneck.",
+        "Dynamic hazard detection can achieve <500 ms latency for personnel and moving equipment.",
+        "Worksite model fidelity is sufficient for autonomous path planning and operator situational awareness.",
+        "Network infrastructure is reliable and has sufficient bandwidth for model distribution.",
+        "Safety policies and operational constraints are well-defined and can be formalized for model validation.",
+        "Sensor data from Vehicle is available with acceptable latency and completeness."
+      ],
+      "open_risks": [
+        "Sensor fusion algorithm may not achieve required accuracy and latency under real-world conditions (occlusion, lighting, weather).",
+        "Model server may become a bottleneck or single point of failure if not properly architected.",
+        "Dynamic hazard detection may fail to detect small or fast-moving objects (e.g., personnel in shadows, small rocks).",
+        "Model representation format may not be suitable for all downstream consumers (planning, execution, visualization).",
+        "Safety validation logic may be incomplete or inconsistent with safety policies.",
+        "Multi-vehicle scenarios may require model merging or conflict resolution, which is not addressed in current DP."
+      ],
+      "evidence_needed": [
+        "Prototype sensor fusion algorithm with validation against test site ground truth.",
+        "Latency measurements for dynamic hazard detection under various conditions.",
+        "Model server performance testing (throughput, latency, scalability).",
+        "Interface testing to confirm model availability and format compatibility with planning/execution functions.",
+        "Safety plan compliance audit to verify model validation logic.",
+        "Multi-vehicle scenario testing to validate model synchronization and conflict resolution."
+      ]
+    }
+  }
+}

@@ -1,0 +1,159 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation communication integrity within customer-defined packet loss limits during agreed network conditions.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting teleoperation as a capability, and (2) meeting a specific quality metric (packet loss). The refined FR isolates the quality/performance obligation while remaining solution-neutral. It avoids prescribing 'how' (e.g., redundancy, error correction, protocol selection) and focuses on the measurable outcome in the problem domain. The phrase 'communication integrity' is more precise than 'communication quality' and encompasses both packet loss and related reliability concerns.",
+    "verification_idea": "Conduct teleoperation trials under agreed network conditions (e.g., 4G/5G coverage, latency profiles, interference scenarios). Measure end-to-end packet loss rate across representative mission durations. Confirm measured packet loss ≤ customer-defined threshold (e.g., ≤1%). Document network conditions, test duration, payload types, and loss statistics.",
+    "sub_frs": [
+      "FR-NGHE-009.1: The NGHE solution shall enable remote operation of equipment from a tele-operator station.",
+      "FR-NGHE-009.2: The NGHE solution shall maintain teleoperation command and feedback data transmission with packet loss ≤ customer-defined limit under agreed network conditions.",
+      "FR-NGHE-009.3: The NGHE solution shall detect and report communication degradation (packet loss, latency anomalies) to the tele-operator and safety system."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Implement adaptive packet redundancy and selective retransmission based on real-time loss detection and customer-configurable thresholds",
+      "DP2: Employ forward error correction (FEC) encoding with configurable redundancy levels tuned to measured network conditions",
+      "DP3: Establish dual independent communication paths with automatic failover and load balancing to reduce single-path loss impact",
+      "DP4: Deploy jitter buffering and packet reordering logic with timeout-based loss detection and on-demand retransmission",
+      "DP5: Implement network condition monitoring and dynamic codec/payload adaptation to reduce packet size and transmission frequency under degraded conditions",
+      "DP6: Combine lightweight acknowledgment (ACK) protocol with exponential backoff retransmission strategy, parameterized by customer loss tolerance"
+    ],
+    "selected_dp": "DP6: Combine lightweight acknowledgment (ACK) protocol with exponential backoff retransmission strategy, parameterized by customer loss tolerance",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between ACK protocol design and underlying transport layer (must remain agnostic to physical link type)",
+        "Coupling between retransmission logic and application-level command timing (risk: excessive latency if backoff too conservative)",
+        "Coupling between customer-configurable loss threshold and actual network measurement mechanism (must decouple threshold policy from measurement)"
+      ],
+      "notes": "DP6 is selected because it: (1) logically separates loss detection (ACK feedback) from recovery (retransmission), enabling independent tuning; (2) avoids hard dependency on specific network technology; (3) allows customer parameterization without redesign; (4) scales from low-loss to high-loss scenarios. Risks are manageable through clear interface contracts between loss detection, threshold evaluation, and recovery modules."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Customer-defined packet loss target is measurable and stable during agreed network conditions; RISK: If network conditions are highly variable, static thresholds may be insufficient—mitigation: recommend dynamic threshold adjustment based on rolling window statistics",
+      "ASSUMPTION: Teleoperation commands tolerate bounded retransmission latency (e.g., <500 ms); RISK: If safety-critical commands require <100 ms end-to-end latency, exponential backoff may violate timing—mitigation: establish explicit latency budget and tune backoff parameters accordingly",
+      "ASSUMPTION: ACK overhead is acceptable (adds return-path traffic); RISK: If return path is severely constrained, ACK flooding could worsen loss—mitigation: implement ACK aggregation and selective ACK strategies",
+      "ASSUMPTION: Worksite safety plan permits temporary command delays during retransmission; RISK: If safety plan mandates immediate command execution, retransmission strategy must be pre-validated in safety analysis—mitigation: integrate with safety plan review and define fallback behavior (e.g., safe state entry) if ACK timeout occurs",
+      "ASSUMPTION: Customer loss tolerance is uniform across all command types; RISK: Some commands (e.g., emergency stop) may require stricter guarantees than others—mitigation: support per-command-class loss targets and prioritization"
+    ],
+    "recommended_revision": "Refine FR to explicitly state: (1) acceptable end-to-end latency budget for retransmission (e.g., 'shall maintain <X ms latency for 95th percentile of retransmitted packets'); (2) whether loss tolerance applies uniformly or varies by command criticality; (3) definition of 'agreed network conditions' (e.g., bandwidth, latency, jitter ranges) to enable testability; (4) integration point with worksite safety plan (e.g., 'shall not conflict with emergency stop procedures'). Revised FR: 'The NGHE solution shall maintain teleoperation communication integrity by ensuring packet loss ≤ [customer-defined target, default 1%] under agreed network conditions [specify ranges], with end-to-end retransmission latency ≤ [X ms] for 95th percentile, and shall integrate with worksite safety plan to ensure no safety-critical command is delayed beyond [Y ms] or shall enter safe state if ACK timeout occurs.'"
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Teleoperation module encapsulates remote command transmission, acknowledgment handling, and retransmission logic for operator-to-vehicle communication flows."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives operator commands and task directives that require reliable delivery with ACK confirmation"
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Transmits ACK-enabled commands and receives acknowledgments; implements exponential backoff on Network Link failures"
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Escalates to safety services if retransmission exhaustion exceeds customer loss tolerance threshold"
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 8.5,
+        "diffusion_score": 1.5,
+        "notes": "Strong fit: ACK protocol and retransmission are core to reliable command delivery in teleoperation. Loss tolerance parameterization aligns with operator-facing reliability requirements. Minimal diffusion: only SafetyAlert escalation crosses boundary when tolerance exceeded."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 3.0,
+        "diffusion_score": 7.0,
+        "notes": "Poor fit: Vehicle module owns onboard systems and actuators, not command reception logic. ACK/retransmission belongs upstream in communication layer, not in vehicle execution. High diffusion: would require Vehicle to manage network protocol state and backoff timers."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 2.5,
+        "diffusion_score": 8.0,
+        "notes": "Weak fit: Safety Services owns hazard detection and mitigation, not communication reliability. ACK/backoff is a transport-layer concern, not a safety function. High diffusion: would scatter command reliability logic across safety and teleoperation modules."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 5.0,
+        "diffusion_score": 6.0,
+        "notes": "Moderate fit: NGHE Solution is a system-level container. While it could host the DP, it is too broad and would obscure ownership. Better to assign to Teleoperation as the functional owner of command delivery reliability."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The ACK protocol with exponential backoff retransmission is a communication reliability mechanism that belongs in the Teleoperation module because: (1) it directly supports reliable operator command delivery, (2) loss tolerance is a teleoperation QoS parameter set by operator/customer requirements, (3) retransmission state and backoff timers are managed at the command transmission layer, and (4) escalation to SafetyAlert occurs only when tolerance is exceeded, keeping the primary logic cohesive.",
+    "containment_risks": [
+      "Risk: If Vehicle module has its own command reception and retry logic, duplication may occur. Mitigation: ensure Vehicle only executes commands received from Teleoperation; do not implement parallel ACK/backoff in Vehicle.",
+      "Risk: Network Link interface may be shared with other modules (e.g., Telemetry). Mitigation: parameterize ACK/backoff as a Teleoperation-specific behavior; do not conflate with generic Network Link retries.",
+      "Risk: Loss tolerance threshold may need to be tuned per mission or operator. Mitigation: expose loss tolerance as a configurable parameter in Teleoperation's external interface contract."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. Acceptance criterion (packet loss ≤ 1% or customer-defined target) is measurable and testable under agreed network conditions. Teleoperation module can instrument ACK success rates, retransmission counts, and loss tolerance threshold breaches. SafetyAlert escalation provides observable event for validation.",
+      "allocation_clarity": "Clear. Teleoperation module owns end-to-end command delivery reliability. Ownership boundary is well-defined: receives operator commands (Tasking), manages ACK/backoff protocol (Network Link), and escalates safety events (SafetyAlert). No ambiguity in functional allocation."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP6 (ACK protocol + exponential backoff + parameterized loss tolerance) directly and sufficiently addresses FR requirement to maintain teleoperation communication integrity within customer-defined packet loss limits. The combination of lightweight ACK (low overhead), exponential backoff (adaptive retry), and parameterization (customer tuning) is a sound design approach for lossy network conditions. No logical gaps or over-specification detected."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Risk: Vehicle module may implement parallel command reception retry logic, duplicating ACK/backoff state management. Mitigation: enforce Vehicle module contract to accept only pre-validated commands from Teleoperation; prohibit Vehicle-level retransmission.",
+        "Risk: Network Link interface is shared with Telemetry and other modules. Generic network retries at Link layer could conflict with Teleoperation-specific exponential backoff. Mitigation: clearly separate Teleoperation ACK/backoff (application layer) from Network Link retries (transport layer); parameterize Teleoperation behavior independently.",
+        "Risk: Loss tolerance threshold tuning may be mission-dependent or operator-dependent, requiring runtime reconfiguration. If hardcoded in Teleoperation module, flexibility is lost. Mitigation: expose loss_tolerance_threshold as a configurable parameter in Teleoperation's external interface contract; document parameter ownership and update authority.",
+        "Risk: SafetyAlert escalation boundary is correct but requires clear contract: what constitutes 'exhaustion' of retransmission? If definition is ambiguous, SafetyAlert may receive spurious or delayed notifications. Mitigation: define retransmission exhaustion criteria (e.g., max_retries exceeded, backoff timeout reached) and document in Teleoperation-SafetyAlert interface specification."
+      ],
+      "containment_notes": "Containment score of 8.5 for Teleoperation is justified. ACK protocol, exponential backoff, and loss tolerance parameterization are cohesive and belong together in the command delivery layer. Minimal diffusion (1.5) reflects only SafetyAlert escalation crossing boundary, which is appropriate for hazard mitigation. No scattered responsibilities detected. Module boundary is clean and ownership is unambiguous."
+    },
+    "recommended_revisions": [
+      "Revision 1: Explicitly document the Teleoperation-Vehicle interface contract to prohibit Vehicle-level command retry logic. State that Vehicle module shall accept commands only from Teleoperation and shall not implement ACK/backoff.",
+      "Revision 2: Clarify the separation of concerns between Teleoperation ACK/backoff (application-layer reliability) and Network Link retries (transport-layer reliability). Document which layer owns which retry mechanism and how they interact (e.g., do they stack, or is one disabled when the other is active?).",
+      "Revision 3: Expose loss_tolerance_threshold as a runtime-configurable parameter in Teleoperation module's external interface. Define parameter semantics (e.g., percentage loss, absolute packet count, time window) and document update authority and frequency.",
+      "Revision 4: Define retransmission exhaustion criteria in the Teleoperation-SafetyAlert interface specification. Specify conditions that trigger escalation (e.g., 'max_retries exceeded for a single command', 'cumulative loss over sliding window exceeds threshold'). Include timeout and backoff limits.",
+      "Revision 5: Add a verification plan to the FR acceptance criteria that includes: (a) packet loss measurement under agreed network conditions, (b) ACK success rate instrumentation, (c) retransmission count logging, (d) SafetyAlert escalation event validation, and (e) loss tolerance threshold tuning and validation per customer/mission."
+    ]
+  },
+  "decision": {
+    "decision": "REVISE_CURRENT_LEVEL",
+    "justification": "All three gates (FR-IM, FR-DP, DP-IM) pass with high confidence, indicating the functional requirement, design parameter, and implementation module are logically sound and well-aligned. However, the gate analysis identifies five critical revisions that must be incorporated before proceeding to sub-level decomposition. Given the high safety criticality of teleoperation command delivery, these revisions are not optional refinements—they are essential clarifications of interface contracts, parameter ownership, and escalation criteria that directly affect hazard mitigation and verification feasibility. Proceeding to sub-level decomposition without these revisions risks propagating ambiguity into lower-level FRs and creating verification gaps. The revisions target DP clarity (Revisions 2, 4) and IM boundary definition (Revisions 1, 3, 5), both of which must be locked before decomposing FR into sub-FRs.",
+    "next_level_sub_frs": [],
+    "revise": {
+      "target": "DP",
+      "why": "Revisions 2 and 4 require explicit clarification of the DP logic: (1) the interaction model between Teleoperation ACK/backoff (application layer) and Network Link retries (transport layer) must be specified to prevent stacking or conflicts; (2) retransmission exhaustion criteria (max_retries, backoff timeout, cumulative loss window) must be formally defined in the DP specification to ensure SafetyAlert escalation is triggered deterministically and verifiably. These are design-domain decisions that belong in the DP statement, not implementation details."
+    },
+    "record": {
+      "assumptions": [
+        "Assumption A1: Vehicle module will strictly adhere to a contract prohibiting command-level retry logic and will accept only pre-validated commands from Teleoperation module.",
+        "Assumption A2: Network Link layer retries (transport-layer) and Teleoperation ACK/backoff (application-layer) can be cleanly separated and will not create cascading retry behavior that degrades performance or safety.",
+        "Assumption A3: Loss tolerance threshold is a mission/operator-configurable parameter that can be safely exposed as a runtime-tunable external interface without requiring firmware updates.",
+        "Assumption A4: SafetyAlert escalation is the appropriate hazard mitigation response when retransmission exhaustion occurs, and no additional failsafe mechanisms (e.g., command timeout, operator override) are required at this level.",
+        "Assumption A5: Packet loss measurement and ACK success rate instrumentation can be reliably collected under agreed network conditions without introducing measurement artifacts or overhead that affects real-time performance."
+      ],
+      "open_risks": [
+        "Risk R1 (Interface Contract Enforcement): Vehicle module may not strictly adhere to the prohibition on command-level retry logic if the contract is not formally enforced through code review, static analysis, or runtime assertions. Mitigation: implement Vehicle module acceptance test that verifies no retry logic is present; add runtime contract check in Teleoperation-Vehicle interface.",
+        "Risk R2 (Layer Interaction Ambiguity): If the separation between application-layer (Teleoperation) and transport-layer (Network Link) retries is not clearly documented, developers may inadvertently create stacking behavior (e.g., exponential backoff at both layers) that causes excessive delays or command loss. Mitigation: document interaction model explicitly in DP specification; add integration test that verifies no stacking occurs under loss conditions.",
+        "Risk R3 (Parameter Tuning Complexity): Exposing loss_tolerance_threshold as a runtime-configurable parameter introduces the risk that operators may set unsafe values (e.g., very high loss tolerance) without understanding safety implications. Mitigation: define parameter bounds and safety constraints; provide operator guidance and validation logic in Teleoperation module.",
+        "Risk R4 (Escalation Criteria Ambiguity): If retransmission exhaustion criteria are not precisely defined, SafetyAlert may receive spurious escalations (false positives) or miss genuine exhaustion events (false negatives), reducing hazard mitigation effectiveness. Mitigation: formalize exhaustion criteria in DP; add unit tests for escalation logic with synthetic loss scenarios.",
+        "Risk R5 (Verification Feasibility Under Real Conditions): Packet loss measurement and ACK instrumentation may be difficult to validate under real network conditions (e.g., variable latency, bursty loss, congestion). Mitigation: define agreed network test conditions (e.g., controlled lab environment, emulated loss profiles); document measurement methodology and uncertainty bounds."
+      ],
+      "evidence_needed": [
+        "Evidence E1: Formal specification of Teleoperation-Vehicle interface contract, including explicit prohibition on Vehicle-level command retry logic and acceptance criteria for contract compliance.",
+        "Evidence E2: Detailed design document describing the interaction model between Teleoperation ACK/backoff (application layer) and Network Link retries (transport layer), including: (a) which layer owns which retry mechanism, (b) how they interact (stacking, mutual exclusion, or independence), (c) parameter tuning strategy for each layer, and (d) integration test plan.",
+        "Evidence E3: Updated DP specification that formally defines retransmission exhaustion criteria, including: (a) max_retries threshold, (b) backoff timeout limits, (c) cumulative loss window definition, (d) conditions that trigger SafetyAlert escalation, and (e) examples of exhaustion scenarios.",
+        "Evidence E4: Teleoperation module external interface specification that exposes loss_tolerance_threshold as a configurable parameter, including: (a) parameter semantics (percentage loss, absolute count, time window), (b) valid range and safety constraints, (c) update authority and frequency, (d) operator guidance, and (e) validation logic.",
+        "Evidence E5: Verification plan that includes: (a) packet loss measurement methodology under agreed network conditions, (b) ACK success rate instrumentation and logging, (c) retransmission count tracking, (d) SafetyAlert escalation event validation with synthetic loss scenarios, (e) loss tolerance threshold tuning and validation per customer/mission, and (f) integration test cases for layer interaction and contract enforcement.",
+        "Evidence E6: Risk mitigation evidence for each of R1–R5, including: (a) code review checklist for Vehicle module contract compliance, (b) static analysis rules for retry logic detection, (c) runtime contract assertions, (d) parameter bounds validation, (e) unit tests for escalation logic, and (f) measurement uncertainty analysis."
+      ]
+    }
+  }
+}

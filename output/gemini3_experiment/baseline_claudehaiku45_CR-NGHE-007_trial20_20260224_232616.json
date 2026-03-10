@@ -1,0 +1,182 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current operational state (vehicle position, equipment status, environmental conditions, safety events) within p95 ≤ 1.0 s latency for all supported update scenarios (teleoperated commands, autonomous sensor data, safety alerts, operator inputs).",
+    "rationale": "CR-NGHE-007 is underspecified as stated. 'Worksite model' and 'customer-required timeliness' require clarification. Refined FR specifies: (1) what constitutes the model (position, status, conditions, events), (2) the latency metric (p95 percentile), (3) the threshold (1.0 s or customer-defined), and (4) the scope of update scenarios. High safety criticality demands explicit inclusion of safety event propagation in latency budget.",
+    "verification_idea": "Instrument end-to-end latency from source (sensor, command, alert) to worksite model state change. Measure p95 across 100+ update cycles per scenario. Validate against acceptance criterion. Correlate latency with safety event detection and operator response time.",
+    "sub_frs": [
+      "FR-007.1: Acquire operational state data (vehicle telemetry, sensor readings, operator commands, safety events) from source systems.",
+      "FR-007.2: Transmit state data through network with bounded delay and reliability.",
+      "FR-007.3: Ingest and parse state data at worksite model receiver.",
+      "FR-007.4: Update worksite model state atomically and consistently.",
+      "FR-007.5: Propagate model updates to dependent consumers (display, safety logic, autonomous planners) with minimal additional latency.",
+      "FR-007.6: Monitor and report latency metrics to system health and compliance subsystems."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized pull-based model update (worksite server polls all sources on fixed interval; high latency variance, simple logic).",
+      "DP-B: Distributed push-based event streaming (sources emit state changes asynchronously; telemetry, tasking, safety alerts flow independently to model; requires coordination and deduplication).",
+      "DP-C: Hybrid push-pull with priority queuing (safety events pushed immediately; telemetry pulled on adaptive interval; non-critical updates batched; balances latency and throughput).",
+      "DP-D: Real-time publish-subscribe middleware (DDS, MQTT, or proprietary broker; sources publish to topics; model subscriber receives with QoS guarantees; decouples producers and consumers)."
+    ],
+    "selected_dp": "DP-D: Real-time publish-subscribe middleware with QoS-aware topic routing and latency-bounded delivery guarantees. Safety-critical updates (SafetyAlert) routed with highest priority; telemetry (Telemetry) and tasking (Tasking) with secondary priority; model ingestion and update logic optimized for sub-100 ms processing.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between source systems (Vehicle, Teleoperation, Safety Services) and model update logic is decoupled via publish-subscribe abstraction; each source publishes independently.",
+        "Coupling between model update and downstream consumers (display, safety logic) is decoupled via subscription; consumers pull from model state or subscribe to model change events.",
+        "Coupling risk: if model update logic is tightly bound to specific message formats or topic structures, changes to source systems propagate to model. Mitigation: define canonical data model and schema versioning."
+      ],
+      "notes": "DP-D is loosely coupled by design. Axiomatic independence satisfied: each source can update independently; model update logic is independent of source implementation details. Recommended: formalize message contracts and schema evolution policy."
+    },
+    "assumptions_risks": [
+      "Assumption: Network infrastructure supports QoS-aware routing and latency guarantees (e.g., DDS with real-time transport, or MQTT with priority queuing). Risk: if network is best-effort (e.g., standard Ethernet without QoS), p95 latency target may not be achievable. Mitigation: specify network requirements in DP realization.",
+      "Assumption: Worksite model ingestion and update logic can process incoming messages at source rate without blocking. Risk: if model update is CPU-bound or I/O-bound, latency will increase. Mitigation: profile and optimize model update code; consider async/non-blocking patterns.",
+      "Assumption: Safety-critical updates (SafetyAlert) are prioritized and delivered with deterministic latency. Risk: if safety alerts are queued behind telemetry, latency SLA may be violated. Mitigation: enforce strict priority scheduling and separate queues for safety vs. non-safety traffic.",
+      "Assumption: p95 latency target of 1.0 s is achievable with commodity hardware and network. Risk: if target is too aggressive, may require specialized real-time hardware or custom middleware. Mitigation: validate feasibility in prototype; consider relaxing target if infeasible.",
+      "Assumption: Worksite model is single-writer or uses conflict-free merge semantics. Risk: if multiple sources update same model state concurrently, consistency issues may arise. Mitigation: define update semantics (last-write-wins, vector clocks, CRDTs) and enforce in model logic."
+    ],
+    "recommended_revision": "DP-D is sound but requires detailed specification of: (1) message schema and versioning strategy, (2) QoS parameters (priority levels, latency bounds, reliability guarantees), (3) model update algorithm (atomic vs. eventual consistency), (4) monitoring and alerting for latency SLA violations. Recommend prototyping with DDS or MQTT to validate feasibility against p95 ≤ 1.0 s target."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "Top-level system integration module responsible for orchestrating worksite model updates across all subsystems. Owns the publish-subscribe middleware, model state store, ingestion logic, and latency monitoring. Interfaces with Vehicle (telemetry source), Teleoperation (tasking and operator input source), and Safety Services (safety alert source). Exposes model state and change events to downstream consumers (display, autonomous planners, compliance systems)."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Receives vehicle state (position, orientation, speed, equipment status, sensor readings) from Vehicle module. Published asynchronously; NGHE Solution subscribes to Telemetry topic. Latency budget: ≤ 200 ms from sensor to model update."
+      },
+      {
+        "name": "Tasking",
+        "direction": "inout",
+        "details": "Receives operator commands and tasking updates from Teleoperation module. Published asynchronously; NGHE Solution subscribes to Tasking topic and updates model. Also publishes task acknowledgments and status back to Teleoperation. Latency budget: ≤ 300 ms from command to model update."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "in",
+        "details": "Receives safety-critical alerts (collision warnings, geofence violations, emergency stops, operator incapacity) from Safety Services module. Published with highest priority; NGHE Solution subscribes with priority queue. Latency budget: ≤ 100 ms from alert generation to model update and propagation to safety logic."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Underlying network transport for all publish-subscribe messages. NGHE Solution assumes QoS-aware routing and latency guarantees. Latency budget: ≤ 200 ms for network transit (including serialization, transmission, deserialization)."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "NGHE Solution is the natural top-level owner of worksite model updates. Owns middleware, model state, ingestion logic, and latency monitoring. Minimal diffusion: only interfaces with Vehicle, Teleoperation, Safety Services via standard interfaces. Recommended assignment."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Vehicle module is a source of telemetry, not the owner of model updates. Assigning model update logic to Vehicle would couple it to Teleoperation and Safety Services, violating separation of concerns. High diffusion risk."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 25,
+        "diffusion_score": 75,
+        "notes": "Teleoperation module is a source of tasking and operator input, not the owner of model updates. Assigning model update logic to Teleoperation would couple it to Vehicle and Safety Services. High diffusion risk."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 30,
+        "diffusion_score": 70,
+        "notes": "Safety Services module is a source of safety alerts and a consumer of model state. Assigning model update logic to Safety Services would create circular dependency and couple it to Vehicle and Teleoperation. High diffusion risk."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "NGHE Solution is the natural owner of worksite model updates because: (1) it is the top-level system integration point, (2) it has visibility into all sources (Vehicle, Teleoperation, Safety Services) and consumers (display, safety logic, autonomous planners), (3) it owns the publish-subscribe middleware and model state store, (4) it can enforce latency SLAs and monitor compliance across all update scenarios. Assigning to any other module would create diffusion and coupling.",
+    "containment_risks": [
+      "Risk: If NGHE Solution becomes a bottleneck (high CPU, I/O contention), latency SLA may be violated. Mitigation: profile and optimize model update code; consider async/non-blocking patterns; scale horizontally if needed.",
+      "Risk: If model state grows large, ingestion and update latency may increase. Mitigation: partition model by domain (vehicle state, task state, safety state); use efficient data structures (e.g., spatial indices for position queries).",
+      "Risk: If sources emit updates at high frequency (e.g., 100 Hz telemetry), NGHE Solution may be overwhelmed. Mitigation: implement rate limiting, batching, or filtering at source or ingestion layer.",
+      "Risk: If downstream consumers (display, safety logic) are tightly coupled to model state, changes to model schema propagate to consumers. Mitigation: define stable model API; use versioning and deprecation policies.",
+      "Risk: If latency monitoring is not implemented, SLA violations may go undetected. Mitigation: instrument end-to-end latency; log and alert on p95 threshold breaches."
+    ],
+    "recommended_revision": "NGHE Solution is the correct IM assignment. Recommend detailed specification of: (1) publish-subscribe middleware selection (DDS, MQTT, custom), (2) model state schema and versioning, (3) ingestion and update algorithm (atomic vs. eventual consistency), (4) latency monitoring and alerting, (5) performance testing and optimization plan. Recommend prototyping to validate p95 ≤ 1.0 s feasibility."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "Refined FR clearly specifies what the system must do (update worksite model within p95 ≤ 1.0 s latency for all supported scenarios). Selected DP (publish-subscribe middleware with QoS-aware routing) is a sound solution approach that addresses the FR. DP is independent of implementation details (middleware choice, model schema, ingestion algorithm) and can be realized in multiple ways. FR and DP are well-aligned."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Risk: If NGHE Solution model update logic is not cleanly separated from other system functions (e.g., display rendering, safety logic), changes to latency requirements may propagate. Mitigation: enforce module boundaries; use dependency injection and interfaces.",
+        "Risk: If publish-subscribe middleware is tightly coupled to specific message formats or topic structures, changes to sources propagate to model. Mitigation: define canonical data model and schema versioning.",
+        "Risk: If model state is replicated across multiple modules (e.g., Vehicle, Teleoperation, Safety Services), consistency issues may arise. Mitigation: enforce single-writer principle; use event sourcing or CQRS if needed."
+      ],
+      "containment_notes": "NGHE Solution is the natural owner of worksite model updates. Containment score 95/100 indicates strong fit. Diffusion score 5/100 indicates minimal risk of logic spreading to other modules. Recommended assignment with clear module boundaries and interface contracts."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible via instrumentation of end-to-end latency from source (sensor, command, alert) to worksite model state change. Measure p95 across 100+ update cycles per scenario. Validate against acceptance criterion (p95 ≤ 1.0 s or customer-defined target). Correlate latency with safety event detection and operator response time. Recommend automated latency testing in CI/CD pipeline.",
+      "allocation_clarity": "Allocation is clear: NGHE Solution owns worksite model updates and is responsible for meeting p95 ≤ 1.0 s latency SLA. Vehicle, Teleoperation, and Safety Services are sources; they must emit updates with bounded latency (≤ 200 ms for telemetry, ≤ 300 ms for tasking, ≤ 100 ms for safety alerts). Network Link must support QoS-aware routing with ≤ 200 ms transit latency. Downstream consumers (display, safety logic) must subscribe to model updates and process with minimal additional latency."
+    },
+    "recommended_revisions": [
+      "Refine latency budget allocation: specify latency targets for each sub-FR (acquisition, transmission, ingestion, update, propagation, monitoring). Validate that sum of sub-latencies ≤ 1.0 s p95.",
+      "Specify publish-subscribe middleware selection criteria: DDS (deterministic, real-time), MQTT (lightweight, cloud-friendly), or custom (optimized for NGHE). Recommend prototyping with DDS for safety-critical updates.",
+      "Define model state schema and versioning strategy: canonical data model, schema evolution policy, backward compatibility guarantees.",
+      "Specify model update algorithm: atomic vs. eventual consistency, conflict resolution (last-write-wins, vector clocks, CRDTs), transaction semantics.",
+      "Implement latency monitoring and alerting: instrument end-to-end latency; log and alert on p95 threshold breaches; integrate with system health and compliance subsystems.",
+      "Develop performance testing plan: measure latency under various load scenarios (nominal, peak, failure modes); validate p95 ≤ 1.0 s; identify bottlenecks and optimization opportunities."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "Refined FR is well-specified and decomposed into 6 atomic sub-FRs (acquisition, transmission, ingestion, update, propagation, monitoring). Selected DP (publish-subscribe middleware with QoS-aware routing) is sound and addresses the FR. Assigned IM (NGHE Solution) is the natural owner with high containment score (95/100) and low diffusion risk (5/100). All gates pass. However, to ensure successful realization, recommend decomposing each sub-FR into detailed design parameters and implementation modules. Specifically, sub-FRs 007.1-007.6 require further refinement to specify: (1) data acquisition and serialization, (2) network transport and QoS, (3) message parsing and validation, (4) model state update and consistency, (5) event propagation and subscription, (6) latency monitoring and alerting. Recommend proceeding to next decomposition level.",
+    "next_level_sub_frs": [
+      "FR-007.1: Acquire operational state data (vehicle telemetry, sensor readings, operator commands, safety events) from source systems.",
+      "FR-007.2: Transmit state data through network with bounded delay and reliability.",
+      "FR-007.3: Ingest and parse state data at worksite model receiver.",
+      "FR-007.4: Update worksite model state atomically and consistently.",
+      "FR-007.5: Propagate model updates to dependent consumers (display, safety logic, autonomous planners) with minimal additional latency.",
+      "FR-007.6: Monitor and report latency metrics to system health and compliance subsystems."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Network infrastructure supports QoS-aware routing and latency guarantees (e.g., DDS with real-time transport, or MQTT with priority queuing).",
+        "Worksite model ingestion and update logic can process incoming messages at source rate without blocking.",
+        "Safety-critical updates (SafetyAlert) are prioritized and delivered with deterministic latency.",
+        "p95 latency target of 1.0 s is achievable with commodity hardware and network.",
+        "Worksite model is single-writer or uses conflict-free merge semantics.",
+        "Sources emit updates with bounded latency: ≤ 200 ms for telemetry, ≤ 300 ms for tasking, ≤ 100 ms for safety alerts.",
+        "Network transit latency is ≤ 200 ms (including serialization, transmission, deserialization).",
+        "Downstream consumers (display, safety logic) process model updates with minimal additional latency (≤ 100 ms)."
+      ],
+      "open_risks": [
+        "Risk: If network is best-effort (e.g., standard Ethernet without QoS), p95 latency target may not be achievable.",
+        "Risk: If model update is CPU-bound or I/O-bound, latency will increase.",
+        "Risk: If safety alerts are queued behind telemetry, latency SLA may be violated.",
+        "Risk: If p95 latency target of 1.0 s is too aggressive, may require specialized real-time hardware or custom middleware.",
+        "Risk: If multiple sources update same model state concurrently, consistency issues may arise.",
+        "Risk: If NGHE Solution becomes a bottleneck (high CPU, I/O contention), latency SLA may be violated.",
+        "Risk: If model state grows large, ingestion and update latency may increase.",
+        "Risk: If sources emit updates at high frequency (e.g., 100 Hz telemetry), NGHE Solution may be overwhelmed.",
+        "Risk: If downstream consumers are tightly coupled to model state, changes to model schema propagate to consumers.",
+        "Risk: If latency monitoring is not implemented, SLA violations may go undetected."
+      ],
+      "evidence_needed": [
+        "Prototype implementation of publish-subscribe middleware (DDS or MQTT) with latency measurements.",
+        "Performance testing results validating p95 ≤ 1.0 s latency under nominal, peak, and failure scenarios.",
+        "Network QoS configuration and validation (priority queuing, latency bounds, reliability guarantees).",
+        "Model state schema and versioning strategy documentation.",
+        "Model update algorithm specification (atomic vs. eventual consistency, conflict resolution).",
+        "Latency monitoring and alerting implementation and test results.",
+        "End-to-end latency instrumentation and measurement methodology.",
+        "Safety criticality analysis and hazard mitigation for latency SLA violations.",
+        "Stakeholder acceptance of p95 ≤ 1.0 s latency target and verification approach."
+      ]
+    }
+  }
+}

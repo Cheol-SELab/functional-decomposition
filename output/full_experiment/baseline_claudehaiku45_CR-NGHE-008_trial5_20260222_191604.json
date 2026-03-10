@@ -1,0 +1,163 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall establish and maintain end-to-end teleoperation communication with p95 latency ≤ 150 ms under agreed network conditions to enable safe remote operation by the tele-operator.",
+    "rationale": "The original FR is outcome-focused but lacks specificity on measurement boundaries (end-to-end vs. component), network assumptions, and safety context. Refinement clarifies that latency is measured from operator input to equipment response, bounded by network conditions, and directly supports safe remote operation—a high-criticality safety function.",
+    "verification_idea": "Instrument teleoperation path with timestamped events at operator input, network ingress/egress, and equipment response; collect p95 latency under representative network conditions (agreed bandwidth, jitter, packet loss); validate against 150 ms threshold under worst-case operational scenarios.",
+    "sub_frs": [
+      "FR-NGHE-008.1: The teleoperation system shall acquire operator commands with minimal input-to-transmission latency.",
+      "FR-NGHE-008.2: The teleoperation system shall transmit operator commands over the network link with bounded transit latency.",
+      "FR-NGHE-008.3: The teleoperation system shall receive and decode operator commands at the vehicle with minimal reception-to-actuation latency.",
+      "FR-NGHE-008.4: The teleoperation system shall monitor and report latency health to safety services for real-time compliance verification."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Implement a dedicated low-latency teleoperation protocol with priority queuing, adaptive compression, and hardware-accelerated encoding/decoding to minimize end-to-end latency across the network link.",
+      "DP-B: Deploy a hybrid architecture with local predictive control at the vehicle (reducing feedback dependency) combined with a high-priority network channel for critical commands, achieving latency reduction through prediction and channel prioritization.",
+      "DP-C: Establish a multi-path network strategy with redundant communication channels and intelligent failover to ensure latency consistency and safety compliance across variable network conditions."
+    ],
+    "selected_dp": "DP-B: Deploy a hybrid architecture with local predictive control at the vehicle (reducing feedback dependency) combined with a high-priority network channel for critical commands, achieving latency reduction through prediction and channel prioritization.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Predictive control logic must be tightly coupled with vehicle dynamics model (owned by Vehicle module); requires interface contract on state feedback.",
+        "High-priority channel management couples to Network Link infrastructure; requires QoS negotiation interface.",
+        "Safety monitoring of prediction accuracy couples to Safety Services; requires SafetyAlert interface for anomaly reporting."
+      ],
+      "notes": "DP-B introduces controlled coupling through well-defined interfaces (Telemetry for state feedback, Network Link for QoS, SafetyAlert for safety monitoring). Coupling is acceptable because it is explicit, bounded, and supports the safety-critical nature of the requirement. DP-A would create tighter coupling to network protocol details; DP-C would distribute latency responsibility across multiple channels, increasing verification complexity."
+    },
+    "assumptions_risks": [
+      "Assumption: Vehicle dynamics model is sufficiently accurate to support predictive control without divergence over typical teleoperation session duration (assumed ≤ 4 hours).",
+      "Assumption: Network link can guarantee a high-priority channel with bounded latency (≤ 100 ms) for critical commands under agreed conditions.",
+      "Risk: Prediction model drift could cause safety violations if not monitored; mitigation requires continuous SafetyAlert feedback.",
+      "Risk: Network QoS guarantees may not hold under extreme congestion; fallback to conservative control required.",
+      "Risk: Operator trust in predictive control may be low if prediction diverges visibly; requires transparent feedback on prediction confidence."
+    ],
+    "recommended_revision": "Refine DP-B to explicitly define prediction confidence thresholds and fallback behavior: 'When prediction confidence < 80%, revert to direct teleoperation mode with latency tolerance relaxation or operator notification.' This clarifies the safety boundary and reduces risk of undetected prediction failure."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Owns the end-to-end teleoperation latency control logic, including operator command acquisition, network transmission scheduling, vehicle-side command reception, predictive control execution, and latency monitoring. Interfaces with Vehicle for state feedback and predictive model updates, with Network Link for QoS management, and with Safety Services for latency compliance reporting."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Vehicle state (position, velocity, orientation, sensor readings) streamed to Teleoperation for predictive model input and operator feedback rendering. Required for prediction accuracy and closed-loop safety monitoring."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Operator commands (movement, tool actuation, mode changes) received by Teleoperation from operator interface. Primary input for teleoperation latency measurement."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Latency health status and prediction confidence metrics reported by Teleoperation to Safety Services. Enables real-time compliance verification and fallback triggering if latency or prediction confidence degrades."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Bidirectional communication channel managed by Teleoperation for command transmission and telemetry reception. Teleoperation negotiates QoS (priority, bandwidth) and monitors transit latency."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "Teleoperation module is the natural owner of end-to-end latency control. Predictive control logic, command scheduling, and latency monitoring are core to this module's mission. Minimal diffusion: only state feedback (Telemetry) and QoS negotiation (Network Link) leak out as dependencies."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 40,
+        "diffusion_score": 60,
+        "notes": "Vehicle could own predictive control execution, but latency responsibility would be split between Vehicle (execution) and Teleoperation (command scheduling), creating diffusion. Vehicle should own the dynamics model and state feedback, not the latency control logic."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 30,
+        "diffusion_score": 70,
+        "notes": "Safety Services monitors compliance but does not own latency control mechanisms. Assigning latency control to Safety Services would create circular dependency (Safety Services depends on Teleoperation for latency data, but Teleoperation would depend on Safety Services for control decisions)."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "NGHE Solution is the system-level container; assigning latency control here would bypass module boundaries and prevent clear ownership, testing, and evolution."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "Teleoperation module contains the latency control logic (predictive control, command scheduling, QoS negotiation) and owns the end-to-end latency budget. Vehicle module provides state feedback via Telemetry interface; Network Link provides communication substrate; Safety Services monitors compliance via SafetyAlert interface. This assignment minimizes diffusion and creates a clear, testable ownership boundary.",
+    "containment_risks": [
+      "Risk: Predictive control model requires frequent updates from Vehicle dynamics; if Vehicle module changes its state representation, Telemetry interface contract must be renegotiated, potentially impacting latency.",
+      "Risk: Network Link QoS guarantees may not be stable; Teleoperation must implement fallback behavior (e.g., conservative control, operator notification) if QoS degrades, requiring close coordination with Network Link owner.",
+      "Risk: Safety Services may impose latency constraints that conflict with predictive control confidence thresholds; requires explicit negotiation of SafetyAlert contract."
+    ],
+    "recommended_revision": "Establish explicit interface contracts: (1) Telemetry: define state update frequency, latency budget for state transmission, and model validity window; (2) Network Link: define QoS SLA (p95 latency, jitter, packet loss) and fallback triggers; (3) SafetyAlert: define latency compliance thresholds, prediction confidence reporting frequency, and fallback decision logic. Document these in a Teleoperation Interface Control Document (ICD)."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-B (hybrid predictive control + high-priority channel) directly addresses the refined FR (end-to-end latency ≤ 150 ms under agreed network conditions). The DP is solution-neutral (does not prescribe specific protocols or hardware), measurable (latency is quantifiable), and feasible (predictive control and QoS prioritization are established techniques). The DP supports the safety-critical context by enabling latency reduction and monitoring."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Telemetry interface carries state feedback; if Vehicle module changes state representation, Teleoperation must adapt. Mitigation: establish stable Telemetry interface contract early.",
+        "Network Link QoS negotiation couples Teleoperation to network infrastructure; if network conditions degrade unexpectedly, Teleoperation fallback behavior must be pre-defined. Mitigation: document QoS SLA and fallback triggers in ICD.",
+        "SafetyAlert interface requires Teleoperation to report latency health; Safety Services must act on this data. Mitigation: define SafetyAlert contract with clear decision thresholds."
+      ],
+      "containment_notes": "Teleoperation module contains the latency control logic with high cohesion (95% containment score). External dependencies are minimal and well-defined (Telemetry in, SafetyAlert out, Network Link inout). No diffusion across multiple modules; ownership is clear."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Latency can be verified by instrumenting the teleoperation path (operator input → network transmission → vehicle reception → actuation) and measuring p95 latency under representative network conditions. Teleoperation module owns the measurement points and can report latency health via SafetyAlert interface. Verification is feasible and testable.",
+      "allocation_clarity": "FR-NGHE-008 is allocated to Teleoperation module with clear ownership. Sub-FRs (FR-NGHE-008.1 through 008.4) can be further decomposed and allocated to sub-modules or components within Teleoperation (e.g., command acquisition, network transmission, vehicle reception, latency monitoring). Allocation is clear and traceable."
+    },
+    "recommended_revisions": [
+      "Establish Telemetry interface contract: define state update frequency (e.g., 100 Hz), latency budget (e.g., ≤ 20 ms), and model validity window (e.g., ≤ 500 ms).",
+      "Establish Network Link QoS SLA: define p95 latency (e.g., ≤ 100 ms), jitter (e.g., ≤ 50 ms), packet loss (e.g., ≤ 0.1%), and fallback triggers (e.g., if p95 > 120 ms, revert to conservative control).",
+      "Establish SafetyAlert contract: define latency compliance thresholds (e.g., p95 ≤ 150 ms), prediction confidence reporting frequency (e.g., every 100 ms), and fallback decision logic (e.g., if confidence < 80%, notify operator).",
+      "Document Teleoperation module responsibilities in an Interface Control Document (ICD) with clear ownership, interfaces, and verification criteria."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-NGHE-008 is not atomic; it encompasses multiple latency sources (operator input, network transmission, vehicle reception, actuation). The refined FR and selected DP are sound, and the IM assignment (Teleoperation) is well-justified with high containment and minimal diffusion. However, to ensure complete coverage and testability, the sub-FRs (FR-NGHE-008.1 through 008.4) must be decomposed further into atomic requirements with corresponding DPs and IMs. This decomposition will clarify latency budgets for each stage and enable targeted verification.",
+    "next_level_sub_frs": [
+      "FR-NGHE-008.1: The teleoperation system shall acquire operator commands with input-to-transmission latency ≤ 30 ms (p95).",
+      "FR-NGHE-008.2: The teleoperation system shall transmit operator commands over the network link with transit latency ≤ 100 ms (p95) under agreed network conditions.",
+      "FR-NGHE-008.3: The teleoperation system shall receive, decode, and execute operator commands at the vehicle with reception-to-actuation latency ≤ 20 ms (p95).",
+      "FR-NGHE-008.4: The teleoperation system shall monitor end-to-end latency and report compliance status to Safety Services with monitoring latency ≤ 50 ms (p95)."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Vehicle dynamics model is sufficiently accurate to support predictive control without divergence over typical teleoperation session duration (≤ 4 hours).",
+        "Network link can guarantee a high-priority channel with bounded latency (≤ 100 ms) for critical commands under agreed conditions.",
+        "Operator trust in predictive control is acceptable if prediction confidence is transparent and fallback behavior is well-defined.",
+        "Safety Services can act on SafetyAlert signals within 50 ms to trigger fallback behavior if latency or prediction confidence degrades.",
+        "Telemetry interface can deliver vehicle state at 100 Hz with ≤ 20 ms latency."
+      ],
+      "open_risks": [
+        "Prediction model drift could cause safety violations if not monitored; mitigation requires continuous SafetyAlert feedback and confidence thresholds.",
+        "Network QoS guarantees may not hold under extreme congestion; fallback to conservative control required.",
+        "Operator trust in predictive control may be low if prediction diverges visibly; requires transparent feedback on prediction confidence.",
+        "Telemetry interface contract may change if Vehicle module evolves; requires early negotiation and stability commitment.",
+        "SafetyAlert interface must support real-time decision-making; latency of Safety Services response could impact overall system latency."
+      ],
+      "evidence_needed": [
+        "Network latency characterization under agreed conditions (bandwidth, jitter, packet loss profiles).",
+        "Vehicle dynamics model validation and prediction accuracy bounds over typical session duration.",
+        "Operator feedback on predictive control transparency and trust (human factors study).",
+        "Telemetry interface specification and state update frequency validation.",
+        "Safety Services response time characterization and fallback decision logic.",
+        "End-to-end latency measurement methodology and instrumentation plan.",
+        "Acceptance test plan with p95 latency verification under representative scenarios."
+      ]
+    }
+  }
+}

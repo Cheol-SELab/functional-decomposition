@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .env import load_default_env
-from .llm import OpenAIResponsesClient
+from .llm import make_llm_client
 from .nghe import CustomerRequirement, find_cr, load_nghe_customer_requirements
 from .output import save_run_json
 from .workflow import DecompositionInputs, DecompositionRun, DecompositionWorkflow
@@ -23,7 +23,7 @@ def run_one_level_and_save(
 ) -> Dict[str, Any]:
     load_default_env()
 
-    wf = DecompositionWorkflow(llm=OpenAIResponsesClient(), model=model)
+    wf = DecompositionWorkflow(llm=make_llm_client(model), model=model)
     run: DecompositionRun = wf.run_one_level(
         inputs=inputs,
         available_modules=available_modules,

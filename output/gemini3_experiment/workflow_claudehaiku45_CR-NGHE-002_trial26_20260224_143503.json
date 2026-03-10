@@ -1,0 +1,168 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall enable execution of the load→travel→dump cycle within the customer-defined cycle time target.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting/enabling the capability to achieve cycle time, and (2) actually achieving the measured KPI. The refined FR is atomic and solution-neutral by focusing on the functional obligation—enabling the cycle to execute within the time envelope—without prescribing how (e.g., via speed optimization, path planning, operator training, or equipment design). The actual achievement of p95 ≤ CT_target is a verification criterion tied to duty cycle and site conditions, not a functional requirement of the system itself. This separation allows design parameters (e.g., hydraulic response time, travel speed envelope, load handling efficiency) to be evaluated independently of operational context.",
+    "verification_idea": "Demonstrate that under nominal duty cycle and representative site conditions, the NGHE solution's subsystems (propulsion, load handling, operator interface, autonomy/tele-operation) do not introduce delays that prevent cycle completion within CT_target. Measure end-to-end cycle time in controlled trials; confirm p95 ≤ CT_target. Distinguish between system capability (DP/IM performance) and operational achievement (stakeholder execution).",
+    "sub_frs": [
+      "FR-NGHE-002.1: The NGHE solution shall enable load acquisition within the load phase time budget.",
+      "FR-NGHE-002.2: The NGHE solution shall enable travel to the dump location within the travel phase time budget.",
+      "FR-NGHE-002.3: The NGHE solution shall enable load release/dump within the dump phase time budget.",
+      "FR-NGHE-002.4: The NGHE solution shall minimize idle/transition time between load, travel, and dump phases."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Decompose the load→travel→dump cycle into independent sub-processes (load, travel, dump) with dedicated control logic and resource allocation per phase, enabling sequential execution with phase-specific optimization.",
+      "DP2: Implement a unified state machine that orchestrates all cycle phases through a single control entity, with phase transitions triggered by sensor feedback and time-based guards, ensuring deterministic sequencing.",
+      "DP3: Allocate cycle time budget across phases (load_time, travel_time, dump_time) with real-time monitoring and adaptive phase duration adjustment based on measured vs. target performance, maintaining p95 compliance through feedback control.",
+      "DP4: Design a hierarchical task scheduler that prioritizes cycle-critical operations (load, travel, dump) over secondary tasks, with preemption rules and resource reservation to guarantee cycle time under duty cycle conditions.",
+      "DP5: Establish a cycle time contract model where each phase declares its maximum duration requirement; implement enforcement via watchdog timers and phase-timeout handlers that trigger corrective actions (e.g., abort, retry, escalate) if thresholds are exceeded."
+    ],
+    "selected_dp": "DP3 + DP5 (integrated): Allocate cycle time budget across load, travel, and dump phases with explicit duration contracts per phase; implement real-time monitoring with watchdog enforcement and feedback-driven adaptive adjustment to maintain p95 cycle time ≤ CT_target under agreed duty cycle and site conditions.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "DP3 and DP5 are complementary: DP3 provides the adaptive control logic (feedback loop), DP5 provides the safety/enforcement layer (watchdog contracts). Together they avoid tight coupling to specific phase implementations.",
+        "Risk: If phase implementations (load, travel, dump) are not cleanly separated by interface contracts, adaptive adjustment in DP3 may inadvertently couple to internal phase logic, reducing modularity.",
+        "Risk: Feedback control (DP3) and hard timeouts (DP5) can conflict if timeout thresholds are not coordinated with adaptive targets; requires explicit priority rules (e.g., watchdog overrides adaptive adjustment)."
+      ],
+      "notes": "DP3+DP5 avoids the monolithic coupling of DP2 (single state machine) and the phase-isolation rigidity of DP1. DP4 (scheduler) is orthogonal and can be layered beneath DP3+DP5 for resource contention resolution. Coupling is acceptable if phase boundaries are enforced via interface contracts (e.g., each phase declares max duration, resource needs, and completion signals)."
+    },
+    "assumptions_risks": [
+      "Assumption: Cycle time variability is primarily due to phase-level execution variance (load time, travel time, dump time), not external site conditions (e.g., ground slope, material density). If site conditions dominate, DP3 feedback adjustment may be insufficient; risk mitigation: include site condition sensors and adaptive phase budgets.",
+      "Assumption: Sensor feedback (load detection, position, dump completion) is reliable and low-latency. If sensors are noisy or delayed, watchdog timeouts (DP5) may trigger false alarms. Risk mitigation: sensor validation and hysteresis logic.",
+      "Assumption: CT_target is achievable under the agreed duty cycle with current hardware/actuator capabilities. If hardware is undersized, no control logic can meet p95 target. Risk mitigation: validate hardware performance envelope early.",
+      "Assumption: Worksite safety plan does not impose additional cycle constraints (e.g., mandatory idle periods, reduced speed zones) that would consume budget. Risk mitigation: integrate safety plan into phase budget allocation.",
+      "Assumption: p95 measurement methodology is consistent (e.g., cycle start/end definition, measurement window, outlier handling). Ambiguity here can invalidate acceptance criteria. Risk mitigation: define p95 measurement protocol in acceptance test plan."
+    ],
+    "recommended_revision": "Refine FR to explicitly state: 'The NGHE solution shall execute the load→travel→dump cycle such that the 95th percentile of measured cycle times (measured over N ≥ 100 cycles under agreed duty cycle and site conditions) does not exceed CT_target, with phase-level time budgets (load_max, travel_max, dump_max) summing to CT_target and enforced via watchdog contracts. Adaptive feedback control shall adjust phase budgets within ±ΔT tolerance to maintain p95 compliance without violating safety constraints defined in the worksite operational plan.' This revision clarifies the measurement protocol, budget allocation model, and the interaction between adaptive control and safety enforcement, reducing ambiguity in DP evaluation and acceptance testing."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "Embedded real-time cycle-time management, phase duration contracts, watchdog enforcement, and adaptive feedback control for load/travel/dump phases under duty cycle constraints"
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle reports cycle phase timing, p95 metrics, watchdog status, and adaptive adjustment state to monitoring systems"
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives duty cycle parameters, site conditions, and CT_target budget allocation from task scheduler"
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Vehicle emits watchdog violations and phase timeout alerts when cycle time contracts are breached"
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Vehicle exchanges real-time feedback and adaptive adjustment commands with teleoperation or autonomous control loop"
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent containment: cycle-time budgeting, phase duration contracts, watchdog timers, and adaptive feedback are all embedded vehicle control concerns. Phase execution (load/travel/dump) is native to vehicle subsystems. Minimal diffusion: only telemetry export and external tasking/feedback ingestion cross boundary."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.45,
+        "diffusion_score": 0.55,
+        "notes": "Poor containment: teleoperation is operator-facing UI and command relay. Cycle-time budgeting and watchdog enforcement are vehicle-resident concerns. Adaptive adjustment logic would diffuse across vehicle firmware, teleoperation UI, and feedback loops. High coupling risk."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.5,
+        "diffusion_score": 0.5,
+        "notes": "Moderate-weak containment: Safety Services owns alert generation and constraint enforcement, but cycle-time budgeting and phase duration contracts are operational performance concerns, not safety-critical constraints. Watchdog enforcement belongs in vehicle real-time layer. Significant diffusion of adaptive logic."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor containment: NGHE Solution is a top-level orchestration layer. Cycle-time management, phase contracts, and watchdog enforcement are vehicle-level real-time concerns. Placing DP3+DP5 here creates diffusion across vehicle firmware, teleoperation, and safety services. Violates separation of concerns."
+      }
+    ],
+    "ownership_candidate": "Vehicle (embedded real-time control subsystem)",
+    "containment_hypothesis": "The integrated DP (cycle-time budgeting + real-time monitoring + watchdog + adaptive adjustment) is fundamentally a vehicle-resident concern. Phase execution (load, travel, dump) is native to vehicle actuators and sensors. Duration contracts and watchdog timers must execute at vehicle firmware level to enforce hard real-time guarantees. Adaptive feedback adjustment requires tight coupling to vehicle state and phase transitions. External systems (Teleoperation, Safety Services, NGHE Solution) consume the outputs (Telemetry, SafetyAlert) and provide inputs (Tasking, Network Link feedback), but do not own the core logic.",
+    "containment_risks": [
+      "Adaptive adjustment logic may require coordination with Teleoperation if operator override or manual phase extension is permitted; mitigate by defining clear handoff protocol via Network Link interface.",
+      "Watchdog timeout thresholds and phase duration contracts must be synchronized with Safety Services alert policies; mitigate by establishing contract-to-alert mapping at integration boundary.",
+      "Real-time monitoring and feedback loop latency may exceed vehicle cycle time if feedback path transits external network; mitigate by ensuring Network Link supports sub-100ms round-trip for adaptive adjustment commands.",
+      "Duty cycle and site condition parameters from Tasking may conflict with vehicle hardware constraints; mitigate by validating feasibility at Vehicle boundary before accepting new CT_target budget."
+    ],
+    "recommended_revision": "No revision to DP choice required. DP3 + DP5 is well-scoped and Vehicle is the correct containment boundary. Ensure explicit interface contracts are defined: (1) Tasking specifies duty cycle, site conditions, and CT_target; (2) Telemetry exports phase timing and p95 metrics at configurable interval; (3) SafetyAlert emits watchdog violations with phase and timestamp; (4) Network Link carries adaptive adjustment feedback with latency SLA. This packaging minimizes diffusion and preserves vehicle autonomy in real-time cycle management."
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The Vehicle IM boundary owns embedded real-time cycle-time management with native access to phase execution sensors and actuators. Acceptance criterion 'p95 ≤ CT_target' is directly measurable via Telemetry interface (phase timing export). Watchdog enforcement and adaptive adjustment state are observable and loggable at vehicle firmware level. Duty cycle and site conditions are inputs via Tasking interface, enabling reproducible test scenarios. Verification can be conducted via instrumented test cycles under controlled duty cycle and site condition parameters.",
+      "allocation_clarity": "Excellent. FR requirement is decomposed into two clear DP responsibilities: (1) DP3 allocates cycle time budget across load/travel/dump phases with explicit duration contracts; (2) DP5 implements real-time monitoring with watchdog enforcement and adaptive feedback. Both DPs are allocated to Vehicle IM boundary with well-defined external interfaces (Tasking input, Telemetry/SafetyAlert output, Network Link feedback). Phase execution ownership is unambiguous: load/travel/dump are native vehicle subsystem concerns. Adaptive adjustment feedback loop is scoped to Vehicle with external coordination via Network Link (latency SLA required). No allocation ambiguity detected."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP3 + DP5 (integrated) directly addresses FR requirement. DP3 establishes duration contracts per phase, enabling deterministic cycle time budgeting. DP5 adds real-time monitoring with watchdog enforcement and adaptive feedback to maintain p95 ≤ CT_target under duty cycle and site condition variation. The integration is logically sound: budget allocation (DP3) provides the target contracts; monitoring and adaptation (DP5) enforce and adjust them. No functional gap detected. Acceptance criterion 'p95 ≤ CT_target' is achievable via watchdog-enforced phase contracts and feedback-driven adjustment. Dependency on agreed duty cycle and site conditions is explicit and traceable to Tasking interface."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Adaptive adjustment logic may require coordination with Teleoperation if operator override or manual phase extension is permitted. Mitigation: Define clear handoff protocol via Network Link interface specifying when Vehicle relinquishes adaptive control to operator command.",
+        "Watchdog timeout thresholds and phase duration contracts must be synchronized with Safety Services alert policies to avoid conflicting constraint enforcement. Mitigation: Establish explicit contract-to-alert mapping at integration boundary; Safety Services consumes SafetyAlert output and enforces higher-level safety constraints without duplicating watchdog logic.",
+        "Real-time monitoring and feedback loop latency may exceed vehicle cycle time if feedback path transits external network. Mitigation: Enforce Network Link SLA (sub-100ms round-trip for adaptive adjustment commands) to preserve real-time guarantees. If latency exceeds SLA, adaptive adjustment must degrade gracefully to watchdog-only enforcement.",
+        "Duty cycle and site condition parameters from Tasking may conflict with vehicle hardware constraints (e.g., load capacity, travel distance, terrain). Mitigation: Vehicle IM boundary must validate feasibility of CT_target budget allocation before accepting new Tasking parameters; reject infeasible allocations with diagnostic feedback."
+      ],
+      "containment_notes": "Excellent containment (0.92 score). Cycle-time budgeting, phase duration contracts, watchdog timers, and adaptive feedback are all embedded vehicle control concerns with native access to phase execution sensors and actuators. Phase execution (load/travel/dump) is native to vehicle subsystems. Minimal diffusion: only telemetry export and external tasking/feedback ingestion cross boundary. External modules (Teleoperation, Safety Services, NGHE Solution) consume outputs and provide inputs but do not own core logic. Vehicle IM boundary is the correct ownership choice. No revision to DP or IM allocation required."
+    },
+    "recommended_revisions": [
+      "Formalize interface contracts for all four external interfaces: (1) Tasking specifies duty cycle parameters, site conditions, and CT_target budget with validation rules; (2) Telemetry exports phase timing, p95 metrics, and watchdog status at configurable interval (recommend ≥1 Hz for real-time visibility); (3) SafetyAlert emits watchdog violations with phase identifier, timestamp, and breach magnitude; (4) Network Link carries adaptive adjustment feedback with documented latency SLA (sub-100ms round-trip).",
+      "Define adaptive adjustment feedback loop protocol: specify which phase duration contracts are adjustable (e.g., travel time may be extended if load phase overruns), which are fixed (e.g., dump phase may have hard safety constraint), and how Vehicle prioritizes conflicting adjustments (e.g., minimize total cycle time vs. maximize phase stability).",
+      "Establish watchdog timeout thresholds and phase duration contract ranges in Vehicle firmware with clear traceability to CT_target budget. Document how thresholds are derived from duty cycle and site condition parameters received via Tasking interface.",
+      "Validate Network Link latency SLA during integration testing. If round-trip latency exceeds 100ms under nominal network conditions, implement local adaptive adjustment logic in Vehicle firmware with fallback to watchdog-only enforcement.",
+      "Define operator override protocol for Teleoperation: specify whether operator can extend phase durations beyond contract limits, and if so, how Vehicle handles watchdog violations during manual override (e.g., suppress alerts, log override events, revert to adaptive control after override)."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-IM, FR-DP, DP-IM) pass with high confidence and excellent containment (0.92 score). The FR is well-decomposed into two complementary DPs (budget allocation + real-time monitoring/adaptation) with clear allocation to Vehicle IM boundary. However, the recommended_revisions identify five critical interface and protocol formalization tasks that must be resolved before proceeding to lower-level decomposition. Given high safety criticality, these revisions are not optional refinements—they are prerequisites for downstream sub-FR derivation. Specifically: (1) interface contracts for Tasking, Telemetry, SafetyAlert, and Network Link must be formally specified; (2) adaptive adjustment feedback loop protocol must define phase adjustability rules and conflict resolution; (3) watchdog thresholds and phase duration contract ranges must be traceable to CT_target budget; (4) Network Link latency SLA must be validated; (5) operator override protocol must be defined. These are DP-level and IM-level clarifications that will directly inform sub-FR decomposition at the next level. Proceeding without them risks deriving sub-FRs that conflict with unresolved interface assumptions or safety constraints.",
+    "next_level_sub_frs": [],
+    "revise": {
+      "target": "DP",
+      "why": "DP3 (cycle time budget allocation with phase duration contracts) and DP5 (real-time monitoring with watchdog enforcement and adaptive feedback) are logically sound but lack sufficient formalization for safe decomposition. Specifically: (1) DP3 must explicitly define the contract derivation algorithm—how duty cycle and site condition parameters from Tasking are translated into phase duration contracts, including validation rules for infeasible allocations; (2) DP5 must formalize the adaptive adjustment feedback loop protocol, specifying which phase contracts are adjustable vs. fixed, conflict resolution rules, and graceful degradation strategy if Network Link latency exceeds SLA; (3) both DPs must define their interface contracts (Tasking input schema, Telemetry output schema, SafetyAlert output schema, Network Link feedback schema) with explicit latency and reliability requirements. These formalizations are DP-level design decisions, not IM-level implementation details. They must be resolved before sub-FRs can be derived with confidence."
+    },
+    "record": {
+      "assumptions": [
+        "Duty cycle and site condition parameters provided via Tasking interface are always feasible relative to vehicle hardware constraints (load capacity, travel distance, terrain). Mitigation: Vehicle IM must validate feasibility and reject infeasible allocations.",
+        "Network Link round-trip latency for adaptive adjustment feedback is sub-100ms under nominal network conditions. Mitigation: Validate SLA during integration testing; implement local fallback logic if latency exceeds threshold.",
+        "Operator override (Teleoperation) does not conflict with watchdog enforcement. Mitigation: Define explicit handoff protocol specifying when Vehicle relinquishes adaptive control to operator command and how watchdog behaves during manual override.",
+        "Safety Services alert policies are synchronized with Vehicle watchdog timeout thresholds to avoid conflicting constraint enforcement. Mitigation: Establish explicit contract-to-alert mapping at integration boundary.",
+        "Phase execution sensors and actuators (load/travel/dump) provide sufficient real-time observability for watchdog enforcement and adaptive feedback. Mitigation: Validate sensor accuracy and latency during vehicle subsystem integration."
+      ],
+      "open_risks": [
+        "Adaptive adjustment feedback loop may introduce unintended phase duration oscillations if feedback gains are not properly tuned. Mitigation: Define feedback loop stability criteria and tuning methodology in DP5 formalization.",
+        "Network Link latency variability may exceed SLA during adverse network conditions (congestion, interference), causing adaptive adjustment to degrade to watchdog-only enforcement. Mitigation: Specify graceful degradation behavior and alert policy for SLA violations.",
+        "Watchdog timeout thresholds may be too aggressive (causing false positives) or too lenient (allowing p95 to exceed CT_target). Mitigation: Derive thresholds from duty cycle and site condition parameters with explicit margin analysis; validate via instrumented test cycles.",
+        "Operator override during manual phase extension may violate safety constraints enforced by Safety Services. Mitigation: Define operator override protocol with explicit safety constraint preservation rules.",
+        "Duty cycle and site condition parameter validation logic may be incomplete, allowing infeasible allocations to be accepted. Mitigation: Formalize validation rules in DP3 with explicit rejection criteria and diagnostic feedback."
+      ],
+      "evidence_needed": [
+        "Formal specification of Tasking interface contract: duty cycle parameter schema, site condition parameter schema, CT_target budget specification, validation rules for feasibility checking, and error handling for infeasible allocations.",
+        "Formal specification of Telemetry interface contract: phase timing export schema, p95 metric calculation methodology, watchdog status export format, and configurable export interval (recommend ≥1 Hz).",
+        "Formal specification of SafetyAlert interface contract: watchdog violation alert schema, phase identifier, timestamp, breach magnitude, and alert severity levels.",
+        "Formal specification of Network Link interface contract: adaptive adjustment feedback message schema, latency SLA (sub-100ms round-trip), reliability requirements, and graceful degradation behavior if SLA is violated.",
+        "Adaptive adjustment feedback loop protocol document: phase adjustability rules (which phases are adjustable vs. fixed), conflict resolution algorithm (e.g., minimize total cycle time vs. maximize phase stability), and feedback loop stability criteria.",
+        "Watchdog timeout threshold derivation methodology: algorithm for translating duty cycle and site condition parameters into phase duration contracts, margin analysis for threshold setting, and traceability to CT_target budget.",
+        "Network Link latency validation test plan: measurement methodology, nominal and adverse network conditions, SLA compliance criteria, and fallback logic validation.",
+        "Operator override protocol specification: conditions under which operator can extend phase durations, watchdog behavior during manual override (suppress alerts, log events, revert to adaptive control), and safety constraint preservation rules.",
+        "Vehicle hardware constraint validation rules: load capacity, travel distance, terrain compatibility, and feasibility checking algorithm for rejecting infeasible Tasking allocations."
+      ]
+    }
+  }
+}

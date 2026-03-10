@@ -1,0 +1,165 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current equipment state, environmental conditions, and operational events with a p95 latency not exceeding the customer-defined target (baseline 1.0 s) across all supported update scenarios.",
+    "rationale": "CR-NGHE-007 requires explicit scoping of what constitutes a 'worksite model update' (state, environment, events), identification of the measurement point (p95 latency), and clarification that the target is customer-configurable. This prevents ambiguity in verification and acknowledges that different worksites may have different timeliness requirements.",
+    "verification_idea": "Instrument the update pipeline (sensor acquisition → model computation → distribution) with end-to-end latency telemetry. Measure p95 latency across representative scenarios (equipment movement, sensor data ingestion, safety event detection, tele-operator command feedback). Compare against customer acceptance criteria at system integration and field trial.",
+    "sub_frs": [
+      "FR-NGHE-007.1: Acquire worksite sensor data (equipment position, orientation, environmental conditions) with sufficient frequency and accuracy to support model updates.",
+      "FR-NGHE-007.2: Compute and maintain a consistent worksite model representation that integrates equipment state, environmental state, and operational events.",
+      "FR-NGHE-007.3: Distribute updated worksite model to all authorized consumers (operator displays, tele-operator interface, safety services, autonomous planning) within latency budget.",
+      "FR-NGHE-007.4: Monitor and report end-to-end update latency to enable real-time performance visibility and customer acceptance validation."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized worksite model server with real-time sensor fusion, event aggregation, and push-based distribution to all consumers via a single network link.",
+      "DP-B: Distributed edge-local model replicas on each vehicle with periodic synchronization to a central authority, reducing latency for local consumers but introducing consistency challenges.",
+      "DP-C: Hybrid architecture with a primary model server handling authoritative state and safety-critical updates, supplemented by edge caches on vehicles for low-latency local queries, with explicit consistency protocols.",
+      "DP-D: Event-driven publish-subscribe architecture where sensor data, model updates, and events are streamed through a message broker, allowing consumers to subscribe to relevant topics with tunable QoS."
+    ],
+    "selected_dp": "DP-C: Hybrid architecture with a primary model server handling authoritative state and safety-critical updates, supplemented by edge caches on vehicles for low-latency local queries, with explicit consistency protocols.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Consistency protocol complexity: edge caches must remain synchronized with primary server; failure to do so could violate safety invariants.",
+        "Network dependency: both primary server and edge caches depend on reliable network connectivity; latency spikes or partitions could degrade performance.",
+        "Operational complexity: hybrid architecture requires careful orchestration of cache invalidation, conflict resolution, and failover; operator training and maintenance procedures must account for this."
+      ],
+      "notes": "DP-C decouples local query latency (served from edge cache) from global consistency (enforced by primary server), reducing coupling between latency and network variability. However, it introduces coupling between cache coherency and safety correctness. This is acceptable if consistency protocols are rigorously specified and verified."
+    },
+    "assumptions_risks": [
+      "Assumption: Network link bandwidth and latency are sufficient to support primary-to-edge synchronization within the p95 budget. Risk: If network is congested or unreliable, cache updates may lag, violating latency SLA.",
+      "Assumption: Edge cache hardware (vehicle-local compute) has sufficient capacity to store and query the worksite model. Risk: If model size grows (e.g., large worksites with many objects), edge cache may overflow or become a bottleneck.",
+      "Assumption: Consistency protocol (e.g., eventual consistency with bounded staleness) is acceptable for all use cases. Risk: Safety-critical operations (e.g., collision avoidance) may require stronger guarantees; weaker consistency could lead to unsafe decisions.",
+      "Assumption: Tele-operator and autonomous planning systems can tolerate brief periods of stale model data. Risk: If real-time accuracy is non-negotiable, hybrid architecture may not meet requirements."
+    ],
+    "recommended_revision": "Refine DP-C to explicitly specify: (1) consistency model (e.g., read-your-writes, bounded staleness with max age T), (2) cache invalidation strategy (time-based, event-based, or hybrid), (3) failover behavior when primary server is unreachable, and (4) latency budget allocation between primary server processing, network transit, and edge cache lookup. This will reduce ambiguity and enable rigorous verification."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "The NGHE Solution module owns the end-to-end worksite model update pipeline, including sensor data acquisition, model computation, caching strategy, and distribution to consumers. It integrates Vehicle (for edge cache and sensor acquisition), Teleoperation (for tele-operator model consumption), and Safety Services (for safety-critical model queries). The module boundary encompasses all logic required to maintain latency SLA."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Inbound sensor data from Vehicle (equipment position, orientation, environmental conditions, operational events). Used to drive worksite model updates."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Outbound model updates and operational directives to Vehicle and Teleoperation. Includes updated worksite state, safety constraints, and operator guidance."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Outbound safety-critical alerts to Safety Services when model updates reveal hazardous conditions (e.g., collision risk, geofence violation). Latency-critical."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Bidirectional network communication for primary-to-edge synchronization, consumer queries, and event streaming. Latency and reliability of this link directly impact model update SLA."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "NGHE Solution is the natural owner of the end-to-end worksite model update pipeline. It has clear ownership of model computation, caching, and distribution logic. Diffusion risk is minimal: all model-related logic is cohesive and should reside in a single module to ensure consistency and latency control."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 40,
+        "diffusion_score": 60,
+        "notes": "Vehicle could own edge cache and local model queries, but should not own the primary model server or global consistency logic. If model update logic is split between Vehicle and NGHE Solution, consistency and latency verification become difficult. High diffusion risk."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Teleoperation is a consumer of the worksite model, not an owner. If model update logic is embedded in Teleoperation, it becomes tightly coupled to tele-operator UI and difficult to reuse for other consumers (autonomous planning, safety services). Very high diffusion risk."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 30,
+        "diffusion_score": 70,
+        "notes": "Safety Services is a critical consumer of the worksite model but should not own the model update pipeline. If safety-specific model logic is isolated in Safety Services, other consumers (operator, tele-operator) may receive stale or inconsistent data. High diffusion risk."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "NGHE Solution should own the primary worksite model server, model computation logic, cache coherency protocol, and distribution mechanism. Vehicle should own the edge cache implementation and local query interface. Teleoperation, Safety Services, and other consumers should subscribe to model updates via well-defined interfaces (Tasking, SafetyAlert, Network Link) without embedding model logic.",
+    "containment_risks": [
+      "Risk: If NGHE Solution does not have clear ownership of the consistency protocol, edge caches may diverge from the primary server, violating safety invariants.",
+      "Risk: If model update logic is scattered across Vehicle, Teleoperation, and Safety Services, latency verification becomes intractable; each module may introduce its own delays.",
+      "Risk: If Network Link is not explicitly managed as a shared resource, contention between model updates, telemetry, and other traffic could cause latency spikes.",
+      "Risk: If edge cache invalidation strategy is not rigorously specified, stale data could propagate to safety-critical consumers."
+    ],
+    "recommended_revision": "Establish a clear ownership model: NGHE Solution owns the primary model server and consistency protocol; Vehicle owns edge cache implementation; Teleoperation and Safety Services are consumers only. Define explicit SLAs for each interface (Telemetry ingestion latency, Tasking distribution latency, SafetyAlert delivery latency). Implement latency instrumentation at module boundaries to enable real-time monitoring and verification."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid architecture with primary server and edge caches) directly addresses the refined FR requirement for p95 latency ≤ 1.0 s. The DP decouples local query latency (served from edge cache) from global consistency (enforced by primary server), enabling both low latency and safety correctness. Assumptions and risks are documented and manageable with rigorous consistency protocol design."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "If model update logic is not centralized in NGHE Solution, consistency verification becomes difficult. Mitigation: enforce strict ownership boundaries and interface contracts.",
+        "If edge cache implementation is not standardized across all vehicles, cache coherency may fail. Mitigation: Vehicle module must provide a uniform cache interface.",
+        "If Network Link is not explicitly managed, contention could cause latency spikes. Mitigation: implement QoS policies and latency monitoring on Network Link."
+      ],
+      "containment_notes": "NGHE Solution is the appropriate owner of the worksite model update pipeline. It has clear scope (model computation, caching, distribution), well-defined external interfaces (Telemetry in, Tasking/SafetyAlert out, Network Link for sync), and minimal diffusion risk. Vehicle, Teleoperation, and Safety Services are consumers, not owners."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Latency verification is feasible via instrumentation of the update pipeline (sensor acquisition → model computation → cache update → distribution). End-to-end latency can be measured at module boundaries (Telemetry ingestion, Tasking distribution, SafetyAlert delivery). p95 latency can be computed from telemetry logs and compared against customer acceptance criteria.",
+      "allocation_clarity": "Latency budget allocation is clear: NGHE Solution owns the primary model server and consistency protocol (target latency T1); Vehicle owns edge cache lookup (target latency T2); Network Link owns synchronization (target latency T3). Total p95 latency = T1 + T2 + T3 ≤ 1.0 s. Each module has a clear latency responsibility."
+    },
+    "recommended_revisions": [
+      "Refine DP-C to specify consistency model (e.g., read-your-writes, bounded staleness) and cache invalidation strategy (time-based, event-based, or hybrid).",
+      "Define explicit latency SLAs for each interface: Telemetry ingestion (max latency T1), Tasking distribution (max latency T2), SafetyAlert delivery (max latency T3).",
+      "Establish latency instrumentation and monitoring at module boundaries to enable real-time verification and customer acceptance validation.",
+      "Document failover behavior when primary server is unreachable or Network Link is degraded; ensure safety invariants are maintained.",
+      "Specify cache size limits and eviction policies to prevent edge cache overflow on large worksites."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The refined FR is well-scoped and the selected DP is sound, but further decomposition is required to address latency budget allocation, consistency protocol design, and edge cache management. The four sub-FRs (sensor acquisition, model computation, distribution, latency monitoring) are distinct and require separate design decisions. Proceeding to the next decomposition level will enable rigorous specification of latency SLAs, consistency guarantees, and verification strategies.",
+    "next_level_sub_frs": [
+      "FR-NGHE-007.1: Acquire worksite sensor data (equipment position, orientation, environmental conditions) with sufficient frequency and accuracy to support model updates.",
+      "FR-NGHE-007.2: Compute and maintain a consistent worksite model representation that integrates equipment state, environmental state, and operational events.",
+      "FR-NGHE-007.3: Distribute updated worksite model to all authorized consumers (operator displays, tele-operator interface, safety services, autonomous planning) within latency budget.",
+      "FR-NGHE-007.4: Monitor and report end-to-end update latency to enable real-time performance visibility and customer acceptance validation."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Network link bandwidth and latency are sufficient to support primary-to-edge synchronization within the p95 budget.",
+        "Edge cache hardware (vehicle-local compute) has sufficient capacity to store and query the worksite model.",
+        "Consistency protocol (e.g., eventual consistency with bounded staleness) is acceptable for all use cases.",
+        "Tele-operator and autonomous planning systems can tolerate brief periods of stale model data.",
+        "Customer-defined latency target is achievable with hybrid architecture (primary server + edge caches).",
+        "Safety criticality (high) requires strong consistency guarantees for safety-critical model updates; weaker consistency is acceptable for non-critical updates."
+      ],
+      "open_risks": [
+        "Consistency protocol complexity: edge caches must remain synchronized with primary server; failure could violate safety invariants.",
+        "Network dependency: both primary server and edge caches depend on reliable network connectivity; latency spikes or partitions could degrade performance.",
+        "Edge cache overflow: if worksite model grows large, edge cache may become a bottleneck or overflow.",
+        "Failover behavior: if primary server becomes unreachable, edge caches may serve stale data; safety implications must be analyzed.",
+        "Verification complexity: end-to-end latency verification requires instrumentation across multiple modules and network links; measurement accuracy and completeness are critical."
+      ],
+      "evidence_needed": [
+        "Latency measurements from representative worksites and update scenarios (equipment movement, sensor data ingestion, safety event detection, tele-operator command feedback).",
+        "Network link performance data (bandwidth, latency, jitter, packet loss) under typical operational conditions.",
+        "Edge cache size and query performance analysis for typical worksite models.",
+        "Consistency protocol verification: formal analysis or simulation of cache coherency under various failure modes.",
+        "Customer acceptance criteria: explicit definition of latency targets, acceptable update scenarios, and failure modes.",
+        "Safety analysis: identification of safety-critical model updates and consistency requirements for each."
+      ]
+    }
+  }
+}

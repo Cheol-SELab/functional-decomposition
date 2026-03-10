@@ -1,0 +1,170 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation communication packet loss at or below the customer-defined threshold (acceptance criterion: ≤1% under agreed network conditions) to ensure safe and effective remote equipment operation.",
+    "rationale": "CR-NGHE-009 addresses a critical quality-of-service requirement for teleoperation. Packet loss directly impacts operator situational awareness, control responsiveness, and safety. Refining the FR to explicitly reference the acceptance criterion (≤1%) and network conditions scope clarifies the verification boundary and prevents ambiguity in acceptance testing.",
+    "verification_idea": "Conduct packet loss measurement under representative network conditions (latency, jitter, bandwidth constraints) agreed with customer. Measure end-to-end packet loss across the teleoperation communication path (operator input → vehicle → operator feedback). Acceptance: measured packet loss ≤ customer-defined limit across 95th percentile of test scenarios.",
+    "sub_frs": [
+      "FR-NGHE-009.1: The teleoperation system shall reliably transmit operator control commands to the remote vehicle with minimal loss.",
+      "FR-NGHE-009.2: The teleoperation system shall reliably transmit vehicle telemetry and sensor data back to the operator with minimal loss.",
+      "FR-NGHE-009.3: The teleoperation system shall detect and report communication quality degradation (packet loss, latency) to the operator and safety systems in real-time.",
+      "FR-NGHE-009.4: The teleoperation system shall implement error recovery and retransmission mechanisms to mitigate transient packet loss."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Implement redundant communication channels (dual network paths) with automatic failover to reduce single-point-of-failure packet loss.",
+      "DP-B: Deploy adaptive bitrate encoding and forward error correction (FEC) to tolerate packet loss without retransmission overhead.",
+      "DP-C: Implement quality-of-service (QoS) prioritization and traffic shaping to protect critical teleoperation packets from congestion loss.",
+      "DP-D: Combine selective retransmission of critical control/telemetry packets with FEC for non-critical data streams.",
+      "DP-E: Implement end-to-end acknowledgment and timeout-based retransmission for all teleoperation packets."
+    ],
+    "selected_dp": "DP-D: Implement a hybrid approach combining selective retransmission of critical control and safety-critical telemetry packets with forward error correction (FEC) for non-critical sensor streams, coupled with real-time packet loss monitoring and operator alerting.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "DP-D couples teleoperation communication logic (retransmission, FEC) with safety alerting (packet loss detection → SafetyAlert interface). This is acceptable because packet loss is a safety-critical quality attribute; however, the coupling must be managed via explicit interface contracts.",
+        "DP-D couples with network infrastructure (Network Link interface). The design assumes network conditions are measurable and stable; variability in network conditions may require adaptive parameter tuning (acceptable risk with monitoring).",
+        "DP-D does not strongly couple with vehicle control logic or operator interface; it operates as a communication layer abstraction."
+      ],
+      "notes": "Coupling is acceptable and localized to communication and safety domains. No architectural coupling to vehicle dynamics, autonomy, or operator UI logic detected. Recommend explicit interface specification for SafetyAlert and Network Link to manage coupling."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Customer-defined packet loss threshold and network conditions are specified and stable during system operation.",
+      "ASSUMPTION: Critical vs. non-critical packet classification is deterministic and can be enforced at the application layer.",
+      "RISK: FEC overhead may increase latency; if latency is also constrained, FEC parameters must be tuned carefully. Recommend latency acceptance criteria be defined in parallel.",
+      "RISK: Selective retransmission adds complexity; incorrect classification of critical packets could degrade safety. Recommend safety analysis (FMEA) on packet classification logic.",
+      "RISK: Real-time packet loss monitoring may itself consume bandwidth; recommend lightweight monitoring (sampling-based) to avoid overhead.",
+      "RISK: Operator alerting on packet loss may cause operator distraction or false alarms if thresholds are not well-tuned. Recommend human factors validation."
+    ],
+    "recommended_revision": "Refine DP-D to explicitly specify: (1) packet classification criteria (control commands = critical, sensor telemetry = non-critical, safety alerts = critical); (2) FEC codec selection and overhead budget; (3) retransmission timeout and retry limits; (4) packet loss monitoring sampling rate and alert thresholds. These details should be captured in a communication protocol specification document."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "The Teleoperation module owns the end-to-end communication pipeline for remote equipment operation, including operator command transmission, vehicle telemetry reception, packet loss detection, error recovery (retransmission and FEC), and real-time quality-of-service monitoring. The module interfaces with the Network Link (physical/logical communication substrate), Tasking (operator commands), Telemetry (vehicle sensor data), and SafetyAlert (packet loss and communication quality alerts)."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Operator control commands (e.g., movement, tool actuation) flow from operator interface into Teleoperation module. Teleoperation module is responsible for reliable transmission of these commands to the vehicle."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle sensor data (position, orientation, load, environmental sensors) flows from vehicle through Teleoperation module to operator display. Teleoperation module is responsible for reliable reception and delivery of telemetry with minimal loss."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Underlying network communication substrate (wireless, cellular, satellite, or hybrid). Teleoperation module sends/receives packets over Network Link and monitors link quality (packet loss, latency, jitter)."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Teleoperation module generates SafetyAlert signals when packet loss exceeds threshold or communication quality degrades below acceptable limits. Safety Services module consumes these alerts to trigger operator warnings or autonomous safety actions."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "Teleoperation module is the natural and primary owner of packet loss mitigation, error recovery, and communication quality monitoring. All core DP-D logic (retransmission, FEC, monitoring) is contained within this module. Minimal diffusion: only SafetyAlert interface crosses boundary (acceptable coupling for safety-critical quality attribute)."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 15,
+        "diffusion_score": 85,
+        "notes": "Safety Services could own packet loss detection and alerting, but this would diffuse communication protocol logic across two modules. Packet loss is fundamentally a communication quality attribute, not a safety action. Safety Services should consume SafetyAlert from Teleoperation, not own the detection logic. High diffusion risk if assigned here."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Vehicle module owns vehicle-side communication reception and transmission, but not the end-to-end packet loss mitigation strategy. Assigning DP-D to Vehicle would split communication logic between operator-side and vehicle-side, creating diffusion and coupling. Vehicle should implement its side of the protocol as specified by Teleoperation module."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 10,
+        "diffusion_score": 90,
+        "notes": "NGHE Solution is the system-level container but not the appropriate module for detailed communication protocol implementation. Assigning DP-D here would prevent proper encapsulation and reusability. NGHE Solution should orchestrate Teleoperation module, not implement its logic."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the optimal owner of DP-D (hybrid retransmission + FEC + monitoring) because: (1) it is the natural locus of communication protocol logic; (2) it minimizes diffusion of packet loss mitigation across multiple modules; (3) it provides a clean abstraction boundary for communication quality; (4) it enables reuse of the communication protocol across different vehicle types and network conditions; (5) it localizes safety coupling to a single SafetyAlert interface.",
+    "containment_risks": [
+      "RISK: Teleoperation module may become complex if it also owns operator UI communication (e.g., video streaming, haptic feedback). Recommend clear separation: Teleoperation owns control/telemetry protocol; operator UI owns display/input rendering.",
+      "RISK: Vehicle-side implementation of the communication protocol must be coordinated with Teleoperation module. If Vehicle module does not implement the protocol correctly (e.g., incorrect FEC decoding, missing retransmission), packet loss acceptance criterion will not be met. Recommend formal protocol specification and Vehicle module verification against this spec.",
+      "RISK: Network Link quality is outside Teleoperation module control. If Network Link cannot support the required packet loss rate (e.g., inherent 5% loss), no amount of FEC/retransmission will meet the criterion. Recommend network condition acceptance criteria be defined and validated before system deployment.",
+      "RISK: Real-time monitoring and alerting may introduce latency or jitter. Recommend performance testing to ensure monitoring overhead does not degrade control responsiveness."
+    ],
+    "recommended_revision": "Clarify the boundary between Teleoperation module and Vehicle module: Teleoperation owns the communication protocol specification and operator-side implementation (command transmission, telemetry reception, FEC/retransmission logic, monitoring). Vehicle module owns vehicle-side protocol implementation (command reception, telemetry transmission, FEC/retransmission logic). Both modules must implement the same protocol specification. Recommend creating a shared communication protocol specification document (e.g., API contract, message format, error handling) that both modules reference."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-D (hybrid retransmission + FEC + monitoring) directly addresses FR-NGHE-009 (packet loss ≤1%). The DP provides a logical solution path: selective retransmission protects critical packets, FEC tolerates non-critical packet loss, and real-time monitoring enables operator awareness and safety alerting. The DP is implementable and testable. No logical gaps detected between FR and DP."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "DIFFUSION RISK (LOW): SafetyAlert interface couples Teleoperation to Safety Services. This is acceptable because packet loss is a safety-critical quality attribute; however, the coupling must be managed via explicit interface contract (alert types, thresholds, timing).",
+        "DIFFUSION RISK (MEDIUM): Vehicle module must implement the same communication protocol as Teleoperation module. If protocol implementation is not coordinated, packet loss mitigation will fail. Recommend shared protocol specification and cross-module verification."
+      ],
+      "containment_notes": "Teleoperation module achieves 95% containment of DP-D logic. The 5% diffusion (SafetyAlert interface) is justified by safety criticality. No unnecessary diffusion detected. Module boundary is clean and well-defined."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "FR-NGHE-009 is verifiable via end-to-end packet loss measurement under agreed network conditions. Teleoperation module provides clear measurement points (packet transmission/reception counters, loss detection logic). Acceptance criterion (≤1% packet loss) is quantitative and testable. Verification is feasible with standard network testing tools (packet capture, loss injection, latency simulation).",
+      "allocation_clarity": "Allocation of FR-NGHE-009 to Teleoperation module is clear. The module owns the primary mechanisms (retransmission, FEC, monitoring) required to meet the acceptance criterion. Vehicle module has a secondary responsibility (implement protocol correctly). Network Link has a tertiary responsibility (provide network conditions within acceptable range). Allocation is hierarchical and traceable."
+    },
+    "recommended_revisions": [
+      "REVISION 1: Create a formal communication protocol specification document that defines packet types, FEC codec, retransmission timeout, retry limits, packet loss monitoring sampling rate, and alert thresholds. This document should be owned by Teleoperation module and referenced by Vehicle module.",
+      "REVISION 2: Define explicit acceptance criteria for Network Link (e.g., 'Network Link shall support ≤X% inherent packet loss under agreed conditions'). This clarifies the boundary between what Teleoperation module can mitigate (transient loss, congestion loss) and what Network Link must provide (baseline quality).",
+      "REVISION 3: Specify SafetyAlert interface contract: alert types (e.g., 'PACKET_LOSS_WARNING', 'PACKET_LOSS_CRITICAL'), thresholds (e.g., 'alert when loss > 0.5% for >5 seconds'), and timing (e.g., 'alert latency ≤100ms'). This ensures Safety Services module can respond appropriately.",
+      "REVISION 4: Conduct FMEA on packet classification logic (critical vs. non-critical). Identify failure modes (e.g., misclassification of safety-critical packet as non-critical) and mitigation strategies (e.g., redundant classification, periodic audit)."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-NGHE-009 is not atomic and requires further decomposition. The refined FR identifies four sub-FRs (command transmission, telemetry reception, quality monitoring, error recovery) that must be individually designed and verified. DP-D is sound and well-justified, and Teleoperation module is the correct owner. However, the sub-FRs require detailed design at the next level (e.g., FEC codec selection, retransmission timeout tuning, monitoring sampling rate). Proceeding to the next decomposition level will clarify implementation details and reduce risk.",
+    "justification_detail": "The refined FR explicitly lists four sub-FRs that are logically distinct and require separate design decisions. For example, FR-NGHE-009.1 (command transmission) may require different retransmission strategies than FR-NGHE-009.2 (telemetry reception) due to different criticality and latency constraints. FR-NGHE-009.3 (quality monitoring) requires separate design of monitoring algorithms and alert thresholds. FR-NGHE-009.4 (error recovery) requires detailed specification of FEC codec and retransmission protocol. Decomposing these sub-FRs will enable more precise DP selection and IM assignment at the next level.",
+    "next_level_sub_frs": [
+      "FR-NGHE-009.1: The teleoperation system shall reliably transmit operator control commands to the remote vehicle with minimal loss.",
+      "FR-NGHE-009.2: The teleoperation system shall reliably transmit vehicle telemetry and sensor data back to the operator with minimal loss.",
+      "FR-NGHE-009.3: The teleoperation system shall detect and report communication quality degradation (packet loss, latency) to the operator and safety systems in real-time.",
+      "FR-NGHE-009.4: The teleoperation system shall implement error recovery and retransmission mechanisms to mitigate transient packet loss."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Customer-defined packet loss threshold (≤1%) and network conditions are specified and stable during system operation.",
+        "Critical vs. non-critical packet classification is deterministic and can be enforced at the application layer.",
+        "Network Link provides baseline quality (e.g., ≤5% inherent packet loss) such that FEC and retransmission can achieve ≤1% end-to-end loss.",
+        "Operator can tolerate real-time packet loss alerts without distraction or false alarms (human factors assumption).",
+        "Vehicle module will implement the communication protocol correctly as specified by Teleoperation module.",
+        "Latency constraints are defined separately and do not conflict with FEC/retransmission overhead."
+      ],
+      "open_risks": [
+        "RISK: FEC overhead may increase latency; latency acceptance criteria must be defined and validated in parallel.",
+        "RISK: Packet classification logic may misclassify safety-critical packets; FMEA required to identify and mitigate failure modes.",
+        "RISK: Real-time monitoring may introduce jitter; performance testing required to ensure control responsiveness is not degraded.",
+        "RISK: Network Link quality may be worse than assumed; network condition acceptance criteria must be validated before deployment.",
+        "RISK: Operator alerting on packet loss may cause distraction or false alarms; human factors validation required.",
+        "RISK: Vehicle module implementation may not match Teleoperation module specification; cross-module verification and testing required."
+      ],
+      "evidence_needed": [
+        "Communication protocol specification document (packet types, FEC codec, retransmission timeout, retry limits, monitoring sampling rate, alert thresholds).",
+        "Network condition acceptance criteria (inherent packet loss, latency, jitter, bandwidth).",
+        "SafetyAlert interface contract (alert types, thresholds, timing).",
+        "FMEA on packet classification logic (failure modes, mitigation strategies).",
+        "Latency acceptance criteria and performance testing plan.",
+        "Human factors validation plan for operator alerting.",
+        "Cross-module verification plan (Teleoperation vs. Vehicle protocol implementation).",
+        "End-to-end packet loss measurement test plan (test scenarios, acceptance criteria, measurement methodology)."
+      ]
+    }
+  }
+}

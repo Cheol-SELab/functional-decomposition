@@ -1,0 +1,179 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall propagate worksite model state changes to all authorized consumers within the customer-defined latency target.",
+    "rationale": "The original FR conflates two distinct obligations: (1) detecting/capturing state changes in the worksite model, and (2) delivering those changes to consumers within a time bound. The refined FR focuses on the propagation obligation (the primary latency concern) and removes the vague 'operational use' qualifier in favor of explicit reference to the acceptance criterion (customer-defined latency target). The term 'propagate' is solution-neutral and avoids prescribing communication mechanism (e.g., message queue, direct API, broadcast). 'Authorized consumers' acknowledges that not all stakeholders receive all updates, keeping the FR in the problem domain.",
+    "verification_idea": "Measure end-to-end latency from the moment a worksite state change is committed (e.g., equipment position update, safety zone modification) to the moment all authorized consumers receive notification of that change. Validate across supported update scenarios (e.g., equipment movement, zone boundary change, operator handoff) that p95 latency ≤ customer-defined target (default 1.0 s). Confirm that latency measurement includes network transit, processing, and delivery to consumer interfaces.",
+    "sub_frs": [
+      "FR-NGHE-007.1: The NGHE solution shall detect and capture worksite model state changes (e.g., equipment position, safety zone boundaries, operational status) with sufficient fidelity to support downstream propagation.",
+      "FR-NGHE-007.2: The NGHE solution shall propagate worksite model state changes to all authorized consumers within the customer-defined latency target.",
+      "FR-NGHE-007.3: The NGHE solution shall enforce access control such that only authorized stakeholders receive worksite model updates relevant to their role."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Centralized event-driven state propagation with asynchronous message broker (decouples producers from consumers, enables selective subscription by authorization context)",
+      "DP2: Synchronous request-response state synchronization with polling intervals (simple but introduces latency variance and tight coupling between state owner and consumers)",
+      "DP3: Hybrid push-pull model with event notification + on-demand state fetch (balances latency and consistency; consumers subscribe to change events but fetch full state on demand)",
+      "DP4: Replicated state store with eventual consistency and conflict resolution (distributes state ownership; requires reconciliation logic and acceptance of transient divergence)",
+      "DP5: Direct peer-to-peer state broadcast with local caching (eliminates intermediary; scales poorly with consumer count and authorization complexity)"
+    ],
+    "selected_dp": "DP3: Hybrid push-pull model with event notification + on-demand state fetch. Producers emit immutable change events (with authorization metadata) to a decoupled notification layer; authorized consumers subscribe to filtered event streams and fetch authoritative state on demand or via delta payloads. Authorization filtering occurs at subscription boundary and event emission point.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Authorization context coupling: If authorization rules are embedded in event filtering logic rather than externalized, changes to policy require code changes across multiple modules.",
+        "State schema coupling: Consumers tightly coupled to state structure if schema evolution is not versioned; mitigate via schema registry and versioned event contracts.",
+        "Latency coupling: On-demand fetch introduces variable latency if state service is not independently scalable; requires clear SLA boundary between event notification (push) and state fetch (pull).",
+        "Consumer subscription coupling: If subscription logic is hardcoded per consumer type, adding new consumer classes requires changes to notification layer; mitigate via declarative subscription rules."
+      ],
+      "notes": "DP3 decouples producers from consumers via event abstraction and allows independent scaling of notification and state fetch paths. Authorization is a cross-cutting concern; recommend externalizing as a separate policy evaluation module (IM) to avoid diffusion. Event schema versioning and consumer subscription rules should be externalized to configuration/policy layer."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Worksite model state is authoritative in a single logical location (or reconciled across replicas with deterministic conflict resolution). RISK: If state ownership is fragmented, DP3 requires explicit consensus mechanism; recommend clarifying state ownership model.",
+      "ASSUMPTION: p95 ≤ 1.0 s latency target is achievable with asynchronous event propagation + on-demand fetch. RISK: If network latency or state service response time dominates, target may be unachievable; recommend latency budget breakdown (event emission → notification delivery → consumer fetch).",
+      "ASSUMPTION: Authorization rules are stable and can be evaluated at subscription time and event emission time. RISK: If authorization is dynamic (e.g., time-based, context-dependent), filtering at subscription boundary may miss revocations; recommend periodic re-authorization or event-time authorization checks.",
+      "ASSUMPTION: Consumers can tolerate brief eventual consistency windows (time between event emission and consumer fetch). RISK: If strong consistency is required for safety-critical operations, DP3 may require synchronous confirmation; recommend identifying safety-critical vs. informational updates.",
+      "ASSUMPTION: Notification layer (message broker) is highly available and meets p95 latency SLA. RISK: Broker outage or congestion directly impacts propagation latency; recommend redundancy and capacity planning.",
+      "ASSUMPTION: Worksite model update scenarios are well-defined and bounded. RISK: If update frequency or payload size is unbounded, event stream may become unmanageable; recommend defining supported update scenarios explicitly."
+    ],
+    "recommended_revision": "FR (refined): The NGHE solution shall propagate worksite model state changes to all authorized consumers within the customer-defined latency target (p95 ≤ 1.0 s) by emitting immutable change events with authorization metadata to a decoupled notification layer, enabling consumers to subscribe to filtered event streams and fetch authoritative state on demand. Authorization filtering shall occur at subscription boundary and event emission point, with policy rules externalized to a dedicated policy evaluation module. State ownership and conflict resolution strategy shall be clarified for replicated scenarios. Latency budget shall be decomposed: event emission → notification delivery (target: ≤ 200 ms p95) + consumer fetch (target: ≤ 800 ms p95). Supported update scenarios (frequency, payload size, safety-criticality) shall be enumerated to validate feasibility."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "Centralized event notification and state management layer that orchestrates hybrid push-pull communication across all system domains (Vehicle, Teleoperation, Safety Services). Owns event emission, subscription management, authorization filtering, and delta payload generation."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "inout",
+        "details": "Vehicle and Safety Services emit immutable change events with authorization metadata; Teleoperation and authorized consumers subscribe to filtered event streams and fetch authoritative state on demand via delta payloads."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "NGHE Solution delivers authorized task directives and state updates to Vehicle and Teleoperation based on filtered event subscriptions."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "Safety Services emits safety-critical events with authorization metadata; NGHE Solution filters and routes to authorized consumers; consumers fetch safety state on demand."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "NGHE Solution uses Network Link to transmit filtered events, delta payloads, and subscription acknowledgments; receives raw events from producers."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent containment. NGHE Solution is explicitly a decoupled notification and state management layer. The hybrid push-pull model, event filtering, authorization metadata handling, subscription management, and delta payload generation are all core responsibilities of a centralized event broker. Minimal diffusion: only Network Link interface leakage for transport; authorization logic remains internal."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor containment. Vehicle is a producer/consumer of telemetry and tasking, not a broker. Placing the hybrid push-pull orchestration, subscription management, and authorization filtering in Vehicle would couple it tightly to Teleoperation and Safety Services logic, violate separation of concerns, and force Vehicle to manage cross-domain event routing. High diffusion to NGHE Solution, Teleoperation, and Safety Services."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Poor containment. Teleoperation is a consumer of state and tasking, not a broker. Placing event notification, subscription management, and authorization filtering here would make Teleoperation responsible for coordinating Vehicle and Safety Services events, violating its domain boundary. High diffusion to Vehicle, Safety Services, and NGHE Solution."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.38,
+        "diffusion_score": 0.62,
+        "notes": "Poor containment. Safety Services is a producer of safety-critical events and a consumer of vehicle state, not a broker. Placing the hybrid push-pull model and cross-domain subscription management here would couple Safety Services to Teleoperation and Vehicle logic inappropriately. High diffusion to Vehicle, Teleoperation, and NGHE Solution."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "The hybrid push-pull model with event notification and authorization filtering is fundamentally a broker/middleware pattern. NGHE Solution, as the centralized notification and state management layer, is the natural and only appropriate boundary for this DP. It decouples producers (Vehicle, Safety Services) from consumers (Teleoperation, authorized clients) and centralizes authorization logic at subscription and emission boundaries. All other modules are domain-specific producers or consumers and lack the architectural role to contain this cross-cutting concern.",
+    "containment_risks": [
+      "NGHE Solution may become a bottleneck if event throughput is high; mitigation: design for horizontal scaling and asynchronous processing.",
+      "Authorization metadata schema must be standardized across all producers; risk of inconsistent filtering if producers emit non-conformant metadata; mitigation: enforce schema validation at event emission.",
+      "Delta payload generation logic must be efficient to avoid latency; risk of on-demand state fetch becoming a performance bottleneck; mitigation: cache recent deltas and implement smart delta compression.",
+      "Subscription management state must be persistent and highly available; risk of subscription loss on failure; mitigation: replicate subscription state across multiple NGHE Solution instances.",
+      "Network Link interface may become a bottleneck for event transport; mitigation: use efficient serialization and consider message batching."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP3 (hybrid push-pull model with event notification + on-demand state fetch) directly addresses the FR requirement to propagate worksite model state changes to authorized consumers within latency targets. The DP specifies a logically sound solution: immutable change events with authorization metadata, decoupled notification layer, filtered event streams, and on-demand delta payloads. The mechanism is traceable to latency control (event emission + subscription filtering + delta fetch) and authorization enforcement (metadata at emission and subscription boundaries). No logical gaps detected."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Authorization metadata schema standardization: Risk that Vehicle, Safety Services, and other producers emit non-conformant authorization metadata, causing inconsistent filtering in NGHE Solution. Mitigation: enforce schema validation at event emission boundary; define canonical authorization metadata structure in NGHE Solution interface contract.",
+        "Delta payload generation efficiency: On-demand state fetch and delta computation in NGHE Solution may become a latency bottleneck under high update frequency. Risk of p95 latency exceeding 1.0 s target if delta logic is not optimized. Mitigation: implement delta caching, smart compression, and measure delta generation latency as part of acceptance testing.",
+        "Subscription state persistence and availability: NGHE Solution subscription management state must survive failures. Risk of subscription loss or inconsistency if not replicated. Mitigation: design subscription state as a replicated, durable store; define recovery semantics.",
+        "Network Link interface saturation: Event transport through Network Link may become a bottleneck if event throughput is high. Risk of network congestion delaying event delivery beyond latency target. Mitigation: design for efficient serialization, message batching, and measure end-to-end latency including network transit.",
+        "Cross-domain event routing complexity: NGHE Solution orchestrates events across Vehicle, Teleoperation, and Safety Services domains. Risk of subtle authorization or routing bugs if subscription filtering logic is complex. Mitigation: define clear subscription filtering semantics; implement comprehensive test coverage for authorization scenarios."
+      ],
+      "containment_notes": "NGHE Solution exhibits excellent containment (0.92 score) for DP3. The hybrid push-pull model, event notification, subscription management, authorization filtering, and delta payload generation are all core responsibilities of a centralized event broker and are appropriately localized to NGHE Solution. Vehicle, Teleoperation, and Safety Services are domain-specific producers/consumers with poor containment scores (0.35–0.40) for this DP; placing broker logic in any of them would violate separation of concerns and create high diffusion. The only minor diffusion is Network Link interface leakage for transport, which is unavoidable and acceptable. IM boundary is well-defined and aligned with DP intent."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The FR latency target (p95 ≤ 1.0 s) is measurable and testable. NGHE Solution IM boundary is explicit and owns all mechanisms required to meet the target: event emission, subscription filtering, delta payload generation, and state fetch. Verification can be performed by instrumenting NGHE Solution to measure end-to-end latency from state change emission to authorized consumer receipt, including network transit time. Authorization enforcement can be verified by testing that unauthorized consumers do not receive filtered events. Acceptance criteria are concrete and allocatable to NGHE Solution implementation.",
+      "allocation_clarity": "Clear. The FR is allocated to NGHE Solution as the sole owner of the hybrid push-pull mechanism. All external interfaces (Telemetry, Tasking, SafetyAlert, Network Link) are defined with direction and details, making producer/consumer roles explicit. Vehicle and Safety Services are producers of events; Teleoperation and authorized consumers are consumers. NGHE Solution is the orchestrator. Ownership boundaries are unambiguous. No allocation conflicts detected."
+    },
+    "recommended_revisions": [
+      "Add explicit latency budget allocation: Decompose the p95 ≤ 1.0 s target into sub-budgets for event emission latency, subscription filtering latency, delta payload generation latency, and network transit latency. Assign each to the responsible module (NGHE Solution for first three; Network Link for last). This ensures latency is not treated as a black box.",
+      "Define authorization metadata schema as a formal contract: Create a canonical schema for authorization metadata emitted by producers (Vehicle, Safety Services). Include required fields (e.g., producer ID, event type, resource ID, access control list). Enforce schema validation at NGHE Solution event ingestion boundary. Document in NGHE Solution interface specification.",
+      "Specify delta payload compression and caching strategy: Define how NGHE Solution generates and caches delta payloads to minimize on-demand fetch latency. Include compression algorithm, cache eviction policy, and cache hit/miss metrics. Measure delta generation latency as part of acceptance testing.",
+      "Add subscription state durability and recovery specification: Define how NGHE Solution persists and replicates subscription state. Specify recovery semantics on failure (e.g., subscription replay, state reconciliation). Include RTO/RPO targets for subscription state.",
+      "Clarify Network Link interface contract: Define message format, serialization (e.g., Protocol Buffers, MessagePack), batching strategy, and expected throughput/latency characteristics. Ensure Network Link can support the event rate required to meet FR latency target.",
+      "Add authorization filtering test matrix: Define test scenarios covering authorization enforcement at subscription boundary and event emission point. Include positive cases (authorized consumer receives event), negative cases (unauthorized consumer blocked), and edge cases (authorization revocation, metadata inconsistency)."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass with high confidence. The hybrid push-pull DP is logically sound, well-contained in NGHE Solution (0.92 score), and verification is feasible against the measurable latency target (p95 ≤ 1.0 s). However, the recommended revisions reveal critical sub-system concerns that must be decomposed into next-level FRs to ensure safety criticality and latency guarantees are met. Specifically: (1) latency budget allocation across event emission, filtering, delta generation, and network transit requires explicit sub-FR ownership; (2) authorization metadata schema standardization is a cross-domain contract that needs its own FR and DP; (3) delta payload generation efficiency under high update frequency is a performance FR that must be decomposed; (4) subscription state durability and recovery is a reliability FR essential for safety-critical systems. These are not minor implementation details—they are architectural concerns that affect system safety, latency, and availability. Decomposing them now prevents late-stage integration failures and ensures each concern has explicit ownership and verification criteria.",
+    "next_level_sub_frs": [
+      "FR-NGHE-1.1: Allocate and enforce latency budget across event emission, subscription filtering, delta payload generation, and network transit such that p95 end-to-end latency ≤ 1.0 s is met under peak event throughput.",
+      "FR-NGHE-1.2: Define, validate, and enforce a canonical authorization metadata schema at event emission and subscription filtering boundaries to ensure consistent access control across Vehicle, Safety Services, Teleoperation, and authorized consumer domains.",
+      "FR-NGHE-1.3: Generate and deliver delta state payloads on-demand with latency ≤ 200 ms (p95) under high update frequency (≥100 events/s) to prevent delta fetch from becoming a latency bottleneck.",
+      "FR-NGHE-1.4: Persist, replicate, and recover subscription state with RTO ≤ 5 s and RPO ≤ 1 event to ensure authorized consumers do not lose subscriptions during NGHE Solution failures.",
+      "FR-NGHE-1.5: Serialize, batch, and transport events through Network Link with throughput ≥500 events/s and latency ≤ 100 ms (p95) to prevent network congestion from exceeding end-to-end latency target.",
+      "FR-NGHE-1.6: Enforce authorization filtering at subscription boundary and event emission point such that unauthorized consumers are blocked and authorization revocation is applied within 100 ms."
+    ],
+    "revise": {
+      "target": null,
+      "why": "No revisions to current FR, DP, or IM are required. The gates pass and the DP is sound. Decomposition is the appropriate next step."
+    },
+    "record": {
+      "assumptions": [
+        "Event throughput will not exceed 500 events/s under normal operation; peak throughput is bounded by Vehicle and Safety Services producer rates.",
+        "Authorization metadata is emitted by producers (Vehicle, Safety Services) at event creation time and is immutable during event propagation.",
+        "Network Link provides reliable, ordered message delivery with latency characteristics suitable for safety-critical systems (no arbitrary delays or message loss).",
+        "Delta payload generation can be optimized through caching and compression without violating authorization semantics (i.e., cached deltas respect current authorization state).",
+        "Subscription state is small enough to replicate across multiple NGHE Solution instances without significant overhead.",
+        "Authorization revocation is infrequent compared to event emission rate, allowing for eventual consistency in authorization filtering (≤100 ms propagation delay is acceptable)."
+      ],
+      "open_risks": [
+        "Authorization metadata schema divergence: Producers may emit non-conformant metadata if schema validation is not enforced at ingestion boundary. Mitigation: implement strict schema validation and reject non-conformant events with clear error logging.",
+        "Delta generation latency under peak load: On-demand delta computation may exceed 200 ms budget if state is large or update frequency is high. Mitigation: implement delta caching with smart eviction; measure delta generation latency in load testing.",
+        "Subscription state loss during cascading failures: If NGHE Solution replication is not properly configured, subscription state may be lost. Mitigation: define replication factor (≥3), quorum-based writes, and recovery semantics; test failure scenarios.",
+        "Network Link saturation: If event throughput exceeds 500 events/s or serialization is inefficient, network latency may exceed 100 ms budget. Mitigation: implement message batching, efficient serialization (Protocol Buffers), and monitor network utilization.",
+        "Authorization filtering complexity: Complex subscription filtering logic may introduce subtle bugs or performance degradation. Mitigation: define clear filtering semantics; implement comprehensive test matrix covering positive, negative, and edge cases.",
+        "Safety-critical latency variance: p95 latency target may be insufficient if variance is high; p99 or p99.9 may exceed acceptable bounds for safety-critical operations. Mitigation: measure full latency distribution; define p99 and p99.9 targets if required by safety analysis."
+      ],
+      "evidence_needed": [
+        "Latency budget breakdown: Measure event emission latency, subscription filtering latency, delta payload generation latency, and network transit latency under peak load. Verify each sub-budget is met and sum does not exceed 1.0 s p95.",
+        "Authorization metadata schema specification: Define canonical schema with required fields, data types, and validation rules. Document in NGHE Solution interface contract. Provide examples of conformant and non-conformant metadata.",
+        "Delta payload generation performance: Measure delta generation latency for various state sizes and update frequencies. Demonstrate that delta generation latency ≤ 200 ms p95 under peak load. Document caching and compression strategy.",
+        "Subscription state durability testing: Test subscription state persistence and recovery under various failure scenarios (single node failure, network partition, cascading failures). Verify RTO ≤ 5 s and RPO ≤ 1 event.",
+        "Network Link performance characterization: Measure throughput, latency, and jitter of Network Link under peak event load. Verify throughput ≥500 events/s and latency ≤ 100 ms p95. Document serialization format and batching strategy.",
+        "Authorization filtering test matrix: Execute test cases covering authorization enforcement at subscription and emission boundaries. Include positive cases (authorized consumer receives event), negative cases (unauthorized consumer blocked), and edge cases (authorization revocation, metadata inconsistency, concurrent updates).",
+        "Safety-critical latency analysis: Conduct safety analysis to determine if p95 latency target is sufficient or if p99/p99.9 targets are required. Document latency requirements in safety specification."
+      ]
+    }
+  }
+}

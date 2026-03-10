@@ -1,0 +1,172 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-005 Refined: The NGHE solution shall automatically derive performance requirements (cycle time, energy efficiency, availability, safety margins) from worksite mission context and operational parameters, record them in a traceable baseline, and maintain a managed history of all requirement updates and calibration changes with full audit trail.",
+    "rationale": "The original FR was vague on 'method' and lacked explicit traceability and history management. Refinement adds specificity: (1) automatic derivation from mission context, (2) explicit baseline recording, (3) managed history with audit trail. This aligns with acceptance criteria demanding documented performance targets traceable to worksite inputs and maintained baselines/calibration updates. High safety criticality demands explicit safety margin derivation and audit capability.",
+    "verification_idea": "Verification shall confirm: (1) performance targets are automatically computed from worksite mission inputs (e.g., terrain, payload, cycle count); (2) baseline is recorded with timestamp, operator ID, and mission context; (3) history log captures all updates with reason codes and approval status; (4) traceability chain from worksite input → derived requirement → baseline → implementation is documented and queryable.",
+    "sub_frs": [
+      "CR-NGHE-005.1: Ingest worksite mission context (terrain, payload, cycle count, safety constraints) and operational parameters.",
+      "CR-NGHE-005.2: Compute performance targets (cycle time, energy efficiency, availability, safety margins) from mission context using validated algorithms.",
+      "CR-NGHE-005.3: Record derived performance targets as a baseline with metadata (timestamp, operator, mission ID, approval status).",
+      "CR-NGHE-005.4: Maintain a managed history of all baseline updates, calibration changes, and requirement revisions with full audit trail.",
+      "CR-NGHE-005.5: Provide traceability queries linking worksite inputs → derived requirements → baselines → implementation allocations."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized Performance Derivation Engine – A dedicated software module that ingests mission context via standardized APIs, executes validated requirement derivation algorithms, records baselines to a versioned configuration database, and exposes traceability queries via REST/gRPC interfaces.",
+      "DP-B: Distributed Derivation with Local Caching – Performance derivation logic embedded in Vehicle and Teleoperation modules, with local caching of baselines and periodic synchronization to a central audit log.",
+      "DP-C: Manual Baseline Entry with Post-Hoc Validation – Site Manager manually enters performance targets via UI; system validates against mission context and records to audit log; no automatic derivation."
+    ],
+    "selected_dp": "DP-A: Centralized Performance Derivation Engine – A dedicated software module that ingests mission context via standardized APIs (Tasking interface), executes validated requirement derivation algorithms (with safety margin computation), records baselines to a versioned configuration database, and exposes traceability queries via Telemetry interface. This DP ensures single source of truth, auditability, and safety-critical algorithm governance.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling to Vehicle module via Tasking interface (mission context input) – acceptable; Vehicle is source of truth for operational state.",
+        "Coupling to Safety Services via SafetyAlert interface (safety margin validation) – acceptable; Safety Services owns safety constraint logic.",
+        "Coupling to Teleoperation via Telemetry interface (baseline query/export) – acceptable; Teleoperation needs visibility into performance targets.",
+        "No circular dependencies detected. DP-A is a service layer that consumes inputs and produces outputs without bidirectional control loops."
+      ],
+      "notes": "Centralized design avoids algorithm duplication and ensures consistent derivation logic across all operational modes (autonomous, tele-operated). Decoupling via well-defined interfaces (Tasking, SafetyAlert, Telemetry) supports independent testing and evolution."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Worksite mission context is available in structured form (e.g., JSON payload via Tasking interface) at system startup and during operation.",
+      "ASSUMPTION: Validated requirement derivation algorithms exist and can be formally specified (e.g., cycle time = f(terrain, payload, vehicle_capability)).",
+      "ASSUMPTION: Safety Services module can provide safety margin constraints in real-time or near-real-time.",
+      "RISK: If mission context is incomplete or malformed, derivation may produce invalid baselines. Mitigation: input validation and fallback to conservative defaults.",
+      "RISK: Algorithm changes (e.g., new efficiency model) require re-derivation of historical baselines. Mitigation: version algorithms and maintain derivation provenance.",
+      "RISK: High-frequency baseline updates may overwhelm audit log. Mitigation: batch updates and implement retention policies."
+    ],
+    "recommended_revision": "DP-A is sound. Recommend adding explicit specification of: (1) algorithm versioning and change control process, (2) input validation rules and error handling, (3) baseline immutability guarantees (once recorded, baselines are append-only), (4) performance SLA for derivation (e.g., <100ms latency for real-time queries)."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "The NGHE Solution module is the top-level system integration boundary. It contains or orchestrates all subsystems (Vehicle, Teleoperation, Safety Services) and provides system-level services including performance requirement derivation, baseline management, and traceability. The Performance Derivation Engine (DP-A) is realized as a core service within NGHE Solution, with clear interfaces to Vehicle (Tasking input), Safety Services (SafetyAlert validation), and Teleoperation (Telemetry export)."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "NGHE Solution receives mission context (worksite parameters, payload, cycle count, safety constraints) from Vehicle module via Tasking interface. This is the primary input to the Performance Derivation Engine."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "NGHE Solution queries Safety Services for safety margin constraints and communicates derived safety-critical performance targets back via SafetyAlert interface. Ensures safety margins are incorporated into baseline derivation."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "NGHE Solution exports derived performance baselines, requirement history, and traceability metadata to Teleoperation and external monitoring systems via Telemetry interface. Enables Site Manager and Tele-operator visibility into performance targets."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "NGHE Solution uses Network Link for remote audit log synchronization, baseline backup, and cloud-based traceability queries (if applicable). Supports distributed deployment and disaster recovery."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "NGHE Solution is the natural top-level boundary for system-level services like performance derivation and baseline management. Performance Derivation Engine is a core service that integrates mission context (from Vehicle), safety constraints (from Safety Services), and exports results (to Teleoperation). Minimal diffusion: only external interfaces are Tasking (in), SafetyAlert (inout), Telemetry (out), and Network Link (inout). No duplication of logic across other modules."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Vehicle module owns operational state and mission context generation, but should NOT own performance derivation logic. Placing DP-A in Vehicle would couple requirement derivation to vehicle-specific implementation, violate separation of concerns, and create diffusion if multiple vehicle types exist. Vehicle should be a data source (via Tasking), not the owner of derivation."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 15,
+        "diffusion_score": 85,
+        "notes": "Teleoperation module is a consumer of performance baselines, not an owner. Placing DP-A in Teleoperation would create tight coupling between remote operation logic and requirement derivation, and would prevent autonomous operation from accessing the same baselines. Teleoperation should query baselines via Telemetry interface."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 30,
+        "diffusion_score": 70,
+        "notes": "Safety Services owns safety constraint logic and margin computation, but not the broader performance derivation engine. Placing DP-A in Safety Services would conflate safety-specific requirements with general performance targets (cycle time, energy efficiency). Safety Services should be a validator/constraint provider (via SafetyAlert), not the owner of the full derivation pipeline."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "The Performance Derivation Engine (DP-A) is best contained within NGHE Solution because: (1) it is a system-level service that integrates inputs from multiple subsystems (Vehicle, Safety Services) and outputs to multiple consumers (Teleoperation, external monitoring); (2) it owns the requirement derivation algorithms and baseline database, which are system-level assets; (3) it provides traceability and audit capabilities that span the entire system; (4) containment in NGHE Solution avoids duplication and ensures consistent derivation logic across all operational modes.",
+    "containment_risks": [
+      "RISK: If NGHE Solution becomes a monolithic 'god module', it may accumulate too many responsibilities. Mitigation: clearly separate Performance Derivation Engine as a distinct service with well-defined APIs; consider future extraction to a microservice if system grows.",
+      "RISK: Tight coupling between NGHE Solution and Vehicle (via Tasking) may limit vehicle modularity. Mitigation: Tasking interface is already defined as a known interface; ensure Vehicle publishes mission context in a standardized format independent of NGHE Solution internals.",
+      "RISK: Baseline database may become a bottleneck if accessed frequently by multiple subsystems. Mitigation: implement caching at Teleoperation and Vehicle boundaries; use eventual consistency for non-critical queries.",
+      "RISK: Audit log may grow unbounded. Mitigation: implement retention policies and archival strategies; version baselines to avoid storing full history for every update."
+    ],
+    "recommended_revision": "IM assignment to NGHE Solution is sound. Recommend: (1) explicitly define Performance Derivation Engine as a named service/component within NGHE Solution (e.g., 'PerformanceDerivationService'); (2) document the baseline database schema and versioning strategy; (3) specify API contracts for Tasking (input), SafetyAlert (validation), and Telemetry (export) interfaces; (4) define ownership of audit log (NGHE Solution or Safety Services?); (5) plan for future extraction to a microservice if system scales."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-A (Centralized Performance Derivation Engine) directly addresses all aspects of refined FR-005: (1) automatic derivation from mission context (DP-A ingests Tasking input), (2) recording of baselines (DP-A maintains versioned configuration database), (3) managed history with audit trail (DP-A logs all updates with metadata), (4) traceability (DP-A exposes traceability queries). DP-A is decoupled from implementation details and focuses on the logical solution. No coupling issues detected."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "DIFFUSION RISK (LOW): If baseline database is replicated across Vehicle and Teleoperation modules for performance reasons, consistency becomes a concern. Mitigation: use NGHE Solution as single source of truth; implement read-only caches at subsystem boundaries with explicit invalidation."
+      ],
+      "containment_notes": "IM assignment to NGHE Solution is appropriate. Performance Derivation Engine is a system-level service that should not be distributed across Vehicle, Teleoperation, or Safety Services. Containment score of 95 reflects strong alignment. External interfaces (Tasking, SafetyAlert, Telemetry, Network Link) are all known interfaces, reducing integration risk."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification of CR-NGHE-005 is feasible: (1) unit tests can validate derivation algorithms against known mission contexts; (2) integration tests can confirm Tasking input → baseline output flow; (3) audit log can be inspected to verify history recording; (4) traceability queries can be tested against known baselines. Acceptance criteria (documented performance targets traceable to worksite inputs, maintained baselines/calibration updates) are directly verifiable via NGHE Solution's baseline database and audit log.",
+      "allocation_clarity": "Allocation is clear: NGHE Solution owns the Performance Derivation Engine and baseline management. Vehicle provides mission context (Tasking). Safety Services provides safety constraints (SafetyAlert). Teleoperation consumes baselines (Telemetry). No ambiguity in ownership or interface responsibilities."
+    },
+    "recommended_revisions": [
+      "Refine DP-A specification to include: (a) algorithm versioning and change control, (b) input validation rules, (c) baseline immutability guarantees, (d) performance SLA for derivation.",
+      "Define explicit ownership of audit log: is it owned by NGHE Solution or delegated to Safety Services?",
+      "Specify baseline database schema, including fields for: mission context, derived targets, safety margins, timestamp, operator ID, approval status, algorithm version.",
+      "Document fallback behavior if mission context is incomplete or Safety Services is unavailable.",
+      "Plan for future extraction of Performance Derivation Engine to a dedicated microservice if system scales."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "CR-NGHE-005 refined FR is not atomic; it contains five sub-FRs that require further decomposition. DP-A (Centralized Performance Derivation Engine) is sound and well-allocated to NGHE Solution, but the sub-FRs (mission context ingestion, algorithm execution, baseline recording, history management, traceability queries) each require their own FR→DP→IM decomposition to ensure completeness and traceability. Proceeding to the next level will clarify implementation details, interface contracts, and ownership boundaries for each sub-function.",
+    "justification_detail": "The refined FR explicitly lists five sub-FRs. Each sub-FR represents a distinct functional capability that must be designed and verified independently. For example, CR-NGHE-005.2 (compute performance targets) requires selection of specific algorithms and validation methods; CR-NGHE-005.4 (maintain history) requires database design and retention policies. Decomposing now ensures that the Performance Derivation Engine is fully specified before implementation begins.",
+    "next_level_sub_frs": [
+      "CR-NGHE-005.1: Ingest worksite mission context (terrain, payload, cycle count, safety constraints) and operational parameters.",
+      "CR-NGHE-005.2: Compute performance targets (cycle time, energy efficiency, availability, safety margins) from mission context using validated algorithms.",
+      "CR-NGHE-005.3: Record derived performance targets as a baseline with metadata (timestamp, operator, mission ID, approval status).",
+      "CR-NGHE-005.4: Maintain a managed history of all baseline updates, calibration changes, and requirement revisions with full audit trail.",
+      "CR-NGHE-005.5: Provide traceability queries linking worksite inputs → derived requirements → baselines → implementation allocations."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Worksite mission context is available in structured form (JSON or equivalent) via Tasking interface at system startup and during operation.",
+        "Validated requirement derivation algorithms exist and can be formally specified (e.g., cycle time = f(terrain, payload, vehicle_capability)).",
+        "Safety Services module can provide safety margin constraints in real-time or near-real-time via SafetyAlert interface.",
+        "Baseline database can be implemented as a versioned configuration store within NGHE Solution (e.g., SQLite, PostgreSQL, or cloud-based).",
+        "Audit log is owned by NGHE Solution and is append-only (immutable once recorded).",
+        "Teleoperation and Vehicle modules can tolerate eventual consistency for baseline queries (i.e., they do not require real-time synchronization)."
+      ],
+      "open_risks": [
+        "RISK: If mission context is incomplete or malformed, derivation may produce invalid baselines. Mitigation strategy needed: input validation rules, error handling, fallback to conservative defaults.",
+        "RISK: Algorithm changes (e.g., new efficiency model) require re-derivation of historical baselines. Mitigation strategy needed: version algorithms, maintain derivation provenance, define re-derivation policy.",
+        "RISK: High-frequency baseline updates may overwhelm audit log. Mitigation strategy needed: batch updates, implement retention policies, define archival strategy.",
+        "RISK: Baseline database may become a bottleneck if accessed frequently by multiple subsystems. Mitigation strategy needed: implement caching at subsystem boundaries, use eventual consistency for non-critical queries.",
+        "RISK: Safety criticality (high) requires formal validation of derivation algorithms. Mitigation strategy needed: algorithm specification, formal verification or extensive testing, traceability to safety requirements.",
+        "RISK: Traceability queries may be complex and slow if baseline history is large. Mitigation strategy needed: indexing strategy, query optimization, consider dedicated traceability database."
+      ],
+      "evidence_needed": [
+        "Formal specification of requirement derivation algorithms (cycle time, energy efficiency, availability, safety margins) with mathematical definitions and validation methods.",
+        "Baseline database schema and versioning strategy (e.g., how are historical baselines stored and queried?).",
+        "Input validation rules for mission context (e.g., required fields, data types, acceptable ranges).",
+        "API contracts for Tasking (input), SafetyAlert (validation), and Telemetry (export) interfaces.",
+        "Audit log design: what events are logged, what metadata is captured, what is the retention policy?",
+        "Fallback behavior specification: what happens if mission context is incomplete or Safety Services is unavailable?",
+        "Performance SLA for derivation: what is the acceptable latency for baseline computation and query?",
+        "Safety validation plan: how are derivation algorithms validated for safety criticality? What is the assurance level (e.g., ASIL, SIL)?",
+        "Traceability matrix linking CR-NGHE-005 to sub-FRs, DPs, IMs, and acceptance criteria."
+      ]
+    }
+  }
+}

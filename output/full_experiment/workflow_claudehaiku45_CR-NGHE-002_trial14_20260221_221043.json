@@ -1,0 +1,173 @@
+{
+  "refined_fr": {
+    "refined_fr": "Enable measurement and reporting of load→travel→dump cycle time performance against customer-defined targets.",
+    "rationale": "The original FR conflates two distinct obligations: (1) the system's capability to measure and report cycle time data, and (2) the operational achievement of a target—the latter is a performance outcome dependent on multiple system and operational factors beyond a single design parameter. By refining to focus on the measurement and reporting capability, the FR becomes solution-neutral (avoids prescribing how cycle time is optimized) and atomic (single, testable obligation). Achievement of the cycle time target is an acceptance criterion validated through operational testing, not a functional requirement of the system design itself.",
+    "verification_idea": "Demonstrate that the NGHE solution captures and reports cycle time metrics (load start → travel start → dump start → dump end timestamps) with ≤5% measurement error under representative duty cycles. Validate that reported p95 cycle time can be compared against customer-defined CT_target.",
+    "sub_frs": [
+      "Capture cycle phase transition events (load initiation, travel initiation, dump initiation, dump completion) with timestamp and location data.",
+      "Aggregate and compute cycle time statistics (mean, p95, p99) from captured events.",
+      "Report cycle time performance data to Site Manager and System Engineer with sufficient granularity to diagnose deviations from CT_target."
+    ],
+    "is_atomic": false,
+    "note": "The refined FR is solution-neutral but decomposes into three atomic sub-FRs, each addressing a distinct functional obligation in the measurement and reporting pipeline. The acceptance criterion (p95 ≤ CT_target under duty cycle) remains a performance validation gate, not a functional requirement."
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Continuous cycle-event detection and timestamping at discrete operational state transitions (load-start, travel-start, dump-start, dump-end), with local buffering and periodic aggregation to compute p95 latency statistics against target thresholds.",
+      "DP2: Periodic sampling of machine operational state at fixed intervals, post-processing to infer cycle boundaries, and statistical analysis to estimate cycle time distribution and compare against target.",
+      "DP3: Operator manual logging of cycle start/end events via human-machine interface, with centralized aggregation and statistical reporting of measured vs. target cycle times.",
+      "DP4: Hybrid event-driven detection for critical transitions (load-start, dump-end) combined with state-machine inference for intermediate phases, enabling both precision at boundaries and robustness to transient sensor noise.",
+      "DP5: Decoupled measurement pipeline: (a) raw event capture at source, (b) independent cycle-boundary inference logic, (c) isolated statistics computation module, (d) separate reporting and alerting layer—each with defined contracts to enable substitution and testing."
+    ],
+    "selected_dp": "DP5: Decoupled measurement pipeline with explicit separation of concerns: (1) raw event/state capture at operational source, (2) cycle-boundary inference logic (state machine or heuristic), (3) isolated p95 statistics computation module, (4) independent reporting and alerting layer. Each stage communicates via well-defined data contracts (e.g., timestamped events, cycle records, metric summaries) to enable independent evolution, testing, and substitution without cascading changes.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Tight coupling between event capture and boundary inference: mitigated by DP5's explicit contract (timestamped events as input to inference).",
+        "Inference logic entangled with statistics computation: mitigated by DP5's separation—inference outputs cycle records; statistics module consumes only those records.",
+        "Reporting layer dependent on specific statistics format: mitigated by DP5's contract-based design—reporting consumes metric summaries with defined schema.",
+        "Residual risk: If event capture and inference share state or mutable buffers, coupling re-emerges. Mitigation: enforce immutable event records and functional composition."
+      ],
+      "notes": "DP5 achieves low coupling by inverting dependencies: each layer depends on contracts (data schemas), not implementations. This supports independent module ownership, testing, and substitution. DP1 and DP2 risk tighter coupling between detection and statistics; DP3 introduces human-in-loop variability and is unsuitable for automated acceptance criteria. DP4 is a reasonable middle ground but lacks explicit separation of reporting, making it harder to evolve alerting independently."
+    },
+    "assumptions_risks": [
+      "Assumption: Operational state transitions (load-start, travel-start, dump-start, dump-end) are reliably detectable or inferable from available sensor/telemetry data. Risk: If transitions are ambiguous or noisy, inference logic becomes complex and error-prone. Mitigation: validate sensor adequacy and define state-transition criteria early.",
+      "Assumption: p95 latency is a sufficient acceptance metric. Risk: If duty cycle or site conditions vary significantly, p95 may not capture tail behavior or mode shifts. Mitigation: include contextual metadata (duty cycle, site) in cycle records; enable stratified analysis.",
+      "Assumption: Cycle boundaries are well-defined and non-overlapping. Risk: If cycles can overlap or interleave (e.g., multi-machine coordination), boundary inference becomes ambiguous. Mitigation: clarify cycle semantics and machine identity in event schema.",
+      "Assumption: Measurement infrastructure (event capture, buffering, aggregation) is available and reliable. Risk: If infrastructure is intermittently unavailable, reported statistics may be biased. Mitigation: include data-quality flags and confidence intervals in metric summaries.",
+      "Assumption: Customer-defined targets (CT_target) are static or change infrequently. Risk: If targets are dynamic or context-dependent, reporting logic must support parameterization. Mitigation: store targets as configuration, not hardcoded; version targets with cycle records.",
+      "Assumption: Worksite safety plan does not prohibit automated measurement or impose latency constraints. Risk: If safety policies restrict data collection or require real-time alerting, DP5's asynchronous aggregation may be insufficient. Mitigation: engage safety stakeholder early; clarify real-time vs. post-hoc reporting requirements."
+    ],
+    "recommended_revision": "Refine FR to explicitly state: (1) Measurement granularity and latency tolerance (e.g., cycle-level vs. sub-cycle events; real-time vs. batch reporting). (2) Acceptance criteria scope: does p95 apply to all cycles, or only under nominal duty cycle? (3) Data retention and audit requirements: must cycle records be immutable and traceable? (4) Integration points: does measurement system feed into other systems (e.g., predictive maintenance, fleet analytics)? These clarifications will inform IM (module boundaries) and help validate that DP5's decoupled architecture aligns with operational and governance constraints. Additionally, confirm that event-source reliability and state-transition detectability are sufficient to support the inference layer; if not, escalate to design review."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "Centralized measurement pipeline orchestrating raw event capture, cycle-boundary inference, p95 statistics computation, and reporting/alerting across the teleoperated vehicle system. Owns all four decoupled stages and their data contracts."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Ingests raw operational events and state snapshots from Vehicle and Teleoperation subsystems; feeds stage (1) raw event/state capture."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Emits alerting decisions and metric summaries from stage (4) reporting/alerting layer to Safety Services for autonomous intervention or operator notification."
+      },
+      {
+        "name": "Tasking",
+        "direction": "inout",
+        "details": "Receives operational context (mission phase, cycle boundaries) to inform stage (2) cycle-boundary inference; may report cycle completion and performance metrics back to task scheduler."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Highest containment: NGHE Solution is the natural home for cross-system measurement, inference, and reporting logic. All four pipeline stages (capture, inference, computation, alerting) are cohesive within a measurement/analytics responsibility. Minimal diffusion: raw events flow in via Telemetry; alerts flow out via SafetyAlert; tasking context via Tasking. No stage logic leaks into Vehicle or Teleoperation."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor containment: Vehicle owns hardware state and sensors but not cross-system measurement orchestration. Stage (1) raw capture could partially reside here, but stages (2) inference, (3) p95 computation, and (4) alerting are fundamentally system-level concerns. High diffusion: cycle-boundary inference requires Teleoperation context; p95 stats require multi-source aggregation; alerting requires Safety Services coupling. Violates separation of concerns."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Weak containment: Teleoperation owns operator commands and feedback but not system-wide measurement pipelines. Stage (1) could capture operator-side events, but stages (2)–(4) require Vehicle state, safety context, and system-level alerting. High diffusion: cycle inference needs Vehicle telemetry; p95 computation needs multi-source data; alerting needs Safety Services. Overly narrow for a decoupled pipeline."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.45,
+        "diffusion_score": 0.55,
+        "notes": "Moderate-weak containment: Safety Services owns alerting policy and intervention logic but not the measurement pipeline itself. Stage (4) alerting could reside here, but stages (1)–(3) (capture, inference, computation) are measurement concerns, not safety policy. High diffusion: raw event capture and cycle inference are orthogonal to safety; p95 computation is a metrics concern. Conflates measurement with safety decision-making."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "DP5's four-stage decoupled pipeline is fundamentally a system-level measurement and analytics concern that transcends individual subsystems (Vehicle, Teleoperation, Safety Services). NGHE Solution, as the integrating solution layer, is the natural owner because it orchestrates cross-system telemetry ingestion, applies domain-specific inference logic (cycle boundaries), computes aggregate metrics (p95), and coordinates alerting with Safety Services. The explicit data contracts between stages (timestamped events, cycle records, metric summaries) enable independent evolution and testing—a hallmark of solution-level architecture. Containment is strong because all four stages are cohesive within a measurement responsibility, and external interfaces (Telemetry in, SafetyAlert out, Tasking context) are well-defined and minimal.",
+    "containment_risks": [
+      "Risk: If raw event capture (stage 1) becomes Vehicle-specific (e.g., hardware sensor polling), diffusion into Vehicle may increase. Mitigation: Enforce Telemetry interface as the sole ingestion point; Vehicle publishes events, NGHE Solution consumes.",
+      "Risk: If cycle-boundary inference (stage 2) requires real-time Vehicle state beyond Telemetry, tight coupling to Vehicle may emerge. Mitigation: Define cycle-boundary data contract explicitly; Vehicle provides only necessary state via Telemetry; inference logic remains in NGHE Solution.",
+      "Risk: If alerting (stage 4) becomes entangled with Safety Services policy logic, ownership ambiguity may arise. Mitigation: NGHE Solution owns metric-to-alert mapping; Safety Services owns alert interpretation and intervention; clear interface (SafetyAlert) separates concerns.",
+      "Risk: If p95 computation (stage 3) requires specialized hardware acceleration or low-latency processing, it may need to migrate closer to Vehicle. Mitigation: Design p95 module as a pluggable IM within NGHE Solution; if performance demands arise, refactor as a separate microservice with well-defined contract."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The FR specifies a measurable acceptance criterion (p95 ≤ CT_target) under defined duty cycle and site conditions. DP5's four-stage pipeline (capture → inference → computation → alerting) directly enables this measurement. NGHE Solution as the IM owner can instrument each stage with observable outputs: (1) timestamped raw events, (2) inferred cycle boundaries, (3) computed p95 metric, (4) alert emissions. Verification is feasible via telemetry logs, cycle records, and metric summaries—all explicit data contracts in DP5. Traceability from FR to IM is clear: measurement pipeline → p95 computation → comparison against CT_target.",
+      "allocation_clarity": "Strong. NGHE Solution is unambiguously allocated as the owner of the decoupled measurement pipeline. The four stages are cohesive within a measurement/analytics responsibility, and external interfaces (Telemetry in, SafetyAlert out, Tasking context) are well-defined. No ambiguity about which module owns cycle-time reporting. Allocation is justified by the cross-system nature of the concern: raw events come from Vehicle and Teleoperation; p95 computation requires multi-source aggregation; alerting requires Safety Services coupling. NGHE Solution's integrating role makes it the natural home."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Stage (1) raw event/state capture: Risk of diffusion into Vehicle if hardware sensor polling or low-level state marshaling becomes Vehicle-specific. Mitigation: Enforce Telemetry interface as sole ingestion point; Vehicle publishes events via well-defined schema; NGHE Solution consumes only via Telemetry contract.",
+        "Stage (2) cycle-boundary inference: Risk of tight coupling to Vehicle if real-time state beyond Telemetry is required (e.g., hydraulic pressure, engine RPM). Mitigation: Define explicit cycle-boundary data contract; Vehicle provides only necessary state via Telemetry; inference logic remains isolated in NGHE Solution; use heuristics or state machines that operate on Telemetry events, not raw hardware signals.",
+        "Stage (3) p95 statistics computation: Risk of performance-driven migration if low-latency or high-throughput demands emerge. Mitigation: Design p95 module as pluggable IM within NGHE Solution; if performance demands arise, refactor as separate microservice (e.g., streaming analytics engine) with well-defined metric summary contract; avoid embedding in Vehicle or Teleoperation.",
+        "Stage (4) reporting/alerting: Risk of entanglement with Safety Services policy logic, blurring ownership boundaries. Mitigation: NGHE Solution owns metric-to-alert mapping (e.g., p95 > threshold → alert); Safety Services owns alert interpretation, prioritization, and intervention; SafetyAlert interface separates concerns; no safety policy logic in NGHE Solution."
+      ],
+      "containment_notes": "Containment score of 0.92 for NGHE Solution is justified. All four pipeline stages are cohesive within a measurement/analytics responsibility and are logically independent of Vehicle, Teleoperation, and Safety Services subsystems. Data contracts (timestamped events, cycle records, metric summaries) enable independent evolution and testing. External interfaces are minimal and well-defined: Telemetry (in), SafetyAlert (out), Tasking (context). No stage logic leaks into other modules. The DP-to-IM mapping is clean: DP5's decoupling principle directly translates to NGHE Solution's four-stage architecture with explicit data contracts. Risk of diffusion is low if interface discipline is maintained (Telemetry as sole ingestion point, SafetyAlert as sole alerting output, Tasking as context input). Recommended: Document data contracts (event schema, cycle record format, metric summary format) as formal interface specifications to prevent stage creep and ensure substitutability."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP5 directly addresses the FR's requirement to enable measurement and reporting of load→travel→dump cycle time performance against customer-defined targets. The four-stage decoupled pipeline (capture, inference, computation, alerting) provides the logical structure to measure cycle time, compute p95 statistics, and report against CT_target. Decoupling via explicit data contracts enables independent evolution of each stage, supporting the FR's implicit need for maintainability and adaptability. The DP is solution-level (not subsystem-specific), which is appropriate for a cross-system measurement concern. Acceptance criterion (p95 ≤ CT_target under agreed duty cycle and site conditions) is directly measurable via stage (3) p95 computation and stage (4) alerting. No logical gaps between FR and DP."
+    },
+    "recommended_revisions": [
+      "Formalize data contracts for each stage boundary: (1) raw event schema (timestamp, source, event type, state snapshot), (2) cycle record schema (cycle ID, start/end timestamps, load/travel/dump phase markers), (3) metric summary schema (p95 value, sample count, time window, confidence bounds), (4) alert schema (metric, threshold, violation, severity, timestamp). Document in NGHE Solution interface specification.",
+      "Explicitly define Telemetry interface contract to prevent diffusion of raw event capture into Vehicle. Specify: which events Vehicle must publish (e.g., load sensor reading, travel distance, dump valve state), frequency, latency bounds, and schema. Vehicle owns sensor polling; NGHE Solution owns event ingestion and interpretation.",
+      "Define cycle-boundary inference logic as a pluggable module within NGHE Solution. Specify inputs (Telemetry events, Tasking context), outputs (cycle records with phase markers), and algorithm (state machine or heuristic). Document assumptions about Telemetry event completeness and ordering to prevent hidden coupling to Vehicle internals.",
+      "Establish p95 computation as a separate, testable module with well-defined inputs (cycle records) and outputs (metric summaries). Include performance requirements (latency, throughput) to guide future refactoring if microservice migration becomes necessary.",
+      "Clarify SafetyAlert interface: NGHE Solution emits metric-to-alert mappings (e.g., 'p95 exceeds CT_target by 10%'); Safety Services interprets and acts (e.g., operator notification, autonomous intervention). Document which party owns threshold tuning, alert prioritization, and escalation logic.",
+      "Add acceptance test plan: (1) verify raw event capture via Telemetry logs, (2) verify cycle-boundary inference against manual cycle records, (3) verify p95 computation against reference implementation, (4) verify alerting against threshold violations. Ensure tests are independent of Vehicle and Teleoperation subsystem internals."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "Gate results confirm FR5, DP5, and NGHE Solution IM are logically sound and architecturally viable (all three gates pass with high confidence). However, the recommended_revisions and diffusion_risks expose critical implementation details that must be decomposed into sub-FRs to ensure safety criticality, interface discipline, and module independence are explicitly designed and verified. Specifically: (1) data contract formalization requires sub-FRs for event schema, cycle record schema, metric summary schema, and alert schema; (2) Telemetry interface discipline requires sub-FRs for event ingestion and source isolation; (3) cycle-boundary inference logic requires sub-FRs for state machine design and phase marker accuracy; (4) p95 computation requires sub-FRs for statistical correctness and performance; (5) SafetyAlert interface requires sub-FRs for metric-to-alert mapping and safety policy separation. Given high safety criticality, these sub-FRs must be explicit design artifacts, not implicit implementation details. Decomposition ensures traceability, testability, and risk mitigation at the next level.",
+    "next_level_sub_frs": [
+      "FR5.1: Capture and ingest raw load/travel/dump events from Vehicle via Telemetry interface with timestamped, schema-compliant event records, ensuring Vehicle sensor polling logic is isolated and not diffused into NGHE Solution.",
+      "FR5.2: Infer load→travel→dump cycle boundaries from Telemetry events using a pluggable state machine, producing cycle records with phase markers (load start, travel start, dump start, dump end) and cycle-level metadata, without requiring real-time coupling to Vehicle internals.",
+      "FR5.3: Compute p95 cycle-time statistic from cycle records under agreed duty cycle and site conditions, with documented algorithm, performance bounds (latency, throughput), and confidence intervals, enabling independent verification against reference implementation.",
+      "FR5.4: Map p95 metric violations (p95 > CT_target) to SafetyAlert emissions with severity, threshold delta, and timestamp, ensuring metric-to-alert logic is decoupled from Safety Services policy interpretation and escalation.",
+      "FR5.5: Formalize and enforce data contracts (event schema, cycle record schema, metric summary schema, alert schema) across all four pipeline stages, enabling independent evolution, substitutability, and diffusion prevention.",
+      "FR5.6: Verify cycle-boundary inference accuracy against manual cycle records and Telemetry event logs, with acceptance criteria for phase marker precision (±tolerance on phase transition timestamps) and cycle completeness (no dropped or malformed cycles).",
+      "FR5.7: Verify p95 computation correctness via reference implementation and synthetic test data, with acceptance criteria for statistical accuracy (±tolerance on p95 value) and performance (latency ≤ threshold, throughput ≥ threshold)."
+    ],
+    "revise": {
+      "target": null,
+      "why": "No revisions needed at current level. FR5, DP5, and NGHE Solution IM are sound. Decomposition into sub-FRs is the appropriate next step to operationalize the recommended_revisions and mitigate diffusion risks."
+    },
+    "record": {
+      "assumptions": [
+        "Vehicle publishes load, travel, and dump state events via Telemetry interface with consistent schema and ordering guarantees.",
+        "Cycle-boundary inference can be achieved via state machine heuristics operating on Telemetry events alone, without requiring real-time access to Vehicle hardware signals (e.g., hydraulic pressure, engine RPM).",
+        "p95 computation is stateless and can operate on cycle records in batch or streaming mode without performance degradation.",
+        "SafetyAlert interface is unidirectional (NGHE Solution → Safety Services); no feedback loop or policy override from Safety Services back to NGHE Solution.",
+        "Tasking context (duty cycle, site conditions) is provided by Teleoperation and remains stable during p95 measurement window.",
+        "Customer-defined CT_target is fixed or changes infrequently; threshold tuning is a Safety Services responsibility, not NGHE Solution."
+      ],
+      "open_risks": [
+        "Telemetry event schema evolution: If Vehicle adds new sensor types or changes event format, cycle-boundary inference may break. Mitigation: Version Telemetry schema; define backward-compatibility rules; document inference algorithm assumptions.",
+        "Cycle-boundary inference accuracy: State machine heuristics may fail under edge cases (e.g., partial load, aborted dump, rapid re-load). Mitigation: Define acceptance criteria for phase marker precision; establish manual cycle record baseline for validation; implement anomaly detection to flag ambiguous cycles.",
+        "p95 computation under variable duty cycles: If site conditions or operator behavior change, p95 baseline may shift, causing false alerts. Mitigation: Stratify p95 computation by duty cycle; document baseline assumptions; implement adaptive thresholding or confidence intervals.",
+        "SafetyAlert interface coupling: If Safety Services policy logic leaks into NGHE Solution (e.g., alert prioritization, escalation rules), module independence is compromised. Mitigation: Enforce interface discipline; document which party owns each decision; use formal interface specification (e.g., OpenAPI, Protobuf).",
+        "Performance degradation under high-throughput scenarios: If p95 computation becomes a bottleneck, latency may exceed acceptable bounds. Mitigation: Profile p95 module; establish performance SLOs; design for microservice migration if needed."
+      ],
+      "evidence_needed": [
+        "Telemetry interface specification: event schema (JSON/Protobuf), frequency, latency bounds, source isolation rules.",
+        "Cycle-boundary inference algorithm: state machine diagram, phase marker definitions, edge case handling, validation against manual cycle records.",
+        "p95 computation reference implementation: algorithm pseudocode, test data, expected outputs, performance benchmarks.",
+        "Data contract specifications: event schema, cycle record schema, metric summary schema, alert schema (formal notation or code-generated from schema definition).",
+        "SafetyAlert interface specification: metric-to-alert mapping rules, severity levels, threshold definitions, policy ownership boundaries.",
+        "Acceptance test plan: test cases for each sub-FR, pass/fail criteria, traceability to FR5 and DP5.",
+        "Diffusion risk mitigation evidence: code review checklist for Telemetry interface discipline, cycle-boundary inference isolation, p95 module independence, SafetyAlert decoupling."
+      ]
+    }
+  }
+}

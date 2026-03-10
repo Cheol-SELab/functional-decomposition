@@ -1,0 +1,173 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall enable end-to-end teleoperation communication with latency that permits safe remote operation by the tele-operator.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting teleoperation capability, and (2) ensuring latency is compatible with safety. The refined version separates the functional intent (enable teleoperation communication) from the performance constraint (latency compatible with safety). The phrase 'compatible with safe remote operation' remains in the FR because it defines the functional boundary—the system must deliver latency sufficient for the tele-operator to safely command the equipment—without prescribing the specific latency threshold (which belongs in acceptance criteria, not the FR itself). This keeps the FR solution-neutral: it does not mandate network architecture, protocol, or redundancy strategy.",
+    "verification_idea": "Measure end-to-end latency (sensor input → tele-operator perception → command transmission → equipment actuation) under agreed network conditions. Confirm that measured latency permits the tele-operator to execute representative remote operation tasks (e.g., precision positioning, obstacle avoidance) without safety incidents or unacceptable control lag, as defined in the worksite safety plan.",
+    "sub_frs": [
+      "FR-NGHE-008.1: The NGHE solution shall acquire and transmit equipment state (position, orientation, sensor data) to the tele-operator interface.",
+      "FR-NGHE-008.2: The NGHE solution shall receive and execute remote commands from the tele-operator with minimal delay.",
+      "FR-NGHE-008.3: The NGHE solution shall provide feedback to the tele-operator (visual, haptic, or auditory) that reflects equipment state and operational constraints in real time."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Implement a deterministic, low-latency communication pipeline with end-to-end latency budgeting across acquisition, encoding, transmission, decoding, and actuation stages, with active monitoring and adaptive quality-of-service controls to maintain p95 ≤ 150 ms under specified network conditions.",
+      "DP2: Establish a dual-channel architecture (primary + failsafe) where the primary channel optimizes for latency via direct, compressed telemetry streaming, and a secondary channel provides redundant command delivery with automatic switchover on primary degradation.",
+      "DP3: Decompose teleoperation into independent functional streams (video/sensor feedback, command ingestion, state synchronization) with separate latency budgets and asynchronous processing, allowing each stream to be optimized and monitored independently.",
+      "DP4: Employ edge-local processing (near the remote asset) to reduce round-trip latency by executing time-critical control loops locally with high-level directives from the tele-operator, minimizing dependency on network round-trip time.",
+      "DP5: Implement a time-synchronized, event-driven architecture where all components (sensors, network, actuators) operate on a common logical clock with bounded jitter, enabling predictable latency composition and detection of out-of-order or stale messages."
+    ],
+    "selected_dp": "DP3 + DP5 (Composite): Decompose teleoperation into independent functional streams (video/sensor feedback, command ingestion, state synchronization) with separate latency budgets and asynchronous processing. Overlay a time-synchronized, event-driven architecture with a common logical clock and bounded jitter to enable predictable latency composition, independent optimization of each stream, and deterministic detection of message staleness or ordering violations. This supports modular IM boundaries, testability, and graceful degradation.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between command ingestion and state synchronization streams if they share a single network transport without independent prioritization or buffering.",
+        "Coupling between video feedback and command latency if both are serialized through a single processing pipeline rather than parallel, independent channels.",
+        "Coupling between edge-local control loops and tele-operator directives if the synchronization mechanism (logical clock) is not decoupled from the transport layer.",
+        "Coupling between latency monitoring and adaptive QoS if feedback control is tightly bound to a specific network protocol rather than abstracted as a policy layer."
+      ],
+      "notes": "The composite DP (DP3 + DP5) mitigates coupling by enforcing stream independence and time-based ordering semantics. Risks remain if implementation modules (IM) conflate transport, processing, and control logic. Recommend explicit interface contracts between streams and a dedicated synchronization module to maintain logical independence."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Network conditions are stable and predictable within the agreed envelope (e.g., bandwidth, jitter, packet loss). RISK: If actual network conditions degrade beyond specification, the latency budget may be exceeded. Mitigation: Implement adaptive bitrate and frame-rate controls; define fallback operational modes.",
+      "ASSUMPTION: Tele-operator cognitive and reaction time is compatible with p95 ≤ 150 ms latency. RISK: If human factors analysis is incomplete, safe operation may not be achievable even with correct technical latency. Mitigation: Conduct human-in-the-loop validation; define maximum safe latency in operational procedures.",
+      "ASSUMPTION: Edge-local processing (if adopted in DP4 variant) can be implemented with sufficient computational resources and deterministic scheduling. RISK: Resource contention or non-deterministic OS behavior may violate latency guarantees. Mitigation: Use real-time OS or containerization with guaranteed resource allocation.",
+      "ASSUMPTION: Logical clock synchronization can be maintained across distributed components with bounded drift. RISK: Clock skew or synchronization failures may cause message ordering violations or stale-message detection failures. Mitigation: Implement redundant time sources and periodic resynchronization.",
+      "ASSUMPTION: Worksite safety plan and operational policies are compatible with the selected DP and do not impose additional latency constraints (e.g., mandatory safety interlocks). RISK: Safety policies may require additional validation or handshake steps that increase latency. Mitigation: Integrate safety requirements into latency budgeting early; validate with safety engineering team.",
+      "ASSUMPTION: Acceptance criteria p95 ≤ 150 ms is measured end-to-end (tele-operator input to asset response). RISK: If measurement methodology is ambiguous, acceptance testing may fail due to scope mismatch. Mitigation: Define measurement points and methodology explicitly in test plan."
+    ],
+    "recommended_revision": "FR (refined): The NGHE solution shall enable end-to-end teleoperation communication with latency that permits safe remote operation by the tele-operator, such that p95 latency ≤ 150 ms (measured from tele-operator input to asset response) under agreed network conditions, while maintaining command integrity and providing tele-operator visibility into asset state and network health. The solution shall support graceful degradation and fallback modes when network conditions degrade beyond specification, and shall be compatible with worksite safety plans and operational policies without introducing additional latency-critical dependencies."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Encapsulates the complete teleoperation subsystem including video/sensor feedback stream, command ingestion stream, state synchronization stream, time-synchronized event-driven orchestration layer, latency budgeting, jitter control, and message staleness detection. Owns the logical clock, stream decomposition logic, asynchronous processing coordination, and graceful degradation policies."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Ingests sensor/video feedback from Vehicle; Teleoperation decomposes into independent feedback stream with dedicated latency budget and asynchronous processing"
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Outputs operator commands to Vehicle; Teleoperation owns command ingestion stream with separate latency budget and event-driven dispatch"
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "Bidirectional safety coordination with Safety Services; Teleoperation detects message ordering violations and staleness, triggers safety alerts; receives safety constraints affecting stream synchronization"
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Manages underlying network transport; Teleoperation owns time-synchronized, event-driven protocol layer with bounded jitter and logical clock distribution"
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "Excellent containment. DP3+DP5 (stream decomposition, time synchronization, event-driven orchestration, latency budgeting, jitter control, staleness detection) are intrinsically teleoperation concerns. All core logic (logical clock, asynchronous processing, message ordering validation) naturally resides here. Minimal diffusion: only network transport abstraction (Network Link) and safety policy coordination (SafetyAlert) cross boundary, both well-defined."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 15,
+        "diffusion_score": 85,
+        "notes": "Poor containment. Vehicle owns actuators and sensors, not teleoperation orchestration. Placing stream decomposition, time synchronization, event-driven architecture, and latency budgeting in Vehicle would scatter teleoperation logic across operator-side and vehicle-side, violating cohesion. Logical clock distribution, jitter control, and staleness detection are operator-side concerns."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Poor containment. Safety Services owns safety policies and constraints, not teleoperation stream architecture. Placing DP3+DP5 here would conflate safety enforcement with teleoperation mechanics. Safety Services should consume safety-relevant outputs (staleness alerts, ordering violations) from Teleoperation, not own the underlying stream decomposition."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 40,
+        "diffusion_score": 60,
+        "notes": "Weak containment. NGHE Solution is a top-level system container. While it could theoretically host Teleoperation as a subsystem, placing DP3+DP5 at this level would blur ownership and make the architecture less modular. Teleoperation is a specific functional domain that should be owned by a dedicated module, not diffused across the solution-level boundary."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the natural, cohesive owner of DP3+DP5. Stream decomposition (video/sensor feedback, command ingestion, state synchronization) is intrinsically a teleoperation concern. Time synchronization, event-driven orchestration, logical clock management, jitter control, and staleness detection are all operator-side teleoperation mechanics. The module boundary cleanly separates teleoperation logic from vehicle actuation/sensing (Vehicle), safety policy enforcement (Safety Services), and system integration (NGHE Solution). External interfaces (Telemetry in, Tasking out, SafetyAlert inout, Network Link inout) are well-defined and minimal, supporting modular testability and graceful degradation.",
+    "containment_risks": [
+      "Risk: Logical clock distribution across network may require tight coupling with Network Link interface. Mitigation: Define Network Link as a time-aware transport abstraction; Teleoperation owns clock semantics, Network Link owns delivery.",
+      "Risk: Safety Services may need real-time access to stream state (e.g., staleness flags, ordering violations) for safety decisions. Mitigation: Teleoperation exports SafetyAlert interface with structured safety-relevant events; Safety Services consumes, does not own stream logic.",
+      "Risk: Operator-side and vehicle-side may have asymmetric latency budgets or clock skew. Mitigation: DP5 explicitly addresses bounded jitter and time synchronization; Teleoperation owns reconciliation logic.",
+      "Risk: Graceful degradation policies (e.g., which stream to degrade first) may conflict with safety constraints. Mitigation: Teleoperation and Safety Services coordinate via SafetyAlert; policies are negotiated, not hardcoded in either module alone."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The FR specifies a measurable latency constraint (p95 ≤ 150 ms) and safety requirement (safe remote operation). The IM boundary (Teleoperation module) owns all mechanisms required to verify this: latency budgeting across three independent streams, time-synchronized event-driven orchestration, jitter control, and staleness detection. Verification can be performed via instrumentation of the logical clock, per-stream latency histograms, and message ordering validation logs. The external interfaces (Telemetry in, Tasking out, SafetyAlert inout, Network Link inout) provide clear observation points for end-to-end latency measurement and safety event correlation.",
+      "allocation_clarity": "Excellent. The FR requirement is unambiguously allocated to the Teleoperation IM. The decomposition into three independent functional streams (video/sensor feedback, command ingestion, state synchronization) with separate latency budgets directly addresses the FR's demand for 'latency that permits safe remote operation.' The time-synchronized, event-driven architecture with bounded jitter and staleness detection provides the deterministic latency composition needed to meet the p95 ≤ 150 ms constraint. No ambiguity exists regarding which module owns the end-to-end latency responsibility."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Logical clock distribution: DP5 requires a common logical clock distributed across operator-side (Teleoperation) and vehicle-side (Vehicle). Risk: clock synchronization logic may leak into Network Link or Vehicle if not carefully abstracted. Mitigation: Define Network Link as a time-aware transport layer that carries clock ticks as first-class primitives; Teleoperation owns clock semantics and reconciliation, Network Link owns delivery guarantees.",
+        "Safety-relevant stream state: DP3+DP5 produce staleness flags and ordering violation signals that Safety Services must consume for safety decisions. Risk: Safety Services may be tempted to own stream decomposition or jitter control to 'ensure safety.' Mitigation: Teleoperation exports a structured SafetyAlert interface (inout) with well-defined safety events; Safety Services is a consumer, not an owner. Ownership boundary remains clear.",
+        "Graceful degradation policies: DP3+DP5 include graceful degradation (e.g., which stream to degrade under congestion). Risk: degradation policies may conflict with safety constraints, leading to diffusion of policy logic across Teleoperation and Safety Services. Mitigation: Establish a negotiation protocol via SafetyAlert interface; Teleoperation proposes degradation, Safety Services approves or rejects based on safety constraints. Policies are coordinated, not duplicated.",
+        "Operator-side vs. vehicle-side latency asymmetry: DP5 addresses bounded jitter, but operator-side and vehicle-side may have different clock skew or latency profiles. Risk: reconciliation logic may be scattered across Teleoperation and Vehicle if not owned clearly. Mitigation: Teleoperation owns all operator-side latency budgeting and jitter control; Vehicle owns sensor/actuator latency; Network Link owns transport latency. Teleoperation reconciles via the logical clock."
+      ],
+      "containment_notes": "Excellent containment (95% score). DP3+DP5 are intrinsically teleoperation concerns and naturally reside within the Teleoperation module. Stream decomposition (video/sensor feedback, command ingestion, state synchronization) is operator-side orchestration logic. Time synchronization, event-driven architecture, logical clock management, jitter control, and staleness detection are all teleoperation mechanics. The module boundary is cohesive and minimal diffusion (5%) is limited to well-defined external interfaces: Network Link (time-aware transport abstraction) and SafetyAlert (safety event coordination). No core DP logic is scattered across Vehicle, Safety Services, or NGHE Solution. The containment hypothesis is validated: Teleoperation is the natural, sole owner of DP3+DP5."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP3+DP5 (composite) directly and sufficiently address the FR. The FR demands 'latency that permits safe remote operation' with a measurable constraint (p95 ≤ 150 ms). DP3 (stream decomposition into video/sensor feedback, command ingestion, state synchronization with separate latency budgets) enables independent optimization and modular latency composition. DP5 (time-synchronized, event-driven architecture with bounded jitter and staleness detection) ensures deterministic latency behavior and safety-critical message ordering validation. Together, DP3+DP5 provide both the architectural decomposition (modularity, testability, graceful degradation) and the latency control mechanisms (budgeting, synchronization, jitter bounds, staleness detection) required to meet the FR. The logic is sound: independent streams allow parallel optimization; time synchronization ensures predictable composition; event-driven dispatch with bounded jitter enables latency guarantees; staleness detection supports safe operation by alerting to stale commands or feedback. No logical gaps or contradictions exist between FR and DP."
+    },
+    "recommended_revisions": [
+      "Formalize the Network Link interface contract: Define time-aware transport primitives (e.g., clock tick messages, latency-tagged packets) that Teleoperation uses to distribute the logical clock and measure transport latency. This prevents clock synchronization logic from diffusing into Network Link.",
+      "Define the SafetyAlert interface schema: Specify the structure of safety-relevant events (e.g., staleness alerts, ordering violations, stream degradation proposals) that Teleoperation exports to Safety Services. This clarifies the boundary between teleoperation mechanics (Teleoperation) and safety policy enforcement (Safety Services).",
+      "Establish latency budget allocation: Document how the p95 ≤ 150 ms constraint is decomposed across the three streams (video/sensor feedback, command ingestion, state synchronization) and across operator-side, network, and vehicle-side. This allocation should be traceable to DP3 and DP5 and verifiable via instrumentation.",
+      "Specify graceful degradation negotiation protocol: Define how Teleoperation proposes stream degradation (e.g., reduce video frame rate, increase command polling interval) and how Safety Services approves or rejects based on safety constraints. This prevents policy diffusion.",
+      "Document logical clock reconciliation: Specify how operator-side and vehicle-side clocks are synchronized, how clock skew is bounded, and how Teleoperation reconciles asymmetric latencies. This ensures DP5 is implementable without leaking clock logic into Vehicle or Network Link.",
+      "Add traceability matrix: Link each acceptance criterion (e.g., p95 ≤ 150 ms, safe remote operation, graceful degradation) to specific DP3 or DP5 mechanisms and to Teleoperation module responsibilities. This strengthens FR->DP->IM traceability."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The FR->DP->IM gate passes with high verification feasibility and excellent containment (95%). However, the DP-IM gate identifies five material diffusion risks that require sub-level decomposition to resolve: (1) logical clock distribution across operator/vehicle boundary, (2) safety-relevant stream state ownership, (3) graceful degradation policy coordination, (4) operator/vehicle latency asymmetry reconciliation, and (5) time-aware transport abstraction. These risks are not design flaws but rather indicate that DP3+DP5 are composite solutions spanning multiple concerns that must be unpacked into lower-level FRs to establish clear ownership and prevent logic diffusion. Given high safety criticality, deriving sub-FRs for each diffusion risk is essential to validate that the proposed DP can be realized without boundary violations. The recommended revisions (formalize Network Link contract, define SafetyAlert schema, establish latency budget allocation, specify degradation protocol, document clock reconciliation) are all sub-level design decisions that should be driven by explicit sub-FRs rather than ad-hoc mitigation notes.",
+    "next_level_sub_frs": [
+      "FR3.1: Distribute and synchronize a logical clock across operator-side Teleoperation and vehicle-side Vehicle such that clock skew remains bounded (≤ 10 ms) and clock ticks are delivered as first-class transport primitives without leaking synchronization logic into Network Link or Vehicle modules.",
+      "FR3.2: Decompose end-to-end latency (p95 ≤ 150 ms) into independent per-stream latency budgets (video/sensor feedback, command ingestion, state synchronization) with measurable allocation and per-stream jitter bounds (≤ 20 ms p95) to enable modular optimization and graceful degradation.",
+      "FR3.3: Detect and report staleness (command age, feedback age) and message ordering violations in real-time such that Safety Services can make safety-critical decisions without owning stream decomposition or jitter control logic.",
+      "FR3.4: Coordinate graceful degradation proposals (e.g., reduce video frame rate, increase command polling interval) between Teleoperation and Safety Services via a negotiation protocol that prevents policy logic diffusion and ensures safety constraints are respected.",
+      "FR3.5: Reconcile operator-side and vehicle-side latency asymmetries (different clock skew, sensor/actuator latencies) via the logical clock such that end-to-end latency composition is deterministic and verifiable without scattering reconciliation logic across Vehicle or Network Link."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "DP3+DP5 are composite solutions that conflate multiple concerns: stream decomposition, latency budgeting, time synchronization, jitter control, staleness detection, and graceful degradation. While the composite DP is logically sound, it must be decomposed into lower-level DPs aligned with the sub-FRs above to prevent diffusion risks from materializing during implementation. Specifically: (1) DP3 should be refined to explicitly allocate latency budgets per stream and define the interface contract for per-stream latency metrics; (2) DP5 should be split into separate DPs for logical clock distribution (DP5a), staleness/ordering detection (DP5b), and jitter control (DP5c); (3) a new DP for graceful degradation negotiation (DP5d) should be introduced to clarify the boundary between Teleoperation and Safety Services. This refinement will make the DP->IM mapping more granular and reduce the risk of logic diffusion during implementation."
+    },
+    "record": {
+      "assumptions": [
+        "Logical clock can be distributed across operator/vehicle boundary with ≤ 10 ms skew using time-aware transport primitives (e.g., NTP-like protocol or hardware-synchronized clocks).",
+        "Per-stream latency budgets can be independently optimized without violating end-to-end p95 ≤ 150 ms constraint (i.e., streams are not tightly coupled in latency).",
+        "Safety Services has sufficient information from SafetyAlert interface (staleness flags, ordering violations, degradation proposals) to make safety decisions without owning teleoperation mechanics.",
+        "Graceful degradation policies can be negotiated dynamically via SafetyAlert interface without requiring pre-computed policy matrices.",
+        "Operator-side and vehicle-side latency profiles are measurable and can be reconciled via logical clock without requiring bidirectional latency feedback loops."
+      ],
+      "open_risks": [
+        "Logical clock synchronization overhead: Distributing clock ticks as first-class transport primitives may introduce additional latency or bandwidth overhead. Sub-FR3.1 must specify acceptable overhead bounds and validate that clock distribution does not consume the latency budget.",
+        "Safety Services latency: SafetyAlert interface is inbound to Safety Services, which may introduce additional latency in safety decision-making. Sub-FR3.3 must specify maximum latency for staleness/ordering alerts to reach Safety Services and for Safety Services to respond with approval/rejection.",
+        "Graceful degradation conflicts: Teleoperation's degradation proposals may conflict with Safety Services' safety constraints, leading to deadlock or unsafe operation. Sub-FR3.4 must specify conflict resolution rules and fallback behaviors.",
+        "Clock skew asymmetry: Operator-side and vehicle-side may experience different clock drift rates due to environmental factors (temperature, vibration). Sub-FR3.5 must specify how clock reconciliation adapts to asymmetric drift.",
+        "Staleness detection false positives: Staleness detection may flag valid but delayed messages as stale, triggering unnecessary safety alerts. Sub-FR3.3 must specify staleness thresholds and validation logic to minimize false positives."
+      ],
+      "evidence_needed": [
+        "Latency budget allocation table: Document how p95 ≤ 150 ms is decomposed across video/sensor feedback, command ingestion, state synchronization, and across operator-side, network, vehicle-side. Include per-stream jitter bounds and clock synchronization overhead.",
+        "Logical clock protocol specification: Define clock distribution mechanism (e.g., NTP, hardware sync, event-driven ticks), clock skew bounds, and how clock ticks are embedded in transport primitives. Include latency and bandwidth overhead analysis.",
+        "SafetyAlert interface schema: Specify structure of staleness alerts, ordering violation signals, and degradation proposals. Include latency requirements for alert delivery and Safety Services response.",
+        "Graceful degradation negotiation protocol: Define proposal/approval/rejection messages, conflict resolution rules, and fallback behaviors when Safety Services rejects degradation.",
+        "Operator/vehicle latency asymmetry analysis: Measure and document typical latency profiles on operator-side, network, and vehicle-side. Specify how logical clock reconciles asymmetries and bounds end-to-end latency variance.",
+        "Staleness detection validation: Define staleness thresholds per stream, specify false positive rates, and provide test cases demonstrating staleness detection accuracy under various network conditions (latency jitter, packet loss, reordering)."
+      ]
+    }
+  }
+}

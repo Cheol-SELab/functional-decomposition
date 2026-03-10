@@ -1,0 +1,177 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation communication reliability within the customer-defined packet loss threshold during agreed network conditions.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting teleoperation capability and (2) meeting a specific quality metric (packet loss limit). The refined FR isolates the quality/reliability obligation as a single atomic requirement, expressed in the problem domain (what reliability must be achieved) without prescribing how (e.g., redundancy, error correction, network selection). The phrase 'communication quality' is replaced with the measurable, customer-defined metric 'packet loss threshold' to eliminate ambiguity. 'Agreed network conditions' anchors the requirement to realistic operational context rather than ideal conditions.",
+    "verification_idea": "Conduct teleoperation sessions across the agreed network conditions (e.g., 4G/5G coverage, latency profiles, congestion scenarios) and measure end-to-end packet loss using network monitoring tools. Confirm that measured packet loss does not exceed the customer-defined threshold (e.g., ≤1%) over a statistically significant sample of operations.",
+    "sub_frs": [
+      "FR-NGHE-009.1: The NGHE solution shall enable remote operation of heavy equipment from a tele-operator station.",
+      "FR-NGHE-009.2: The NGHE solution shall maintain teleoperation command and feedback transmission with packet loss not exceeding the customer-defined threshold under agreed network conditions."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Implement adaptive packet redundancy and selective retransmission based on real-time network quality metrics (latency, jitter, loss rate) to maintain effective throughput within acceptable operator response time.",
+      "DP2: Establish a dual-path communication architecture with independent network routes and automatic failover to ensure continuous command/feedback flow during transient network degradation.",
+      "DP3: Deploy application-level forward error correction (FEC) encoding with configurable redundancy levels, tuned to customer-defined packet loss threshold and network SLA parameters.",
+      "DP4: Implement a buffering and prioritization strategy that segregates critical control commands from non-critical telemetry, ensuring safety-critical packets meet latency and delivery guarantees.",
+      "DP5: Establish a network monitoring and adaptive quality-of-service (QoS) negotiation layer that dynamically adjusts compression, frame rate, and command sampling based on observed network conditions."
+    ],
+    "selected_dp": "DP4 (Buffering and Prioritization) + DP3 (Application-Level FEC) as a composite solution: Segregate teleoperation traffic into safety-critical (commands, feedback) and non-critical (diagnostics, video) streams. Apply configurable FEC to critical streams with redundancy tuned to customer packet loss threshold (≤1%). Non-critical streams degrade gracefully under poor conditions. This approach decouples reliability guarantees from network infrastructure assumptions and allows customer-specific tuning without architectural redesign.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "DP4 and DP3 are logically orthogonal: prioritization determines *what* to protect; FEC determines *how* to protect it. No circular dependency.",
+        "DP5 (adaptive QoS) could couple with DP3 if FEC parameters are hardcoded; mitigation: expose FEC redundancy as a tunable parameter driven by DP5 monitoring.",
+        "DP2 (dual-path failover) is independent but complementary; can coexist without coupling if failover logic operates at transport layer and FEC operates at application layer.",
+        "Risk: If customer network conditions are not accurately characterized during acceptance testing, the tuned FEC redundancy may not achieve ≤1% effective loss. Mitigation: require network baseline measurement before deployment."
+      ],
+      "notes": "The composite DP (DP4+DP3) exhibits low coupling because it separates concerns: traffic classification (DP4) is independent of error correction strategy (DP3). Both are solution-neutral (no specific codec, protocol, or vendor named) and allow customer-defined thresholds to drive implementation parameters."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Customer-defined packet loss threshold (≤1%) is achievable within the agreed network conditions (e.g., 4G/5G coverage, WiFi in controlled environment, wired backhaul). RISK: If actual network conditions are worse than stated, FEC overhead may consume bandwidth and increase latency, violating operator response time. MITIGATION: Conduct pre-deployment network characterization and establish acceptance test protocol.",
+      "ASSUMPTION: Teleoperation latency budget (round-trip delay acceptable to operator) is known and documented. RISK: FEC and buffering introduce additional latency; if not accounted for, operator may experience sluggish control response. MITIGATION: Define latency SLA alongside packet loss SLA; validate composite latency in acceptance testing.",
+      "ASSUMPTION: Safety-critical vs. non-critical traffic can be cleanly partitioned at the application level. RISK: If feedback loops (e.g., sensor data used for stability control) are misclassified, loss of non-critical data could degrade safety. MITIGATION: Worksite safety plan must explicitly define which telemetry streams are safety-critical; classify accordingly.",
+      "ASSUMPTION: FEC redundancy can be tuned post-deployment without code changes (e.g., via configuration file or API). RISK: If FEC parameters are hardcoded, customer cannot adapt to changing network conditions. MITIGATION: Expose FEC redundancy as a customer-configurable parameter.",
+      "ASSUMPTION: Operator training and worksite policies account for potential transient communication loss (e.g., brief video freeze, delayed feedback). RISK: If operator expects zero latency and zero loss, DP4+DP3 may not meet psychological acceptance even if technically compliant. MITIGATION: Include operator training and clear communication of reliability guarantees in worksite safety plan."
+    ],
+    "recommended_revision": "FR (refined): The NGHE solution shall maintain teleoperation communication reliability such that safety-critical command and feedback packets experience ≤ [customer-defined threshold, default 1%] effective packet loss and round-trip latency ≤ [customer-defined latency budget, e.g., 200 ms] during agreed network conditions, with non-critical telemetry allowed to degrade gracefully. Acceptance criteria shall include pre-deployment network baseline measurement, composite latency validation under load, and operator sign-off on control responsiveness. DP shall be: Implement application-level traffic prioritization (safety-critical vs. non-critical) combined with configurable forward error correction on critical streams, tuned to customer packet loss threshold and latency budget. This revision makes the FR testable, the DP tunable, and the assumptions explicit."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Encapsulates traffic segregation logic, stream prioritization, configurable FEC application, and graceful degradation policies for both safety-critical (commands, feedback) and non-critical (diagnostics, video) teleoperation streams."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives operator commands and control inputs; Teleoperation module segregates these as safety-critical streams and applies FEC with redundancy tuning."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Outputs vehicle state feedback (safety-critical) and diagnostic/video data (non-critical); module applies differentiated reliability guarantees and graceful degradation per stream class."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Signals reliability violations or FEC threshold breaches to Safety Services when packet loss exceeds customer-configured thresholds (≤1%)."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Transmits/receives segregated and FEC-encoded streams over the network; module manages buffering, prioritization, and redundancy injection/extraction at this boundary."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit. Teleoperation is the natural owner of traffic segregation, stream prioritization, and FEC application logic. All core DP4+DP3 behaviors (buffering, prioritization, configurable redundancy, graceful degradation) are cohesive within teleoperation domain. Minor diffusion: SafetyAlert coupling to Safety Services is appropriate and minimal; Network Link coupling is expected and well-defined."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor fit. Safety Services owns safety policy and alerting, not traffic engineering. Placing buffering, prioritization, and FEC logic here would scatter teleoperation concerns across two modules. FEC tuning and stream segregation are not safety-specific; they are teleoperation infrastructure. Would require Safety Services to own network-level details inappropriate to its domain."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Very poor fit. Vehicle module owns vehicle state, actuation, and onboard sensing. Teleoperation traffic management, FEC, and buffering are not vehicle concerns; they belong in the communication/control layer. Placing DP4+DP3 here would violate separation of concerns and create tight coupling between vehicle dynamics and network reliability logic."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.25,
+        "diffusion_score": 0.75,
+        "notes": "Poor fit. NGHE Solution is a top-level system container, not an implementation module. Assigning DP4+DP3 here would bypass architectural layering and prevent proper encapsulation. Teleoperation is a more specific, cohesive boundary within NGHE Solution."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the correct and most specific boundary for DP4+DP3. It owns all traffic segregation, prioritization, buffering, and FEC logic as a cohesive unit. The module interfaces cleanly with Tasking (inbound commands), Telemetry (outbound feedback/diagnostics), SafetyAlert (reliability violations), and Network Link (physical transmission). This placement ensures that customer-specific FEC tuning, stream classification, and graceful degradation policies remain localized and maintainable without diffusion into vehicle dynamics, safety policy, or system-level concerns.",
+    "containment_risks": [
+      "Risk: If Teleoperation module becomes responsible for both FEC encoding/decoding AND vehicle-side command buffering, it may grow too large. Mitigation: Ensure Vehicle module owns command execution buffering; Teleoperation owns only network-level buffering and FEC.",
+      "Risk: SafetyAlert coupling may create circular dependencies if Safety Services attempts to reconfigure FEC thresholds dynamically. Mitigation: Define SafetyAlert as unidirectional (Teleoperation → Safety Services); threshold tuning is a configuration input, not a runtime feedback loop.",
+      "Risk: Network Link interface abstraction may be insufficient if multiple physical transports (WiFi, cellular, wired) require different FEC strategies. Mitigation: Ensure Network Link interface is transport-agnostic; FEC strategy selection is a Teleoperation responsibility, not Network Link's.",
+      "Risk: Graceful degradation policy (video/diagnostics degrade first) may conflict with customer expectations if not explicitly documented. Mitigation: Expose stream priority configuration as a customer-tunable parameter in Teleoperation module initialization."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The FR acceptance criterion (packet loss ≤1% under agreed network conditions) is directly measurable through telemetry collection at the Network Link interface. The Teleoperation module can instrument FEC redundancy injection/extraction and stream classification to produce verifiable metrics. Customer-defined thresholds are configurable inputs, enabling test scenarios that validate graceful degradation behavior under controlled packet loss injection.",
+      "allocation_clarity": "Excellent. The FR is allocated entirely to the Teleoperation IM boundary. The module owns all mechanisms required to meet the packet loss threshold: traffic segregation (safety-critical vs. non-critical), configurable FEC application, buffering, prioritization, and graceful degradation policies. The SafetyAlert interface provides explicit signaling when thresholds are breached, creating an auditable chain from FR requirement to IM behavior."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "The composite DP (DP4 Buffering+Prioritization + DP3 Application-Level FEC) directly and sufficiently addresses the FR. The DP decouples reliability guarantees from network infrastructure by introducing redundancy at the application layer, enabling customer-specific tuning without architectural redesign. The segregation of safety-critical and non-critical streams ensures that FEC investment is proportional to criticality, and graceful degradation allows non-critical streams to degrade under poor conditions while maintaining command/feedback integrity. The DP is logically sound and implementable within the Teleoperation module boundary."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Risk: Buffering logic may be duplicated if Vehicle module independently buffers inbound commands for execution timing. Mitigation: Establish clear ownership—Teleoperation owns network-level buffering (reordering, FEC recovery); Vehicle owns command execution buffering (timing, sequencing). Document interface contract to prevent overlap.",
+        "Risk: FEC strategy selection (e.g., Reed-Solomon vs. Hamming codes, redundancy ratio) may leak into Network Link abstraction if transport-specific constraints force strategy changes at runtime. Mitigation: Ensure Teleoperation module owns strategy selection logic; Network Link interface remains transport-agnostic and accepts pre-encoded/decoded streams.",
+        "Risk: Stream priority classification (safety-critical vs. non-critical) may diffuse if Safety Services or Tasking modules attempt to override priorities dynamically. Mitigation: Define stream classification as a static configuration parameter initialized at Teleoperation module startup; runtime priority changes require explicit Teleoperation API, not external override.",
+        "Risk: Graceful degradation policy (video/diagnostics degrade first) may be scattered across Telemetry and Teleoperation if Telemetry module independently decides which data to suppress. Mitigation: Ensure Teleoperation module owns degradation policy and signals Telemetry which streams to suppress; Telemetry executes the suppression but does not decide policy.",
+        "Risk: SafetyAlert coupling creates a unidirectional dependency (Teleoperation → Safety Services). If Safety Services later attempts to reconfigure FEC thresholds via feedback, circular dependency risk emerges. Mitigation: Enforce SafetyAlert as alert-only; threshold tuning is a configuration input, not a runtime feedback loop."
+      ],
+      "containment_notes": "Excellent containment (0.92 score). The Teleoperation module is the natural and most specific owner of DP4+DP3. All core behaviors—traffic segregation, stream prioritization, configurable FEC application, buffering, and graceful degradation—are cohesive within the teleoperation domain and do not belong in Safety Services (safety policy, not traffic engineering), Vehicle (vehicle dynamics, not network reliability), or NGHE Solution (system container, not implementation module). The four external interfaces (Tasking, Telemetry, SafetyAlert, Network Link) are well-defined and minimal. The module boundary is tight, preventing diffusion into vehicle concerns or safety policy. Minor coupling to SafetyAlert is appropriate and unidirectional. Network Link coupling is expected and well-managed through a clean abstraction."
+    },
+    "recommended_revisions": [
+      "Clarify ownership boundary between Teleoperation buffering (network-level reordering, FEC recovery) and Vehicle command execution buffering (timing, sequencing). Document in interface contract.",
+      "Explicitly define stream classification (safety-critical vs. non-critical) as a static configuration parameter in Teleoperation module initialization. Expose customer-tunable priority mapping to allow worksite-specific policies.",
+      "Enforce SafetyAlert as unidirectional (Teleoperation → Safety Services). Document that threshold tuning is a configuration input, not a runtime feedback loop, to prevent circular dependencies.",
+      "Ensure Network Link interface is transport-agnostic (WiFi, cellular, wired). FEC strategy selection remains a Teleoperation responsibility; Network Link accepts pre-encoded/decoded streams without transport-specific logic.",
+      "Add instrumentation to Teleoperation module to collect and report FEC redundancy injection/extraction metrics, stream classification statistics, and graceful degradation events. Enable verification of packet loss ≤1% acceptance criterion under agreed network conditions.",
+      "Document graceful degradation policy explicitly: video and diagnostics degrade first under poor conditions; safety-critical command/feedback streams maintain FEC protection. Expose as customer-tunable parameter if worksite policies require different prioritization."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The FR4 (Packet Loss Resilience) passes all three gates (FR-IM, FR-DP, DP-IM) with high confidence and excellent containment (0.92 score). However, the gate analysis reveals four critical diffusion risks and six recommended revisions that require explicit sub-FR decomposition to lock down ownership boundaries, interface contracts, and runtime behavior. The high safety criticality of the teleoperation domain and the complexity of graceful degradation policy demand that we decompose FR4 into sub-FRs that address: (1) stream classification and prioritization logic, (2) buffering and reordering at the network level, (3) FEC application and strategy selection, and (4) graceful degradation policy enforcement. This decomposition will make ownership boundaries explicit, prevent diffusion into Vehicle and Telemetry modules, and create verifiable acceptance criteria for each sub-function. Stopping at the current level risks leaving ambiguity in the interface contracts and allowing runtime coupling to emerge during implementation.",
+    "next_level_sub_frs": [
+      "FR4.1: Classify and prioritize teleoperation streams (safety-critical command/feedback vs. non-critical video/diagnostics) based on static configuration parameters initialized at module startup, enabling customer-tunable worksite-specific policies without runtime override.",
+      "FR4.2: Buffer and reorder inbound network packets at the application layer to recover from packet loss and out-of-order delivery, decoupling network-level reliability from vehicle command execution timing (owned by Vehicle module).",
+      "FR4.3: Apply configurable application-level forward error correction (FEC) to safety-critical streams with customer-tunable redundancy ratios, ensuring packet loss ≤1% under agreed network conditions without requiring transport-specific infrastructure changes.",
+      "FR4.4: Enforce graceful degradation policy such that non-critical streams (video, diagnostics) suppress or reduce fidelity under poor network conditions while maintaining full FEC protection for safety-critical command/feedback streams, with policy ownership in Teleoperation module and execution delegation to Telemetry.",
+      "FR4.5: Signal Safety Services via SafetyAlert interface when packet loss thresholds are breached or graceful degradation is activated, enabling safety-aware decision-making without allowing Safety Services to reconfigure FEC thresholds (unidirectional alert-only coupling)."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "The composite DP (DP4 Buffering+Prioritization + DP3 Application-Level FEC) is logically sound but insufficiently detailed to prevent diffusion risks. Revise DP to explicitly decompose into sub-DPs that map 1:1 to the five sub-FRs: (1) DP4.1 Static stream classification engine with customer-tunable priority mapping, (2) DP4.2 Application-layer packet reordering buffer with configurable depth, (3) DP4.3 Pluggable FEC codec selector (Reed-Solomon, Hamming, etc.) with per-stream redundancy ratio tuning, (4) DP4.4 Graceful degradation policy engine that signals Telemetry which streams to suppress based on network quality metrics, (5) DP4.5 SafetyAlert signaling mechanism (unidirectional, alert-only, no feedback loop). This decomposition will make the interface contracts explicit and prevent ownership ambiguity during implementation."
+    },
+    "record": {
+      "assumptions": [
+        "Stream classification (safety-critical vs. non-critical) is determined statically at Teleoperation module initialization and does not change at runtime without explicit API invocation.",
+        "Vehicle module owns command execution buffering (timing, sequencing) and does not duplicate network-level buffering logic; interface contract clearly separates concerns.",
+        "FEC strategy selection (codec type, redundancy ratio) is owned by Teleoperation module; Network Link interface is transport-agnostic and accepts pre-encoded/decoded streams.",
+        "Graceful degradation policy is owned by Teleoperation module; Telemetry module executes suppression directives but does not independently decide which streams to suppress.",
+        "SafetyAlert coupling is unidirectional (Teleoperation → Safety Services); threshold tuning is a configuration input, not a runtime feedback loop.",
+        "Packet loss measurement is performed at the Network Link interface via telemetry instrumentation; acceptance criterion (≤1%) is verifiable under agreed network conditions (e.g., WiFi with controlled packet injection).",
+        "Customer-tunable parameters (stream priority mapping, FEC redundancy ratios, graceful degradation thresholds) are exposed via Teleoperation module configuration API and documented in customer-facing interface specification."
+      ],
+      "open_risks": [
+        "Risk: Buffering depth and reordering timeout may be insufficient for high-latency networks (e.g., satellite, cellular with variable RTT). Mitigation: Sub-FR4.2 must define configurable buffer depth and timeout parameters; acceptance testing must include latency profiles representative of customer deployment scenarios.",
+        "Risk: FEC overhead (redundancy ratio) may exceed available bandwidth on constrained networks, forcing trade-offs between reliability and throughput. Mitigation: Sub-FR4.3 must expose redundancy ratio as customer-tunable parameter; graceful degradation (Sub-FR4.4) must suppress non-critical streams if FEC overhead exceeds bandwidth budget.",
+        "Risk: Stream classification may be too coarse-grained (binary safety-critical vs. non-critical) for complex teleoperation scenarios with multiple criticality levels (e.g., primary camera critical, secondary camera non-critical, diagnostics lowest priority). Mitigation: Sub-FR4.1 must support multi-level priority mapping; acceptance testing must validate prioritization under mixed-criticality stream scenarios.",
+        "Risk: Graceful degradation policy may conflict with customer expectations if video suppression occurs during critical operations. Mitigation: Sub-FR4.4 must expose degradation thresholds and stream suppression order as customer-tunable parameters; documentation must clearly define when degradation is triggered and which streams are affected.",
+        "Risk: SafetyAlert signaling may introduce latency if Safety Services processes alerts asynchronously, delaying safety-aware decision-making. Mitigation: Sub-FR4.5 must define alert latency requirements and ensure synchronous or near-synchronous delivery; acceptance testing must measure alert propagation time under load.",
+        "Risk: Circular dependency may emerge if Safety Services attempts to reconfigure FEC thresholds via feedback, violating the unidirectional SafetyAlert contract. Mitigation: Sub-FR4.5 must enforce alert-only semantics in interface specification; code review and architectural governance must prevent feedback loops."
+      ],
+      "evidence_needed": [
+        "Interface contract specification for Teleoperation-Vehicle boundary: explicitly define which module owns buffering, reordering, and timing logic; provide example scenarios showing correct ownership allocation.",
+        "Stream classification configuration schema: define static priority mapping (safety-critical vs. non-critical), customer-tunable parameters, and initialization protocol; provide example configurations for representative worksites.",
+        "FEC strategy selection algorithm: document codec selection logic (Reed-Solomon vs. Hamming), redundancy ratio tuning, and per-stream configuration; provide performance benchmarks (latency, throughput, packet loss recovery) for representative network conditions.",
+        "Graceful degradation policy specification: define thresholds (packet loss %, latency, jitter) that trigger degradation, stream suppression order, and customer-tunable parameters; provide state machine or decision tree showing policy execution.",
+        "SafetyAlert interface specification: define alert types (threshold breach, degradation activation), payload format, delivery semantics (synchronous/asynchronous), and latency requirements; explicitly prohibit feedback loops or threshold reconfiguration via SafetyAlert.",
+        "Telemetry instrumentation plan: define metrics to collect (FEC redundancy injection/extraction, stream classification statistics, graceful degradation events, packet loss rate), sampling frequency, and reporting interface; provide example telemetry output.",
+        "Acceptance test plan for Sub-FRs 4.1–4.5: define test scenarios for stream classification (multi-level priorities), buffering (reordering under packet loss), FEC (redundancy ratio tuning), graceful degradation (threshold-triggered suppression), and SafetyAlert (alert delivery latency); include network condition profiles (WiFi, cellular, satellite) and packet loss injection scenarios.",
+        "Customer-facing configuration documentation: provide examples of stream priority mapping, FEC redundancy ratios, graceful degradation thresholds, and SafetyAlert behavior for representative deployment scenarios (e.g., construction site with WiFi, remote site with cellular)."
+      ]
+    }
+  }
+}

@@ -1,0 +1,170 @@
+{
+  "refined_fr": {
+    "refined_fr": "Enable measurement and reporting of material throughput in volumetric or mass units per unit time.",
+    "rationale": "The original FR conflates two distinct obligations: (1) the system's capability to measure/report throughput metrics, and (2) the achievement of a customer-defined target. The latter is a success criterion dependent on operational execution, not a system requirement. The refined FR isolates the system's functional obligation—providing visibility into throughput—which is solution-neutral and testable independent of whether a specific productivity target is met. The target itself belongs in acceptance criteria or KPI definitions, not as a functional requirement.",
+    "verification_idea": "Demonstrate that the NGHE solution captures and reports material throughput (m³/h or ton/h) during representative operations. Verify data accuracy against independent measurement. Confirm reporting is accessible to Site Manager and relevant stakeholders in real time or near-real time.",
+    "sub_frs": [
+      "Acquire material throughput data (volume or mass per time interval) from operational sensors or manual input.",
+      "Calculate and aggregate throughput metrics in standardized units (m³/h or ton/h).",
+      "Display or report throughput metrics to authorized stakeholders with sufficient frequency and precision."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Continuous volumetric flow measurement via inline sensor with real-time signal conditioning and local data buffering",
+      "DP2: Periodic mass-based sampling with calibrated weighing and extrapolation to throughput rate over fixed time windows",
+      "DP3: Hybrid dual-path measurement (volumetric primary + mass-based verification) with cross-validation logic to detect sensor drift or anomalies",
+      "DP4: Indirect throughput inference from process parameters (e.g., pump speed, conveyor velocity, material density lookup) with empirical calibration curve",
+      "DP5: Decoupled measurement acquisition (sensor → local buffer) and reporting (buffer → aggregation → user interface) with asynchronous reconciliation"
+    ],
+    "selected_dp": "DP5 (Decoupled measurement acquisition and reporting) combined with DP3 (Hybrid dual-path measurement) as the primary sensing strategy",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "DP3 and DP5 are logically independent: DP3 defines *what* to measure (dual paths); DP5 defines *how* to decouple acquisition from reporting to avoid blocking or data loss under variable worksite conditions",
+        "Risk of tight coupling if sensor selection (IM layer) forces synchronous communication; mitigation: specify asynchronous message queue or ring buffer at DP5 level",
+        "Risk of coupling between measurement and safety reporting if both share single data path; mitigation: ensure safety-critical thresholds are evaluated independently at sensor level before buffering"
+      ],
+      "notes": "DP5 decoupling is critical for worksite robustness (intermittent connectivity, variable operational tempo). DP3 dual-path provides redundancy and drift detection without requiring external reference standard. Together they satisfy both accuracy (via cross-validation) and reliability (via asynchronous architecture)."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Material properties (density, particle size distribution) are stable or known during evaluation period. RISK: If material changes mid-operation, mass-based path may require recalibration; mitigation: include material type as input to DP3 cross-validation logic.",
+      "ASSUMPTION: Worksite power and network availability are sufficient for continuous buffering and periodic reporting. RISK: Extended offline periods could cause buffer overflow or data loss; mitigation: specify buffer capacity and overflow handling policy in IM design.",
+      "ASSUMPTION: 'productivity_target' is defined as a rate (units/time) and acceptance is measured over a contiguous evaluation period. RISK: If target is a cumulative total or requires real-time compliance, DP5 asynchronous reporting may introduce unacceptable latency; mitigation: clarify acceptance criteria and define maximum reporting lag.",
+      "ASSUMPTION: Worksite safety plan does not require real-time throughput feedback for active process control (e.g., emergency shutdown). RISK: If safety depends on throughput measurement, decoupled reporting (DP5) introduces latency that may violate safety requirements; mitigation: separate safety-critical measurement path from reporting path.",
+      "ASSUMPTION: Dual-path measurement (DP3) can be implemented with independent sensor technologies or independent instances of same technology. RISK: Common-mode failure (e.g., both paths affected by temperature drift) could invalidate cross-validation; mitigation: specify sensor diversity or environmental compensation in IM design."
+    ],
+    "recommended_revision": "Refine FR to explicitly state: (1) Required reporting latency (e.g., real-time vs. batch); (2) Acceptable measurement uncertainty (e.g., ±5% of target); (3) Whether throughput measurement is safety-critical or operational-only; (4) Expected range of material properties and operational conditions. These clarifications will constrain DP selection (e.g., if latency < 1 second, DP5 asynchronous buffering may be infeasible; if safety-critical, DP3 cross-validation logic must be fail-safe). Additionally, decompose FR into sub-requirements: FR-A (Acquire throughput signal), FR-B (Buffer and reconcile data), FR-C (Report productivity metric), FR-D (Detect and flag measurement anomalies). This enables independent DP assignment and clearer IM ownership boundaries."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Measurement acquisition subsystem with dual-path sensing logic, decoupled reporting pipeline, and operator-facing telemetry generation"
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Decoupled measurement reports (DP5) transmitted to operator; dual-path sensor fusion results (DP3) packaged and streamed"
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Operator commands and measurement configuration requests; triggers measurement mode selection (primary vs. hybrid dual-path)"
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Critical measurement anomalies or sensor failures detected during dual-path acquisition routed to Safety Services"
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Underlying transport for telemetry and tasking; measurement data buffering and retry logic for decoupled reporting"
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit: measurement acquisition, dual-path sensor fusion, and decoupled reporting are core teleoperation functions. Operator receives fused measurements asynchronously. Minor diffusion: safety-critical thresholds may require coordination with Safety Services via SafetyAlert interface."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.45,
+        "diffusion_score": 0.55,
+        "notes": "Poor fit: Vehicle module typically owns hardware sensors and low-level actuators, not measurement reporting logic or operator-facing telemetry. Dual-path fusion and decoupled reporting are teleoperation concerns, not vehicle-level concerns. High diffusion: measurement logic would leak into both Vehicle and Teleoperation."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Weak fit: Safety Services owns safety policy and alert generation, not continuous measurement acquisition or dual-path sensor fusion. DP5 (decoupled reporting) and DP3 (hybrid dual-path) are measurement strategies, not safety enforcement. High diffusion: measurement acquisition would remain in Teleoperation; Safety Services would only consume alerts."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.5,
+        "diffusion_score": 0.5,
+        "notes": "Moderate fit if NGHE Solution is a top-level system container. However, it is too broad and abstract to own specific measurement acquisition and reporting logic. Better to assign to a concrete subsystem (Teleoperation) within NGHE Solution."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the natural owner of measurement acquisition, dual-path sensor fusion (DP3), and decoupled asynchronous reporting (DP5) because: (1) it is responsible for operator situational awareness and command execution; (2) measurement data flows from sensors through fusion logic to operator display/telemetry; (3) decoupled reporting aligns with asynchronous teleoperation patterns where operator and vehicle are not tightly synchronized; (4) dual-path measurement strategy supports operator confidence in remote decision-making by providing redundant or complementary sensor views.",
+    "containment_risks": [
+      "Risk: Sensor hardware ownership ambiguity. If Vehicle module owns raw sensor hardware and Teleoperation owns fusion/reporting, a clear interface contract (e.g., via Network Link or a dedicated sensor data stream) must define how raw measurements flow from Vehicle to Teleoperation. Recommend explicit DP for sensor data ingestion interface.",
+      "Risk: Safety-critical measurement thresholds. If DP3 (dual-path measurement) detects anomalies, SafetyAlert interface must be well-defined to prevent safety logic from diffusing into Teleoperation. Recommend that Teleoperation reports anomalies; Safety Services decides on safety action.",
+      "Risk: Decoupled reporting buffering and retry logic (DP5) may require persistent state or network queue management. If Network Link is unreliable, Teleoperation must own buffering; if buffering is centralized elsewhere, coupling increases. Recommend Teleoperation owns local measurement buffer; Network Link owns transport retry.",
+      "Risk: Operator tasking (measurement mode selection) must not create tight coupling between Teleoperation and Vehicle. Recommend Tasking interface carries mode commands; Vehicle adapts sensor configuration independently."
+    ],
+    "recommended_revision": "No revision to DP choice required. DP5 (Decoupled measurement acquisition and reporting) and DP3 (Hybrid dual-path measurement) are well-suited to Teleoperation module. However, recommend clarifying a sub-DP for sensor data ingestion: 'DP5a: Standardized sensor data contract from Vehicle to Teleoperation (e.g., timestamped dual-path measurement tuples via Network Link)' to reduce ambiguity about where raw sensor data is acquired vs. where it is fused and reported. This keeps DP logic clear and IM boundary sharp."
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Acceptance criteria (reported productivity ≥ productivity_target over evaluation period) is directly measurable via Telemetry interface output from Teleoperation module. Dual-path measurement fusion (DP3) provides redundancy for confidence in reported throughput; decoupled reporting (DP5) ensures asynchronous delivery to operator for remote decision-making. Worksite safety plan integration is addressed via SafetyAlert interface to Safety Services, enabling measurement anomalies to trigger safety policy enforcement without diffusing safety logic into measurement acquisition.",
+      "allocation_clarity": "Teleoperation module is the clear owner (containment_score 0.92). FR allocation is unambiguous: measurement acquisition, dual-path sensor fusion, and operator-facing telemetry generation are core Teleoperation responsibilities. External interfaces (Telemetry out, Tasking in, SafetyAlert out, Network Link inout) establish clean boundaries with Vehicle (sensor hardware), Safety Services (safety policy), and network transport."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP5 (Decoupled measurement acquisition and reporting) and DP3 (Hybrid dual-path measurement) directly address the FR requirement to enable measurement and reporting of material throughput in volumetric or mass units per unit time. DP3 provides redundant or complementary sensor paths to improve measurement confidence; DP5 decouples acquisition from reporting, enabling asynchronous telemetry delivery consistent with remote teleoperation patterns. Both DPs are logically sound and well-motivated for the functional requirement."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Sensor hardware ownership ambiguity: Raw sensor data acquisition (hardware level) is owned by Vehicle module; Teleoperation owns fusion and reporting logic. Risk of diffusion if sensor data contract is not explicitly defined. Mitigation: Establish DP5a (Standardized sensor data contract) specifying timestamped dual-path measurement tuples flowing from Vehicle to Teleoperation via Network Link interface.",
+        "Safety-critical measurement threshold enforcement: DP3 (dual-path measurement) may detect anomalies that trigger safety actions. Risk of safety logic diffusing into Teleoperation if threshold decisions are made locally. Mitigation: Teleoperation reports anomalies via SafetyAlert interface; Safety Services owns threshold policy and safety action decisions. Clear separation of concerns required.",
+        "Decoupled reporting buffering and retry logic (DP5): Persistent state and network queue management required if Network Link is unreliable. Risk of coupling if buffering responsibility is ambiguous. Mitigation: Teleoperation owns local measurement buffer and retry queue; Network Link owns transport-level retry and acknowledgment. Define buffer overflow policy and data retention limits.",
+        "Operator tasking and measurement mode selection: Tasking interface carries mode commands (primary vs. hybrid dual-path). Risk of tight coupling if Vehicle must synchronously respond to mode changes. Mitigation: Tasking interface is asynchronous; Vehicle adapts sensor configuration independently and reports mode status via Telemetry."
+      ],
+      "containment_notes": "Teleoperation module containment is excellent (0.92). DP5 and DP3 are tightly bound to Teleoperation's core responsibility for operator situational awareness and asynchronous command execution. Minor diffusion (0.08) is acceptable and well-managed via SafetyAlert interface to Safety Services. Vehicle module (containment 0.45, diffusion 0.55) is correctly excluded from measurement reporting logic; it owns sensor hardware and low-level actuation only. Safety Services (containment 0.35, diffusion 0.65) correctly focuses on safety policy, not measurement acquisition. Recommend explicit sub-DP (DP5a) for sensor data ingestion contract to further reduce diffusion risk and clarify IM boundary."
+    },
+    "recommended_revisions": [
+      "Introduce DP5a: Standardized sensor data contract from Vehicle to Teleoperation. Specify format (e.g., timestamped dual-path measurement tuples with metadata: sensor_id, measurement_type, unit, confidence, timestamp). This reduces ambiguity about where raw sensor data is acquired (Vehicle) vs. where it is fused and reported (Teleoperation).",
+      "Clarify SafetyAlert interface contract: Define which measurement anomalies trigger SafetyAlert (e.g., sensor disagreement exceeding threshold, measurement dropout, out-of-range values). Specify that Teleoperation reports anomalies; Safety Services decides on safety action. This prevents safety logic from diffusing into Teleoperation.",
+      "Define Network Link buffering and retry policy: Specify buffer size, data retention period, and retry limits for decoupled reporting (DP5). Clarify ownership: Teleoperation owns measurement buffer; Network Link owns transport retry. This prevents coupling between measurement logic and network transport.",
+      "Establish Tasking interface asynchrony: Specify that measurement mode selection commands (primary vs. hybrid dual-path) are asynchronous and non-blocking. Vehicle adapts sensor configuration independently and reports mode status via Telemetry. This prevents tight coupling between operator commands and vehicle response.",
+      "Verify acceptance criteria measurability: Confirm that Telemetry interface output includes timestamped throughput measurements (volumetric or mass units per unit time) with sufficient granularity and frequency to validate productivity_target over the evaluation period. Define measurement aggregation window and reporting cadence."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-IM, FR-DP, DP-IM) pass with high confidence (0.92 containment, sound logic, well-managed diffusion). However, the recommended_revisions identify four critical sub-DP refinements (DP5a sensor data contract, SafetyAlert interface contract, Network Link buffering policy, Tasking interface asynchrony) that are essential for implementation clarity and risk mitigation. Rather than stopping at the current level, we must decompose the current FR into sub-FRs that explicitly address these refinements. This ensures that architectural packaging (IM boundaries), interface contracts, and safety-critical measurement anomaly handling are not deferred to implementation but are captured as functional requirements with explicit ownership. High safety criticality demands this rigor.",
+    "next_level_sub_frs": [
+      "FR5.1: Ingest standardized dual-path sensor measurement data from Vehicle module with metadata (sensor_id, measurement_type, unit, confidence, timestamp) to enable fusion and reporting logic to operate on well-defined measurement tuples.",
+      "FR5.2: Fuse dual-path measurement data (primary and hybrid paths) to produce a single reported throughput value (volumetric or mass units per unit time) with confidence metadata, enabling operator situational awareness and anomaly detection.",
+      "FR5.3: Detect and report measurement anomalies (sensor disagreement exceeding threshold, measurement dropout, out-of-range values) via SafetyAlert interface to Safety Services, enabling safety policy enforcement without embedding safety logic in measurement acquisition.",
+      "FR5.4: Buffer and asynchronously deliver measurement telemetry to operator via Network Link with retry logic and overflow policy, enabling remote decision-making independent of network transport latency.",
+      "FR5.5: Accept asynchronous measurement mode selection commands (primary vs. hybrid dual-path) via Tasking interface and adapt sensor configuration independently, enabling operator control without tight coupling to vehicle response timing."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "Current DP5 (Decoupled measurement acquisition and reporting) and DP3 (Hybrid dual-path measurement) are logically sound but lack explicit sub-DPs for sensor data contract (DP5a), SafetyAlert interface contract, Network Link buffering policy, and Tasking interface asynchrony. Introducing sub-FRs forces explicit DP refinement at the next level, ensuring that interface contracts and ownership boundaries are captured as design decisions, not implementation details. This is critical for high-safety-criticality systems where measurement anomaly handling and safety-critical threshold enforcement must be architecturally explicit."
+    },
+    "record": {
+      "assumptions": [
+        "Sensor hardware ownership (Vehicle module) and measurement fusion ownership (Teleoperation module) are correctly partitioned and will remain stable across implementation.",
+        "SafetyAlert interface is the correct mechanism for Teleoperation to report measurement anomalies to Safety Services without embedding safety policy logic.",
+        "Network Link module can support asynchronous buffering and retry logic for decoupled telemetry delivery without introducing coupling to measurement acquisition logic.",
+        "Tasking interface can be implemented as asynchronous, non-blocking command delivery without requiring synchronous vehicle response.",
+        "Acceptance criteria (productivity_target measurement via Telemetry interface) is measurable with sufficient granularity and frequency over the evaluation period."
+      ],
+      "open_risks": [
+        "Sensor data contract ambiguity: If Vehicle module does not provide timestamped dual-path measurement tuples with metadata, Teleoperation fusion logic may fail or require ad-hoc data transformation. Mitigation: Establish DP5a as explicit sub-DP with formal interface specification.",
+        "Safety-critical measurement threshold enforcement: If SafetyAlert interface contract is not explicit, Teleoperation may embed threshold decisions locally, diffusing safety logic. Mitigation: Define SafetyAlert contract specifying which anomalies trigger alerts and that Safety Services owns threshold policy.",
+        "Network Link buffering and retry coupling: If buffering responsibility is ambiguous, measurement logic may become tightly coupled to network transport state. Mitigation: Define explicit buffer overflow policy and retry limits; clarify ownership boundaries.",
+        "Tasking interface synchrony: If measurement mode selection commands are synchronous and blocking, operator commands may be delayed by vehicle response latency, violating remote teleoperation patterns. Mitigation: Enforce asynchronous, non-blocking command delivery; Vehicle reports mode status independently.",
+        "Measurement anomaly detection threshold tuning: Dual-path sensor disagreement threshold must be calibrated to avoid false positives (spurious SafetyAlerts) and false negatives (missed anomalies). Mitigation: Require acceptance criteria to specify anomaly detection sensitivity and validation data."
+      ],
+      "evidence_needed": [
+        "Formal specification of sensor data contract (DP5a): timestamped dual-path measurement tuple format, metadata fields, data rate, and latency requirements from Vehicle to Teleoperation.",
+        "SafetyAlert interface contract: enumeration of measurement anomaly types, threshold definitions, and Safety Services response policy.",
+        "Network Link buffering and retry policy: buffer size, data retention period, retry limits, overflow handling, and acknowledgment mechanism.",
+        "Tasking interface asynchrony specification: command delivery semantics, non-blocking guarantees, and mode status reporting cadence.",
+        "Acceptance criteria validation plan: measurement granularity, reporting cadence, evaluation period duration, and statistical confidence requirements for productivity_target verification.",
+        "Dual-path sensor disagreement threshold calibration data: sensitivity analysis, false positive/negative rates, and operational validation results."
+      ]
+    }
+  }
+}

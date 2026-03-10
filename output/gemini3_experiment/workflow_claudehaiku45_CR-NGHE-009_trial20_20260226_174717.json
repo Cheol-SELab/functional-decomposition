@@ -1,0 +1,172 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation communication quality within the customer-defined packet loss acceptance criterion.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting teleoperation capability and (2) meeting a specific quality metric (packet loss limit). The refined FR isolates the quality obligation in the problem domain without prescribing how packet loss is achieved (e.g., protocol selection, network redundancy, error correction). The phrase 'customer-defined' remains because the acceptance threshold is a stakeholder-negotiated constraint, not a design choice. This formulation is solution-neutral and atomic.",
+    "verification_idea": "Conduct teleoperation sessions under agreed network conditions (latency, bandwidth, interference profile) and measure end-to-end packet loss rate. Confirm measured packet loss ≤ customer-defined target (e.g., ≤1%). Document network test conditions and results in a communication quality report.",
+    "sub_frs": [
+      "FR-NGHE-009.1: The NGHE solution shall enable remote operation of heavy equipment from a tele-operator station.",
+      "FR-NGHE-009.2: The NGHE solution shall quantify teleoperation communication packet loss under agreed network conditions."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Implement adaptive packet prioritization and selective retransmission based on real-time loss detection and network state feedback",
+      "DP2: Establish redundant communication paths with automatic failover and load balancing across independent network routes",
+      "DP3: Apply forward error correction (FEC) encoding with configurable redundancy ratio tuned to observed packet loss rates",
+      "DP4: Enforce quality-of-service (QoS) reservation and traffic shaping at network ingress to guarantee minimum bandwidth allocation for teleoperation streams",
+      "DP5: Implement hybrid approach combining selective retransmission for critical control frames, FEC for sensor telemetry, and QoS enforcement for baseline protection"
+    ],
+    "selected_dp": "DP5: Implement hybrid approach combining selective retransmission for critical control frames, FEC for sensor telemetry, and QoS enforcement for baseline protection",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Retransmission logic must coordinate with FEC decoder to avoid redundant recovery attempts (mitigated by clear frame classification at ingress)",
+        "QoS enforcement depends on network infrastructure cooperation; if unavailable, system degrades gracefully to FEC+retransmission only (acceptable fallback)",
+        "Tuning parameters (FEC ratio, retransmission timeout, QoS thresholds) are interdependent but can be decoupled via configuration abstraction layer"
+      ],
+      "notes": "DP5 avoids tight coupling by assigning distinct recovery mechanisms to distinct frame types: control frames (low latency, high reliability) use retransmission; telemetry (higher latency tolerance) uses FEC; baseline QoS is orthogonal infrastructure concern. Each mechanism can be independently enabled/disabled and tuned without breaking others."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Network conditions are measurable in real-time (packet loss, latency, jitter observable at application or transport layer). RISK: If network telemetry is unavailable, adaptive tuning cannot occur; mitigation: pre-configure conservative parameters based on worst-case acceptance criteria.",
+      "ASSUMPTION: Customer-defined packet loss target (≤1%) is achievable given the agreed network infrastructure. RISK: If underlying network cannot meet target, no DP can compensate; mitigation: validate network SLA before deployment and document achievable bounds.",
+      "ASSUMPTION: Retransmission overhead (latency increase) is acceptable for control frames. RISK: If teleoperation latency budget is very tight (<50ms round-trip), retransmission may violate safety/usability thresholds; mitigation: establish latency acceptance criteria alongside packet loss criteria.",
+      "ASSUMPTION: FEC encoding/decoding computational cost is acceptable on edge devices. RISK: If devices have severe CPU/power constraints, FEC overhead may degrade real-time performance; mitigation: profile FEC impact on target hardware and adjust redundancy ratio accordingly.",
+      "ASSUMPTION: QoS mechanisms are available and configurable in the agreed network environment. RISK: If network is best-effort only (e.g., public internet), QoS enforcement is not possible; mitigation: document QoS as optional enhancement and ensure system functions (at reduced reliability) without it."
+    ],
+    "recommended_revision": "FR (refined): The NGHE solution shall maintain teleoperation communication quality by achieving packet loss ≤ [customer-defined target, default 1%] under agreed network conditions, with explicit acceptance criteria for: (1) maximum tolerable control-frame latency (e.g., ≤100ms round-trip), (2) minimum acceptable telemetry update rate (e.g., ≥10Hz), and (3) network infrastructure assumptions (QoS availability, redundant paths, maximum jitter). DP5 shall be decomposed into three sub-DPs: (DP5a) Selective retransmission for control frames with configurable timeout and retry limits; (DP5b) FEC encoding for telemetry streams with tunable redundancy ratio; (DP5c) QoS reservation layer (optional, graceful degradation if unavailable). Success criteria: Measured end-to-end packet loss ≤ target under test conditions; latency and throughput within acceptance bounds; graceful fallback behavior documented when QoS unavailable."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Encapsulates hybrid network resilience mechanisms including selective retransmission logic for critical control frames, FEC encoding/decoding for sensor telemetry streams, and QoS enforcement policies across all teleoperated vehicle command and feedback channels."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives operator commands and control directives; Teleoperation applies QoS enforcement and selective retransmission to critical control frames before transmission to Vehicle."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Outputs sensor telemetry from Vehicle; Teleoperation applies FEC encoding and QoS baseline protection before delivery to operator display/Safety Services."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Bidirectional interface for transmission of protected control frames and telemetry; Teleoperation manages retransmission queues, FEC packet scheduling, and QoS priority marking on this link."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Signals to Safety Services when QoS thresholds are violated or retransmission exhaustion occurs, triggering failsafe actions."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit. Teleoperation is the natural owner of command/telemetry protection logic. Selective retransmission applies to control frames (Tasking→Vehicle path), FEC applies to sensor telemetry (Vehicle→operator path), and QoS enforcement spans both directions. Minor diffusion: SafetyAlert coupling to Safety Services is necessary but well-defined."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor fit. Vehicle is the platform being controlled, not the communication layer. Placing hybrid resilience here would require Vehicle to own network protection logic that logically belongs in the teleoperation channel. High diffusion: FEC and retransmission logic would leak into vehicle firmware, conflating vehicle control with network resilience."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Weak fit. Safety Services monitors and enforces safety policies, not network resilience. Placing selective retransmission, FEC, and QoS here would blur safety monitoring with network transport concerns. High diffusion: Safety Services would need to actively manage packet queues and encoding, outside its safety-focused scope."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.25,
+        "diffusion_score": 0.75,
+        "notes": "Very poor fit. NGHE Solution is the top-level system container. Assigning DP5 here would bypass architectural layering and distribute hybrid resilience logic across all subsystems. Extreme diffusion: no clear ownership, no cohesive interface contract."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the logical and architectural home for DP5 because it owns the bidirectional communication channel between operator and vehicle. Selective retransmission of critical control frames (Tasking→Vehicle) and FEC protection of sensor telemetry (Vehicle→Telemetry) are both channel-level concerns that belong in the teleoperation layer. QoS enforcement is a cross-cutting policy that applies uniformly to all traffic on this channel. Containment is strong because all three mechanisms (retransmission, FEC, QoS) operate on the same data flows and share state (queue management, packet scheduling, priority marking). Diffusion is minimal: SafetyAlert coupling is necessary and well-scoped; no logic leaks into Vehicle or Safety Services.",
+    "containment_risks": [
+      "Risk: If Vehicle firmware independently implements retransmission or FEC, logic duplication and inconsistency may arise. Mitigation: Establish clear contract that Vehicle treats Teleoperation as the sole owner of network resilience; Vehicle only implements application-level error handling.",
+      "Risk: If Safety Services needs to override QoS priorities in emergency scenarios, Teleoperation and Safety Services must coordinate via SafetyAlert. Mitigation: Define SafetyAlert as a high-priority interrupt that Teleoperation respects; document priority escalation rules.",
+      "Risk: FEC overhead and retransmission latency may conflict with real-time control deadlines. Mitigation: Teleoperation must expose QoS configuration and latency budgets as design parameters; validate against Vehicle control loop timing during integration.",
+      "Risk: Network Link interface may not expose sufficient metadata (packet loss rate, latency jitter) for Teleoperation to tune FEC and retransmission thresholds dynamically. Mitigation: Extend Network Link interface to include link quality metrics; Teleoperation adapts strategy based on observed conditions."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The FR specifies a measurable acceptance criterion (packet loss ≤ 1% or customer-defined target). The Teleoperation IM boundary owns all mechanisms required to achieve this: selective retransmission for critical control frames, FEC for sensor telemetry, and QoS enforcement. Verification can be conducted via network simulation, testbed measurement of packet loss rates under agreed conditions, and validation of QoS priority marking on the Network Link interface. The SafetyAlert interface provides observable signals when thresholds are violated, enabling end-to-end testing.",
+      "allocation_clarity": "Excellent. The FR is clearly allocated to the Teleoperation IM. The four external interfaces (Tasking, Telemetry, Network Link, SafetyAlert) define unambiguous responsibility boundaries: Teleoperation receives operator commands (Tasking), applies selective retransmission and QoS to critical frames, receives vehicle telemetry (Telemetry), applies FEC and baseline QoS protection, manages the Network Link bidirectionally, and signals Safety Services when thresholds are violated. No ambiguity exists regarding which module owns packet loss mitigation."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "The DP (hybrid approach combining selective retransmission, FEC, and QoS enforcement) is logically sound and directly addresses the FR. Selective retransmission targets critical control frames where loss directly impacts vehicle safety; FEC targets sensor telemetry where loss degrades situational awareness; QoS enforcement provides baseline protection across all traffic. The three mechanisms are complementary and collectively sufficient to meet the packet loss acceptance criterion under the agreed network conditions. No logical gaps or contradictions detected."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Risk: Vehicle firmware may independently implement retransmission or FEC for application-level robustness, creating logic duplication and potential inconsistency with Teleoperation's selective retransmission strategy. Mitigation: Establish explicit contract that Vehicle treats Teleoperation as sole owner of network resilience; Vehicle implements only application-level error detection and graceful degradation, not transport-layer protection.",
+        "Risk: Safety Services may need to override QoS priorities during emergency failsafe scenarios, creating bidirectional coupling between Teleoperation and Safety Services. Mitigation: Define SafetyAlert as a high-priority interrupt mechanism; document priority escalation rules and ensure Teleoperation respects safety overrides without deadlock or state corruption.",
+        "Risk: FEC encoding overhead and retransmission latency may violate real-time control deadlines if not carefully tuned. Mitigation: Teleoperation must expose FEC redundancy ratio and retransmission timeout as configurable design parameters; validate against Vehicle control loop timing (e.g., 50 ms command cycle) during integration testing.",
+        "Risk: Network Link interface may not expose sufficient link quality metrics (packet loss rate, latency jitter, bandwidth utilization) for Teleoperation to dynamically adapt FEC and retransmission thresholds. Mitigation: Extend Network Link interface contract to include real-time link quality telemetry; Teleoperation implements adaptive strategy that tunes FEC redundancy and retransmission aggressiveness based on observed conditions.",
+        "Risk: Selective retransmission logic must correctly classify 'critical control frames' (e.g., emergency stop, mode change) vs. non-critical frames (e.g., incremental position updates). Misclassification could waste bandwidth on non-critical retransmissions or fail to protect critical commands. Mitigation: Define explicit frame classification rules in Teleoperation design; validate classification logic against Tasking interface contract and Vehicle control semantics."
+      ],
+      "containment_notes": "Excellent containment (0.92 score). The Teleoperation IM is the natural and only appropriate home for DP5. All three mechanisms (selective retransmission, FEC, QoS) operate on the same bidirectional communication channel and share state (queue management, packet scheduling, priority marking). Placing any part of DP5 in Vehicle, Safety Services, or the top-level NGHE Solution would create high diffusion and violate separation of concerns. The SafetyAlert coupling to Safety Services is minimal, well-defined, and necessary for safety coordination. No logic leaks into other modules. Teleoperation's scope is cohesive: it owns the teleoperation channel and all mechanisms that protect it."
+    },
+    "recommended_revisions": [
+      "Extend the Network Link interface contract to include link quality metrics (instantaneous packet loss rate, latency jitter, available bandwidth). This enables Teleoperation to implement adaptive FEC and retransmission strategies that respond to changing network conditions.",
+      "Define explicit frame classification rules in the Teleoperation design specification. Specify which Tasking commands are 'critical' (e.g., emergency stop, mode change, safety-critical sensor requests) and therefore eligible for selective retransmission. Document the classification algorithm and validate it against Vehicle control semantics.",
+      "Establish a formal contract between Teleoperation and Vehicle that explicitly prohibits Vehicle firmware from implementing retransmission or FEC for network resilience. Vehicle may implement application-level error detection and graceful degradation, but network protection is Teleoperation's sole responsibility.",
+      "Define SafetyAlert priority escalation rules. Specify how Teleoperation responds when Safety Services signals a failsafe condition (e.g., abort all retransmissions, flush queues, switch to minimal QoS). Document timeout and deadlock prevention mechanisms.",
+      "Validate FEC overhead and retransmission latency against Vehicle control loop timing during integration. Specify acceptable latency budgets (e.g., ≤ 50 ms for command delivery) and measure actual latency under worst-case network conditions (high packet loss, jitter). If latency exceeds budget, reduce FEC redundancy or retransmission attempts.",
+      "Add a design parameter to Teleoperation that specifies the packet loss acceptance criterion (default: ≤ 1%). This parameter drives FEC redundancy ratio and retransmission timeout tuning. Document how this parameter is validated against the agreed network conditions during testing."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-IM, FR-DP, DP-IM) pass with high confidence. The FR is measurable, the DP is logically sound and complementary, and the IM containment is excellent (0.92 score). However, the recommended revisions and diffusion risks reveal that the current DP5 specification is at the right level of abstraction for a system-level design parameter, but its realization requires decomposition into sub-FRs that address: (1) adaptive link quality monitoring and dynamic FEC/retransmission tuning, (2) critical frame classification and selective retransmission logic, (3) SafetyAlert priority escalation and failsafe coordination, and (4) latency budgeting and real-time validation. These sub-FRs are necessary to operationalize DP5 and mitigate the identified diffusion risks. The high safety criticality of teleoperation demands explicit functional decomposition of the packet loss mitigation strategy to ensure each mechanism is independently verifiable and traceable to safety requirements.",
+    "next_level_sub_frs": [
+      "FR5.1: Provide real-time link quality monitoring and adaptive FEC/retransmission tuning based on observed packet loss rate, latency jitter, and bandwidth utilization.",
+      "FR5.2: Classify Tasking commands as critical (emergency stop, mode change, safety-critical sensor requests) or non-critical (incremental updates) and apply selective retransmission only to critical frames.",
+      "FR5.3: Enforce QoS priority marking on all outbound Network Link traffic, with SafetyAlert signals receiving highest priority and graceful degradation under congestion.",
+      "FR5.4: Coordinate with Safety Services to respect failsafe overrides: abort retransmissions, flush queues, and switch to minimal QoS when SafetyAlert signals emergency conditions.",
+      "FR5.5: Validate that FEC encoding overhead and retransmission latency do not exceed Vehicle control loop timing budgets (e.g., ≤ 50 ms for command delivery) under worst-case network conditions."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "The current DP5 statement is correct but underspecifies the adaptive and coordination mechanisms required to operationalize selective retransmission, FEC, and QoS in a safety-critical teleoperation context. Revise DP5 to explicitly include: (1) dynamic tuning of FEC redundancy ratio and retransmission timeout based on real-time link quality metrics exposed by the Network Link interface, (2) frame classification algorithm that distinguishes critical control commands from non-critical telemetry, (3) priority escalation rules that allow Safety Services to override QoS and abort retransmissions during failsafe, and (4) latency budgeting and validation strategy that ensures control loop timing is preserved. These revisions transform DP5 from a static mechanism specification into an adaptive, safety-coordinated strategy."
+    },
+    "record": {
+      "assumptions": [
+        "Network Link interface will be extended to expose real-time link quality metrics (packet loss rate, latency jitter, bandwidth utilization) at a frequency sufficient for Teleoperation to adapt FEC and retransmission parameters (assumed ≥ 1 Hz update rate).",
+        "Vehicle firmware will not independently implement retransmission or FEC for network resilience; Vehicle treats Teleoperation as the sole owner of transport-layer protection.",
+        "SafetyAlert interface is a high-priority interrupt mechanism that Teleoperation respects without deadlock or state corruption; priority escalation rules are formally defined and validated.",
+        "FEC encoding and retransmission latency can be tuned to fit within Vehicle control loop timing budgets (assumed 50 ms command cycle); if not, FEC redundancy or retransmission attempts will be reduced.",
+        "Critical frame classification rules can be derived from Tasking interface contract and Vehicle control semantics; misclassification risk is acceptable if validation is performed during integration testing."
+      ],
+      "open_risks": [
+        "Adaptive tuning of FEC redundancy and retransmission timeout may introduce oscillation or instability if feedback loop is not carefully damped. Mitigation: Implement hysteresis and rate-limiting on parameter changes; validate stability under simulated network conditions.",
+        "Frame classification algorithm may be incomplete or incorrect if Vehicle control semantics are not fully understood. Mitigation: Conduct joint design review with Vehicle team; validate classification against actual control commands during integration.",
+        "SafetyAlert priority escalation may create race conditions if Teleoperation is mid-retransmission when failsafe is triggered. Mitigation: Define atomic state transitions and timeout mechanisms; validate via formal verification or exhaustive testbed scenarios.",
+        "Network Link interface may not expose link quality metrics with sufficient granularity or latency for Teleoperation to respond quickly to transient network degradation. Mitigation: Specify minimum metric resolution and update frequency in Network Link interface contract; measure actual latency during integration.",
+        "FEC overhead may be excessive for low-loss networks, wasting bandwidth and increasing latency unnecessarily. Mitigation: Implement adaptive FEC that disables or reduces redundancy when link quality is good; validate bandwidth efficiency under varying network conditions."
+      ],
+      "evidence_needed": [
+        "Network simulation or testbed measurement of packet loss rates, latency jitter, and bandwidth utilization under agreed network conditions (e.g., 4G/5G with 1–5% baseline loss, 50–200 ms latency).",
+        "Validation of FEC encoding/decoding latency and retransmission timeout against Vehicle control loop timing (50 ms command cycle); measurement of end-to-end command delivery latency under worst-case conditions.",
+        "Formal specification of critical frame classification rules and validation against Tasking interface contract and Vehicle control semantics.",
+        "Formal specification of SafetyAlert priority escalation rules and validation via formal verification or exhaustive testbed scenarios (e.g., failsafe triggered during retransmission, queue flush, priority override).",
+        "Measurement of adaptive FEC tuning stability and responsiveness under simulated network transients (e.g., sudden packet loss spike, latency jitter increase); validation of hysteresis and rate-limiting mechanisms.",
+        "Integration test results demonstrating that Teleoperation achieves ≤ 1% packet loss (or customer-defined target) under agreed network conditions, with all three mechanisms (selective retransmission, FEC, QoS) working in concert.",
+        "Safety analysis (FMEA or FTA) of frame classification misclassification, SafetyAlert race conditions, and adaptive tuning instability; traceability to safety requirements."
+      ]
+    }
+  }
+}

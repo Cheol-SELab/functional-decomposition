@@ -1,0 +1,167 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation communication packet loss at or below the customer-defined threshold (acceptance criterion: ≤1% under agreed network conditions) to ensure safe and effective remote equipment operation.",
+    "rationale": "CR-NGHE-009 addresses a critical quality-of-service requirement for teleoperation. Packet loss directly impacts command latency, feedback fidelity, and operator situational awareness—all safety-critical factors in remote heavy equipment control. Refinement clarifies that the requirement is conditional on 'agreed network conditions' (a boundary condition) and ties acceptance to a measurable, customer-negotiated metric rather than a fixed absolute.",
+    "verification_idea": "Conduct packet loss measurement under simulated and live network conditions matching the agreed profile (e.g., 4G/5G coverage, latency budget, interference scenarios). Measure end-to-end loss across the teleoperation link (operator console → vehicle → operator console) over representative mission durations. Compare against customer-defined threshold and document network conditions at test.",
+    "sub_frs": [
+      "FR-NGHE-009.1: The teleoperation system shall transmit operator commands (tasking) to the vehicle with packet loss ≤ customer threshold.",
+      "FR-NGHE-009.2: The teleoperation system shall transmit vehicle telemetry (sensor data, state) to the operator with packet loss ≤ customer threshold.",
+      "FR-NGHE-009.3: The teleoperation system shall detect and report communication quality degradation (packet loss, latency) to the operator and safety services in real time.",
+      "FR-NGHE-009.4: The teleoperation system shall implement fallback or graceful degradation when packet loss exceeds threshold, ensuring safe state transition."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Implement redundant communication channels (dual network links, e.g., 4G + satellite) with automatic failover and packet-level error correction (FEC) to mask transient loss.",
+      "DP-B: Deploy adaptive bitrate encoding and prioritized packet scheduling (QoS) to minimize loss impact on critical telemetry and tasking streams; monitor link quality and adjust codec/frame rate dynamically.",
+      "DP-C: Implement end-to-end acknowledgment and retransmission protocol with bounded latency windows; combine with forward error correction for real-time streams.",
+      "DP-D: Establish network path optimization and load balancing across available carriers; use predictive link quality estimation to pre-emptively switch paths before loss threshold is exceeded."
+    ],
+    "selected_dp": "DP-B + DP-C (Hybrid): Deploy adaptive bitrate encoding with QoS-aware packet scheduling (DP-B) for non-critical telemetry streams, combined with selective retransmission and FEC (DP-C) for safety-critical command and alert channels. This balances latency sensitivity (critical for remote control) with reliability, allowing graceful degradation of video/non-essential telemetry while protecting command and safety channels.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between DP-B (adaptive encoding) and DP-C (retransmission): Both operate on the same packet stream; must coordinate to avoid double-buffering or conflicting priority decisions. Mitigation: Define clear packet classification (safety-critical vs. best-effort) upstream; retransmission applies only to critical packets.",
+        "Coupling with network infrastructure (not in scope of this FR): DP-B and DP-C assume a network link with measurable quality metrics; they do not guarantee packet loss reduction if the underlying link is fundamentally degraded. Mitigation: Acceptance criteria must specify 'agreed network conditions' as a boundary assumption.",
+        "Coupling with operator UI/feedback loop: Adaptive bitrate may reduce video quality; operator must be informed. Mitigation: FR-NGHE-009.3 (quality reporting) decouples this concern."
+      ],
+      "notes": "The hybrid DP avoids over-coupling by separating concerns: DP-B handles non-critical streams (graceful degradation), DP-C handles critical streams (reliability). Both are implementable independently and can be tested in isolation."
+    },
+    "assumptions_risks": [
+      "Assumption: Network conditions remain within the 'agreed' envelope (e.g., 4G coverage, latency < 500ms). Risk: If actual field conditions deviate, packet loss may exceed threshold despite DP implementation. Mitigation: Establish clear network SLA with customer; include contingency for fallback to DP-A (redundant channels) if DP-B/C insufficient.",
+      "Assumption: Operator latency budget allows for retransmission windows (DP-C). Risk: If round-trip latency is very high (e.g., satellite), retransmission may introduce unacceptable command delay. Mitigation: Measure actual RTT in agreed network conditions; if RTT > 200ms, prioritize FEC over retransmission for critical packets.",
+      "Assumption: Codec/bitrate adaptation (DP-B) can be tuned without destabilizing operator control loop. Risk: Sudden video quality drops may degrade operator situational awareness. Mitigation: Implement smooth bitrate transitions; alert operator to quality changes; ensure safety-critical telemetry (e.g., proximity sensors, inclinometer) is never subject to adaptive encoding.",
+      "Risk: Packet classification logic (critical vs. best-effort) must be correct and maintained. Misconfiguration could leave safety-critical packets unprotected. Mitigation: Implement packet tagging at source; validate classification in integration testing."
+    ],
+    "recommended_revision": "Refine DP-B/C specification to include: (1) explicit packet classification scheme (safety-critical, time-sensitive, best-effort); (2) FEC overhead budget (e.g., max 20% redundancy); (3) retransmission timeout and max retry count; (4) fallback trigger (if packet loss > threshold for > 5 seconds, invoke safety shutdown or switch to DP-A). This will reduce ambiguity and support implementation."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "The Teleoperation module owns the end-to-end communication pipeline for remote operation: operator command encoding/transmission, vehicle telemetry reception/decoding, packet loss detection, adaptive bitrate control, QoS scheduling, FEC/retransmission logic, and quality reporting to Safety Services. It interfaces with the Vehicle module (via Network Link and Tasking) and Safety Services (via SafetyAlert and Telemetry)."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Teleoperation transmits operator commands (movement, tool control, mode changes) to Vehicle. Packet loss on this interface is directly controlled by DP-B/C (QoS, FEC, retransmission). Acceptance: ≤1% loss under agreed network conditions."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Teleoperation receives vehicle state, sensor data, and status from Vehicle. DP-B applies adaptive bitrate to non-critical telemetry; DP-C applies FEC to safety-critical telemetry (e.g., proximity, incline). Acceptance: ≤1% loss for safety-critical subset; graceful degradation for non-critical."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Teleoperation uses Network Link (4G/5G or agreed carrier) as the physical transport. DP-B/C operate at the application layer above Network Link; they assume Network Link provides basic connectivity but do not guarantee packet loss. Teleoperation monitors Network Link quality and adapts accordingly."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Teleoperation reports communication quality degradation (packet loss, latency anomalies) to Safety Services via SafetyAlert. Implements FR-NGHE-009.3. Allows Safety Services to trigger fallback or operator notification."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "NGHE Solution is the top-level system container. Teleoperation is a major subsystem but not the entire solution (Vehicle, Safety Services, etc. are peers). Assigning DP-B/C to NGHE Solution would diffuse responsibility across multiple child modules and obscure ownership. Not recommended."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Vehicle owns the physical equipment and on-board systems. Teleoperation logic (adaptive encoding, QoS, FEC) is primarily operator-side and network-side, not vehicle-side. Assigning to Vehicle would couple remote control logic to vehicle hardware, reducing reusability and clarity. Not recommended."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.95,
+        "diffusion_score": 0.05,
+        "notes": "Teleoperation is the natural home for DP-B/C. It owns the operator console, command encoding, telemetry decoding, packet loss detection, adaptive bitrate, QoS, FEC, and retransmission. All logic is cohesive and isolated from Vehicle and Safety Services. Highly recommended."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.15,
+        "diffusion_score": 0.85,
+        "notes": "Safety Services owns safety monitoring and fallback logic (e.g., emergency stop, safe state transition). Teleoperation reports quality degradation to Safety Services via SafetyAlert, but does not own the safety response. Assigning DP-B/C to Safety Services would blur the boundary between communication quality management and safety response. Not recommended."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the optimal owner of DP-B/C because: (1) it encapsulates the operator-side and network-side communication logic; (2) it has direct visibility into packet loss and link quality; (3) it can implement adaptive encoding and QoS without coupling to Vehicle hardware or Safety Services policy; (4) it provides a clear interface (SafetyAlert) for reporting quality issues to Safety Services, decoupling communication management from safety response.",
+    "containment_risks": [
+      "Risk: Teleoperation module may become large and complex if it also owns video codec, audio codec, command serialization, and network protocol stack. Mitigation: Decompose Teleoperation into sub-modules (e.g., CommandEncoder, TelemetryDecoder, QoSManager, FECHandler) in the next level of decomposition. Ensure each sub-module has a single responsibility.",
+      "Risk: Teleoperation depends on accurate packet loss metrics from Network Link. If Network Link does not expose loss data, Teleoperation must infer it (e.g., via sequence numbers, ACKs). Mitigation: Ensure Network Link interface includes quality metrics (packet loss, latency, jitter); if not available, add to Network Link specification.",
+      "Risk: Adaptive bitrate may require coordination with Vehicle (e.g., if Vehicle expects a fixed telemetry frame rate). Mitigation: Define a clear contract: Teleoperation can vary bitrate/frame rate; Vehicle must tolerate variable input rates. Document in interface specification.",
+      "Risk: FEC and retransmission add latency and overhead. If not tuned correctly, they may degrade operator control responsiveness. Mitigation: Establish latency budget (e.g., end-to-end < 200ms for critical commands); validate in integration testing; allow operator to trade off latency vs. reliability via settings."
+    ],
+    "recommended_revision": "Refine Teleoperation module boundary to explicitly exclude: (1) Network Link physical implementation (owned by infrastructure/carrier); (2) Safety response logic (owned by Safety Services); (3) Vehicle command execution (owned by Vehicle). Clarify that Teleoperation owns the application-layer communication pipeline and quality management, with clear handoff points to Safety Services (via SafetyAlert) and Vehicle (via Tasking/Telemetry interfaces). Consider decomposing Teleoperation into sub-modules in next level if complexity warrants."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "The selected DP (hybrid DP-B + DP-C) directly addresses the FR requirement: adaptive bitrate and QoS (DP-B) reduce packet loss on non-critical streams, while FEC and retransmission (DP-C) protect critical command and alert channels. The DP is implementable, testable, and measurable against the acceptance criterion (≤1% packet loss). Coupling is acceptable and mitigated. Assumptions and risks are documented and manageable."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Teleoperation module must coordinate with Vehicle on telemetry format and frame rate expectations. Mitigation: Define a clear contract in the Telemetry interface specification; allow Teleoperation to vary bitrate without requiring Vehicle changes.",
+        "Teleoperation must integrate with Safety Services for quality reporting. Mitigation: SafetyAlert interface is well-defined; Teleoperation simply publishes quality events; Safety Services decides on response.",
+        "Teleoperation depends on Network Link quality metrics. Mitigation: Ensure Network Link interface exposes packet loss, latency, and jitter; if not, add to Network Link specification."
+      ],
+      "containment_notes": "Teleoperation is the clear owner of DP-B/C. No diffusion across multiple modules. Interfaces (Tasking, Telemetry, Network Link, SafetyAlert) are well-defined and external to Teleoperation. Ownership is unambiguous."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible: (1) Unit test DP-B (adaptive bitrate) with synthetic packet loss scenarios; (2) Unit test DP-C (FEC, retransmission) with controlled loss injection; (3) Integration test with Vehicle and Safety Services under agreed network conditions; (4) Field test with customer-provided network profile. Acceptance criterion (≤1% packet loss) is measurable and testable.",
+      "allocation_clarity": "Allocation is clear: Teleoperation owns DP-B/C implementation and packet loss management. Vehicle owns command execution and telemetry generation. Safety Services owns safety response to quality degradation. Network Link owns physical transport. Each module has a clear responsibility and interface."
+    },
+    "recommended_revisions": [
+      "Refine DP-B/C specification to include packet classification scheme, FEC overhead budget, retransmission timeout, and fallback trigger. This will reduce ambiguity during implementation.",
+      "Establish a clear network SLA with the customer: define 'agreed network conditions' (e.g., 4G coverage, latency < 500ms, jitter < 100ms). This is a boundary assumption for the DP.",
+      "Add a sub-FR for fallback/graceful degradation (FR-NGHE-009.4): if packet loss exceeds threshold, Teleoperation shall invoke a safe state transition (e.g., operator notification, reduced autonomy, emergency stop). This ensures safety is maintained even if DP-B/C cannot meet the acceptance criterion.",
+      "Decompose Teleoperation module in the next level to clarify sub-components (CommandEncoder, TelemetryDecoder, QoSManager, FECHandler, QualityMonitor). This will reduce complexity and improve testability."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The refined FR, selected DP, and assigned IM all pass gate review. The requirement is well-understood, the design approach is sound, and the module assignment is clear. However, the DP specification (DP-B + DP-C) is still at a high level and requires decomposition into implementable sub-components. Additionally, the sub-FRs (FR-NGHE-009.1 through 009.4) need to be decomposed further to guide detailed design. Proceeding to the next level of decomposition will clarify implementation details, reduce risk, and support detailed design and testing.",
+    "justification_detail": "The current level establishes the 'what' (FR) and 'how' (DP) at a system level, and assigns ownership (IM). The next level must establish 'how to implement' by decomposing the DP into concrete algorithms and data structures, and decomposing the IM (Teleoperation) into sub-modules with clear responsibilities. This is necessary to move from conceptual design to detailed design.",
+    "next_level_sub_frs": [
+      "FR-NGHE-009.1: The teleoperation system shall transmit operator commands (tasking) to the vehicle with packet loss ≤ customer threshold.",
+      "FR-NGHE-009.2: The teleoperation system shall transmit vehicle telemetry (sensor data, state) to the operator with packet loss ≤ customer threshold.",
+      "FR-NGHE-009.3: The teleoperation system shall detect and report communication quality degradation (packet loss, latency) to the operator and safety services in real time.",
+      "FR-NGHE-009.4: The teleoperation system shall implement fallback or graceful degradation when packet loss exceeds threshold, ensuring safe state transition."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Network conditions remain within the 'agreed' envelope (e.g., 4G/5G coverage, latency < 500ms, jitter < 100ms).",
+        "Operator latency budget allows for retransmission windows (DP-C); if RTT > 200ms, FEC is prioritized over retransmission.",
+        "Codec/bitrate adaptation (DP-B) can be tuned without destabilizing operator control loop; safety-critical telemetry is never subject to adaptive encoding.",
+        "Packet classification logic (critical vs. best-effort) is correct and maintained; misconfiguration is detected in integration testing.",
+        "Vehicle can tolerate variable telemetry frame rates and bitrates from Teleoperation.",
+        "Network Link interface exposes packet loss, latency, and jitter metrics; if not, Network Link specification must be updated.",
+        "Safety Services will respond appropriately to SafetyAlert notifications from Teleoperation (e.g., operator notification, fallback to reduced autonomy)."
+      ],
+      "open_risks": [
+        "Risk: Actual field network conditions may deviate from 'agreed' envelope, causing packet loss to exceed threshold despite DP implementation. Mitigation: Establish clear network SLA with customer; include contingency for fallback to redundant channels (DP-A) if DP-B/C insufficient.",
+        "Risk: Adaptive bitrate may degrade operator situational awareness if video quality drops suddenly. Mitigation: Implement smooth bitrate transitions; alert operator to quality changes; ensure safety-critical telemetry is never subject to adaptive encoding.",
+        "Risk: Packet classification logic may be misconfigured, leaving safety-critical packets unprotected. Mitigation: Implement packet tagging at source; validate classification in integration testing.",
+        "Risk: Teleoperation module may become large and complex. Mitigation: Decompose into sub-modules (CommandEncoder, TelemetryDecoder, QoSManager, FECHandler, QualityMonitor) in next level.",
+        "Risk: FEC and retransmission add latency and overhead, potentially degrading operator control responsiveness. Mitigation: Establish latency budget (e.g., end-to-end < 200ms for critical commands); validate in integration testing."
+      ],
+      "evidence_needed": [
+        "Network SLA document: Define 'agreed network conditions' (e.g., 4G/5G coverage, latency, jitter, packet loss baseline).",
+        "DP-B/C detailed specification: Packet classification scheme, FEC overhead budget, retransmission timeout, fallback trigger, latency budget.",
+        "Teleoperation module interface specification: Tasking, Telemetry, Network Link, SafetyAlert; include quality metrics and error handling.",
+        "Integration test plan: Test DP-B/C under simulated and live network conditions; measure packet loss, latency, operator control responsiveness.",
+        "Field test plan: Validate DP-B/C under customer-provided network profile; measure acceptance criterion (≤1% packet loss).",
+        "Safety analysis: Ensure fallback/graceful degradation (FR-NGHE-009.4) maintains safe state even if DP-B/C cannot meet acceptance criterion.",
+        "Sub-module decomposition: Clarify Teleoperation sub-components (CommandEncoder, TelemetryDecoder, QoSManager, FECHandler, QualityMonitor) and their responsibilities."
+      ]
+    }
+  }
+}

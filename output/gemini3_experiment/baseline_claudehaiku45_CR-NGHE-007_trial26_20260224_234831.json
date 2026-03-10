@@ -1,0 +1,165 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current operational state (vehicle position, task progress, environmental hazards, safety status) within p95 ≤ 1.0 s latency for all supported update scenarios (teleoperated commands, autonomous task execution, sensor data ingestion, safety event propagation).",
+    "rationale": "CR-NGHE-007 is a system-level quality attribute requirement that spans multiple domains: teleoperation, autonomous operation, sensor fusion, and safety. Refinement clarifies that 'worksite model' encompasses vehicle state, task state, environmental state, and safety state; that latency is measured end-to-end from event occurrence to model reflection; and that 'supported scenarios' must be enumerated to enable verification. High safety criticality demands that safety-critical updates (e.g., obstacle detection, emergency stop) meet stricter latency bounds than non-critical updates.",
+    "verification_idea": "Instrument the NGHE solution with end-to-end latency probes at event source (sensor, command, state change) and model sink (worksite model update completion). Measure p95 latency across representative scenarios: (1) teleoperated vehicle movement, (2) autonomous task execution with sensor feedback, (3) safety alert propagation, (4) network link degradation/recovery. Compare against p95 ≤ 1.0 s acceptance criterion and safety-specific sub-targets.",
+    "sub_frs": [
+      "FR-NGHE-007.1: Teleoperation command latency (tele-operator input to vehicle actuation) shall be ≤ 200 ms p95.",
+      "FR-NGHE-007.2: Sensor data latency (sensor reading to worksite model update) shall be ≤ 500 ms p95 for non-safety-critical sensors.",
+      "FR-NGHE-007.3: Safety event latency (hazard detection to safety alert delivery and model update) shall be ≤ 100 ms p95.",
+      "FR-NGHE-007.4: Network link latency (message transmission across network) shall not exceed 300 ms p95 under nominal conditions.",
+      "FR-NGHE-007.5: Worksite model consistency shall be maintained across distributed updates with bounded staleness ≤ 1.0 s."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized worksite model server with synchronous update protocol; all state changes routed through single authoritative model instance; blocking writes ensure consistency.",
+      "DP-B: Distributed worksite model with eventual consistency; local model replicas at vehicle and tele-operator; asynchronous gossip protocol for convergence; conflict resolution via vector clocks.",
+      "DP-C: Hybrid hierarchical model: safety-critical state (vehicle position, hazards, emergency status) in centralized low-latency cache; non-critical state (task metadata, historical logs) in distributed eventual-consistency store; dual-path routing based on criticality.",
+      "DP-D: Event-driven architecture with message broker (e.g., MQTT, RabbitMQ); worksite model subscribers receive state-change events; model updates triggered by event handlers; latency bounded by broker throughput and handler execution time."
+    ],
+    "selected_dp": "DP-C: Hybrid hierarchical model with safety-critical centralized cache and non-critical distributed store.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between safety-critical and non-critical update paths: must define clear boundary (what is safety-critical vs. non-critical) to avoid misclassification.",
+        "Coupling between vehicle autonomy and model consistency: autonomous task execution must not outpace model updates; feedback loop latency must be bounded.",
+        "Coupling between network reliability and model staleness: network partitions must trigger failover to local replicas without violating consistency guarantees."
+      ],
+      "notes": "DP-C decouples latency requirements by criticality: safety-critical updates prioritized through low-latency centralized path (≤100 ms); non-critical updates tolerate higher latency (≤1.0 s). This avoids over-engineering non-critical paths and reduces overall system complexity. Coupling risks are manageable via explicit state classification and failover logic."
+    },
+    "assumptions_risks": [
+      "Assumption: Safety-critical state can be cleanly partitioned from non-critical state (e.g., vehicle position, obstacle proximity, emergency status are safety-critical; task progress, historical telemetry are non-critical).",
+      "Assumption: Network link latency is predictable and bounded; no sustained network outages >1.0 s.",
+      "Risk: Misclassification of state as non-critical when it should be safety-critical could violate safety requirements; requires rigorous safety analysis.",
+      "Risk: Hybrid model increases architectural complexity; dual-path routing and consistency reconciliation add implementation burden.",
+      "Risk: If network latency exceeds 300 ms frequently, p95 ≤ 1.0 s target becomes unachievable; requires network infrastructure investment."
+    ],
+    "recommended_revision": "Refine DP-C to explicitly define: (1) safety-critical state set (e.g., vehicle position, obstacle map, emergency flags); (2) consistency model for each path (strong consistency for safety-critical, eventual consistency for non-critical); (3) failover logic when centralized cache becomes unavailable; (4) reconciliation protocol when safety-critical and non-critical paths diverge. Add acceptance criterion: 'Latency budget allocation: safety-critical ≤100 ms, non-critical ≤1.0 s, network ≤300 ms, model update logic ≤200 ms.'"
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "System-level integration point responsible for orchestrating worksite model updates across all subsystems (Vehicle, Teleoperation, Safety Services). Owns the hybrid hierarchical model architecture, dual-path routing logic, consistency reconciliation, and end-to-end latency management."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Inbound sensor data (vehicle position, task state, environmental observations) from Vehicle and Teleoperation subsystems; feeds both safety-critical cache and non-critical distributed store."
+      },
+      {
+        "name": "Tasking",
+        "direction": "inout",
+        "details": "Bidirectional task commands and status updates; NGHE Solution receives task requests, updates worksite model with task state, returns status to requestor (Site Manager, Tele-operator)."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Outbound safety-critical state updates (hazard detection, emergency status, vehicle position) from NGHE Solution to Safety Services and Teleoperation for immediate action."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Underlying network transport for all model updates; NGHE Solution depends on Network Link latency budget (≤300 ms p95) to meet end-to-end latency target."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "NGHE Solution is the natural system-level owner of worksite model architecture and latency orchestration. Hybrid model logic, dual-path routing, and consistency reconciliation are core system concerns. Minimal diffusion: only external interfaces are Telemetry (in), Tasking (inout), SafetyAlert (out), Network Link (inout). High containment because model update logic is centralized and not duplicated across Vehicle, Teleoperation, or Safety Services."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 30,
+        "diffusion_score": 70,
+        "notes": "Vehicle could own local model replica for autonomous task execution, but centralizing model logic in NGHE Solution avoids duplication and ensures consistency. If Vehicle owns model updates, logic diffuses across Vehicle and NGHE Solution, increasing coupling and latency variability. Not recommended as primary owner."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 25,
+        "diffusion_score": 75,
+        "notes": "Teleoperation could maintain local model for tele-operator situational awareness, but model-of-record must be centralized in NGHE Solution to prevent divergence. Teleoperation should subscribe to SafetyAlert and Telemetry, not own model update logic. High diffusion risk if Teleoperation duplicates model logic."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Safety Services consumes safety-critical state from NGHE Solution (via SafetyAlert) but should not own model update logic. Safety Services owns safety policy enforcement and alert generation, not model consistency. Assigning model logic to Safety Services would create circular dependency and diffusion."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "NGHE Solution owns the worksite model architecture, hybrid hierarchical design, dual-path routing, and consistency reconciliation. Vehicle, Teleoperation, and Safety Services are consumers of model state via well-defined interfaces (Telemetry in, SafetyAlert out, Tasking inout). This containment minimizes diffusion and ensures single source of truth for model consistency.",
+    "containment_risks": [
+      "Risk: If NGHE Solution becomes a bottleneck (e.g., model update logic cannot keep pace with incoming telemetry), latency target is violated. Mitigation: design model update logic for high throughput (e.g., lock-free data structures, batch processing); monitor latency in production.",
+      "Risk: If Vehicle or Teleoperation maintain local model replicas for performance, they may diverge from NGHE Solution's model-of-record. Mitigation: enforce strict subscription model; local replicas are read-only caches, not authoritative sources.",
+      "Risk: If Safety Services needs to update safety-critical state (e.g., emergency stop flag), ownership boundary becomes ambiguous. Mitigation: define clear ownership: NGHE Solution owns model state, Safety Services owns policy logic; Safety Services requests state changes via Tasking interface."
+    ],
+    "recommended_revision": "Clarify ownership boundaries: (1) NGHE Solution owns worksite model state and update logic; (2) Vehicle owns sensor data generation and local autonomous execution; (3) Teleoperation owns tele-operator interface and command generation; (4) Safety Services owns safety policy and alert generation. Define subscription model: Vehicle and Teleoperation subscribe to Telemetry and SafetyAlert; Safety Services subscribes to Telemetry and Tasking. Establish SLA for each interface: Telemetry latency ≤500 ms, SafetyAlert latency ≤100 ms, Tasking latency ≤200 ms, Network Link latency ≤300 ms."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid hierarchical model) directly addresses FR-NGHE-007 by partitioning latency requirements by criticality: safety-critical updates via low-latency centralized cache (≤100 ms), non-critical updates via distributed eventual-consistency store (≤1.0 s). DP-C is feasible, testable, and aligns with high safety criticality constraint. No fundamental mismatch between functional requirement and design parameter."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Diffusion risk: If model update logic is not centralized in NGHE Solution, hybrid model logic could be duplicated across Vehicle, Teleoperation, and Safety Services, violating single source of truth principle.",
+        "Diffusion risk: If Vehicle or Teleoperation maintain independent model replicas without strict synchronization, consistency guarantees are weakened.",
+        "Diffusion risk: If Safety Services owns safety-critical state updates, ownership boundary becomes ambiguous and latency accountability is unclear."
+      ],
+      "containment_notes": "NGHE Solution is the appropriate IM boundary for DP-C. Containment score 95 indicates strong fit: model architecture, dual-path routing, and consistency reconciliation are core system concerns, not subsystem concerns. External interfaces (Telemetry, Tasking, SafetyAlert, Network Link) are well-defined and minimal. Ownership is clear: NGHE Solution owns model state and update logic; subsystems are consumers via interfaces."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible via end-to-end latency instrumentation. Inject events (sensor data, commands, safety alerts) at source and measure time to model update completion. Measure p95 latency across representative scenarios. Compare against p95 ≤ 1.0 s acceptance criterion and sub-targets (safety-critical ≤100 ms, non-critical ≤500 ms, network ≤300 ms). Verification can be automated in CI/CD pipeline.",
+      "allocation_clarity": "Allocation is clear: NGHE Solution is responsible for end-to-end latency management. Latency budget is allocated: safety-critical path ≤100 ms (centralized cache), non-critical path ≤500 ms (distributed store), network ≤300 ms, model update logic ≤200 ms. Each subsystem (Vehicle, Teleoperation, Safety Services) has clear latency SLA for its interface (Telemetry, Tasking, SafetyAlert). Ownership and accountability are unambiguous."
+    },
+    "recommended_revisions": [
+      "Refine sub-FRs to include explicit latency budgets for each update scenario (teleoperated movement, autonomous task, sensor data, safety event).",
+      "Define safety-critical state set (e.g., vehicle position, obstacle map, emergency flags) to enable clear partitioning between centralized and distributed paths.",
+      "Establish network latency SLA (≤300 ms p95) as a constraint on NGHE Solution design; if network cannot meet SLA, DP-C may not be feasible.",
+      "Add acceptance criterion for consistency: 'Worksite model staleness shall not exceed 1.0 s for any state element; safety-critical state staleness shall not exceed 100 ms.'",
+      "Define failover logic: if centralized cache becomes unavailable, NGHE Solution shall fall back to distributed store without violating consistency guarantees."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-NGHE-007 is a system-level quality attribute requirement that spans multiple subsystems (Vehicle, Teleoperation, Safety Services) and multiple update scenarios (teleoperated commands, autonomous task execution, sensor data ingestion, safety event propagation). The refined FR has been decomposed into five sub-FRs (FR-NGHE-007.1 through FR-NGHE-007.5) that address specific update scenarios and latency targets. DP-C (hybrid hierarchical model) is a sound design approach that partitions latency requirements by criticality. NGHE Solution is the appropriate IM boundary for orchestrating model updates and managing end-to-end latency. However, the sub-FRs require further decomposition to assign ownership and design parameters to specific subsystems (Vehicle, Teleoperation, Safety Services). Proceeding to next decomposition level is necessary to allocate latency budgets, define interface contracts, and ensure all subsystems contribute to meeting the p95 ≤ 1.0 s target.",
+    "next_level_sub_frs": [
+      "FR-NGHE-007.1: Teleoperation command latency (tele-operator input to vehicle actuation) shall be ≤ 200 ms p95.",
+      "FR-NGHE-007.2: Sensor data latency (sensor reading to worksite model update) shall be ≤ 500 ms p95 for non-safety-critical sensors.",
+      "FR-NGHE-007.3: Safety event latency (hazard detection to safety alert delivery and model update) shall be ≤ 100 ms p95.",
+      "FR-NGHE-007.4: Network link latency (message transmission across network) shall not exceed 300 ms p95 under nominal conditions.",
+      "FR-NGHE-007.5: Worksite model consistency shall be maintained across distributed updates with bounded staleness ≤ 1.0 s."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Safety-critical state (vehicle position, obstacle proximity, emergency status) can be cleanly partitioned from non-critical state (task progress, historical telemetry).",
+        "Network link latency is predictable and bounded; no sustained outages >1.0 s.",
+        "Tele-operator and autonomous task execution can tolerate model staleness up to 1.0 s for non-critical state.",
+        "Safety Services can enforce safety policies based on safety-critical state with ≤100 ms latency.",
+        "NGHE Solution can implement hybrid hierarchical model without becoming a bottleneck."
+      ],
+      "open_risks": [
+        "Misclassification of state as non-critical when it should be safety-critical; requires rigorous safety analysis.",
+        "Network latency exceeds 300 ms frequently, making p95 ≤ 1.0 s target unachievable; requires network infrastructure investment.",
+        "NGHE Solution model update logic becomes a bottleneck; requires high-throughput design (lock-free data structures, batch processing).",
+        "Vehicle or Teleoperation maintain independent model replicas that diverge from NGHE Solution's model-of-record; requires strict subscription model enforcement.",
+        "Failover logic when centralized cache becomes unavailable is not well-defined; could violate consistency guarantees."
+      ],
+      "evidence_needed": [
+        "Network latency measurements under nominal and degraded conditions; confirm ≤300 ms p95 is achievable.",
+        "Prototype of hybrid hierarchical model with dual-path routing; measure latency for representative update scenarios.",
+        "Safety analysis defining safety-critical state set and justifying latency targets (≤100 ms for safety-critical, ≤500 ms for non-critical).",
+        "Throughput analysis of NGHE Solution model update logic; confirm it can handle peak telemetry rate without exceeding latency budget.",
+        "Failover test: simulate centralized cache failure and verify distributed store can maintain consistency within 1.0 s staleness bound."
+      ]
+    }
+  }
+}

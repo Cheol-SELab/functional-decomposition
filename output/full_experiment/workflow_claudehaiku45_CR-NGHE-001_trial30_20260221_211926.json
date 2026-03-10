@@ -1,0 +1,169 @@
+{
+  "refined_fr": {
+    "refined_fr": "Enable measurement and reporting of material throughput in volumetric or mass units per unit time.",
+    "rationale": "The original FR conflates two distinct obligations: (1) the system's capability to measure/report throughput metrics, and (2) the achievement of a customer-defined target. The latter is a success criterion dependent on operational context, training, and external factors beyond system design. The refined FR isolates the system's functional obligation—providing accurate, timely throughput data—from the acceptance criterion (achieving the target). This separation keeps the FR solution-neutral and testable at the system level, while the target achievement remains an acceptance criterion evaluated during operational trials.",
+    "verification_idea": "Instrument representative operations with independent measurement (e.g., load cells, volume sensors, GPS-based tracking) and compare against NGHE-reported throughput over a defined period. Verify accuracy within ±5% (or agreed tolerance) across representative material types and operating conditions.",
+    "sub_frs": [
+      "FR-NGHE-001.1: Acquire real-time data on material mass or volume processed.",
+      "FR-NGHE-001.2: Calculate throughput rate (mass/time or volume/time) from acquired data.",
+      "FR-NGHE-001.3: Display or transmit throughput metrics to authorized users (Site Manager, Operator, Tele-operator) with configurable update frequency."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Continuous volumetric flow measurement via inline sensor with real-time signal conditioning and local data buffering",
+      "DP2: Periodic mass-based sampling with calibrated weighing and extrapolation to throughput rate over evaluation window",
+      "DP3: Hybrid dual-path measurement (volumetric + mass) with cross-validation logic to detect sensor drift or anomalies",
+      "DP4: Indirect throughput inference from process parameters (e.g., motor load, cycle time, material density assumptions) with empirical calibration",
+      "DP5: Decoupled measurement pipeline: acquire raw signal → normalize/filter → aggregate into time-windowed bins → compute rate metric → report with confidence bounds"
+    ],
+    "selected_dp": "DP5: Decoupled measurement pipeline with time-windowed aggregation and confidence reporting",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Signal acquisition method (volumetric vs. mass vs. indirect) is deferred to IM layer; DP remains agnostic to sensor type",
+        "Normalization/filtering logic must be independent of acquisition method to avoid tight coupling between measurement modality and processing",
+        "Time-window granularity and aggregation strategy should be parameterizable to support different evaluation periods without redesign",
+        "Confidence bounds calculation should not assume specific sensor error models; instead, accept error budget as input parameter"
+      ],
+      "notes": "DP5 achieves low coupling by separating concerns: (1) signal acquisition, (2) signal conditioning, (3) temporal aggregation, (4) rate computation, (5) reporting. Each stage can be independently validated and swapped without affecting downstream logic. This supports both volumetric and mass-based implementations at the IM layer."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Measurement signal is continuous or sampled at sufficient frequency to capture throughput variation within the evaluation period. RISK: If sampling rate is too coarse, transient peaks/valleys may be missed, biasing reported average.",
+      "ASSUMPTION: Material properties (density, compressibility) remain stable during evaluation or are known/measurable. RISK: Significant variation in material state could invalidate volumetric-to-mass conversions or indirect inference models.",
+      "ASSUMPTION: Evaluation period is long enough to average out short-term noise and operational variability. RISK: If period is too short, random fluctuations may cause reported productivity to fall below target even if true steady-state exceeds it.",
+      "ASSUMPTION: Acceptance criterion 'reported productivity ≥ productivity_target' is defined with explicit confidence level (e.g., 95th percentile, mean ± 1σ). RISK: Ambiguity in acceptance criterion definition could lead to disputes over pass/fail.",
+      "ASSUMPTION: Worksite safety plan does not prohibit or severely constrain sensor placement or measurement method. RISK: Safety constraints may force suboptimal measurement locations, reducing signal quality.",
+      "ASSUMPTION: Real-time reporting is not required; batch reporting at end of evaluation period is acceptable. RISK: If real-time feedback is needed for operational control, DP5 may require modification to support streaming output."
+    ],
+    "recommended_revision": "Refine FR to explicitly state: (1) required reporting frequency (real-time vs. batch), (2) acceptable measurement uncertainty (e.g., ±5% of target), (3) definition of 'representative operations' (steady-state, transient, mixed), (4) evaluation period duration, and (5) confidence level for acceptance criterion. Decompose DP5 into sub-DPs for each pipeline stage (acquisition, conditioning, aggregation, computation, reporting) to enable independent IM assignment and interface specification. Introduce a separate FR for 'Detect and flag measurement anomalies' to address sensor drift/failure modes explicitly rather than burying them in confidence bounds."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Safety Services",
+      "scope": "Centralized measurement aggregation, time-windowed statistical processing, confidence computation, and safety-critical alert generation with decoupled pipeline architecture"
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Raw sensor measurements and vehicle state data ingested into the measurement pipeline"
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Confidence-qualified safety alerts and aggregated measurement reports emitted to downstream safety decision systems"
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Optional: distributed time-windowing synchronization and remote confidence validation if pipeline spans multiple compute nodes"
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Safety Services",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit: measurement aggregation, time-windowed statistics, and confidence reporting are core safety service responsibilities. Decoupled pipeline architecture aligns with safety-critical isolation patterns. Minor diffusion: raw telemetry ingestion point and alert emission point are well-defined boundaries."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.45,
+        "diffusion_score": 0.55,
+        "notes": "Poor fit: Vehicle module owns vehicle state and actuation, not measurement processing logic. Time-windowed aggregation and confidence reporting are orthogonal to vehicle dynamics. High diffusion: pipeline logic would scatter across vehicle controllers and telemetry interfaces."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor fit: Teleoperation owns remote command and control, not autonomous measurement processing. Confidence reporting and time-windowed aggregation are not teleoperation concerns. High diffusion: pipeline would fragment across operator interface and command routing."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.5,
+        "diffusion_score": 0.5,
+        "notes": "Moderate fit: NGHE Solution is a top-level system container. While it could host Safety Services, placing the DP directly in NGHE Solution lacks specificity and obscures ownership. Diffusion risk: measurement pipeline logic would be distributed across multiple subsystems without clear cohesion."
+      }
+    ],
+    "ownership_candidate": "Safety Services",
+    "containment_hypothesis": "The decoupled measurement pipeline with time-windowed aggregation and confidence reporting is a safety-critical data processing function that belongs in Safety Services. This module owns the responsibility for ingesting raw telemetry, applying statistical windowing, computing confidence metrics, and emitting qualified safety alerts. The decoupled pipeline architecture (separation of ingestion, aggregation, and reporting stages) aligns with safety-critical isolation and fault containment principles. Telemetry is the input interface; SafetyAlert is the output interface. Network Link may be used for distributed synchronization if the pipeline spans multiple compute nodes.",
+    "containment_risks": [
+      "Risk: If time-window synchronization requires vehicle-level clock coordination, coupling to Vehicle module may increase. Mitigation: use centralized time reference in Safety Services.",
+      "Risk: If confidence thresholds must be tuned per vehicle type or teleoperation mode, configuration diffusion may occur. Mitigation: parameterize confidence logic and expose as configuration interface.",
+      "Risk: If raw telemetry preprocessing (filtering, outlier rejection) is performed before aggregation, ownership boundary between Telemetry ingestion and Safety Services may blur. Mitigation: define clear contract: Safety Services receives validated telemetry from Telemetry interface.",
+      "Risk: If multiple safety subsystems require independent measurement pipelines, duplication may occur. Mitigation: ensure Safety Services pipeline is shared and accessed via SafetyAlert interface."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Acceptance criteria require reported productivity ≥ productivity_target over evaluation period. Safety Services IM boundary enables direct verification: time-windowed aggregation produces timestamped measurement reports with confidence metrics that can be compared against productivity_target. Worksite safety plan compliance is verifiable through SafetyAlert interface emissions and confidence thresholds. Measurement pipeline's decoupled architecture supports reproducible, auditable reporting.",
+      "allocation_clarity": "FR allocation to Safety Services IM is clear: measurement ingestion (Telemetry interface) → aggregation (time-windowed statistical processing) → reporting (SafetyAlert interface with confidence qualification). Ownership is unambiguous; Safety Services is the single responsible module for end-to-end measurement pipeline. No competing allocation candidates."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP5 (decoupled measurement pipeline with time-windowed aggregation and confidence reporting) directly satisfies FR (enable measurement and reporting of material throughput in volumetric or mass units per unit time). DP specifies: (1) decoupled pipeline architecture for fault isolation, (2) time-windowed aggregation for statistical robustness, (3) confidence reporting for safety-critical qualification. All three elements are necessary and sufficient to enable throughput measurement and reporting. No logical gaps or over-specification."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Risk: Time-window synchronization across distributed compute nodes (Network Link interface) may require coupling to Vehicle module's clock or telemetry timestamp authority. Mitigation: establish centralized time reference in Safety Services; validate all incoming telemetry timestamps against Safety Services clock before aggregation.",
+        "Risk: Confidence threshold tuning per vehicle type or operational mode may scatter configuration logic across Vehicle and Teleoperation modules. Mitigation: expose confidence thresholds as parameterized configuration interface on Safety Services; document that Vehicle and Teleoperation modules must query Safety Services for threshold values rather than embedding local logic.",
+        "Risk: Raw telemetry preprocessing (filtering, outlier rejection) ownership boundary between Telemetry ingestion interface and Safety Services aggregation logic may blur if preprocessing is performed in-band. Mitigation: define explicit contract: Telemetry interface delivers validated, pre-filtered measurements; Safety Services applies only statistical windowing and confidence computation. Preprocessing remains in Telemetry module.",
+        "Risk: Multiple independent safety subsystems (e.g., separate measurement pipelines for different hazard classes) may duplicate aggregation and confidence logic. Mitigation: enforce single shared measurement pipeline in Safety Services; expose SafetyAlert interface with hazard-class tagging to allow downstream safety subsystems to filter alerts without duplicating pipeline logic."
+      ],
+      "containment_notes": "Safety Services IM boundary achieves 0.92 containment score with 0.08 diffusion. Excellent fit: measurement aggregation, time-windowed statistics, and confidence reporting are core safety service responsibilities. Decoupled pipeline architecture (ingestion → aggregation → reporting stages) aligns with safety-critical isolation and fault containment patterns. External interfaces are well-defined: Telemetry (in), SafetyAlert (out), Network Link (optional distributed sync). Vehicle (0.45 containment, 0.55 diffusion) and Teleoperation (0.35 containment, 0.65 diffusion) are poor candidates; placing DP in either would scatter pipeline logic across vehicle dynamics and command routing, violating separation of concerns. NGHE Solution (0.5 containment, 0.5 diffusion) is too coarse; lacks specificity and obscures ownership. Recommended allocation: Safety Services is the single responsible IM."
+    },
+    "recommended_revisions": [
+      "Formalize time-window synchronization contract: specify whether Safety Services maintains centralized clock or accepts external time references. Document tolerance for clock skew across distributed nodes.",
+      "Parameterize confidence thresholds: expose as configuration interface on Safety Services. Document that Vehicle and Teleoperation modules must not embed local confidence logic; they must query Safety Services for threshold values.",
+      "Define telemetry preprocessing boundary: document that Telemetry interface delivers validated, pre-filtered measurements (outlier rejection, sensor validation performed upstream). Safety Services applies only statistical windowing and confidence computation.",
+      "Enforce single shared pipeline: document that all safety subsystems must access measurement reports via SafetyAlert interface. Prohibit independent measurement pipelines in other modules. Use SafetyAlert hazard-class tagging to allow downstream filtering without duplication.",
+      "Add acceptance criterion detail: specify measurement reporting frequency (e.g., per time-window duration), confidence threshold for productivity reporting, and audit trail requirements for safety plan compliance verification."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass with high confidence. Safety Services IM achieves 0.92 containment with well-defined interfaces (Telemetry in, SafetyAlert out, Network Link optional). However, the recommended_revisions expose critical sub-level design decisions that must be decomposed to ensure safety-critical correctness: (1) time-window synchronization contract and clock authority, (2) confidence threshold parameterization and query protocol, (3) telemetry preprocessing boundary enforcement, (4) single shared pipeline enforcement across safety subsystems. These are not minor implementation details—they are architectural contracts that affect module coupling, fault isolation, and auditability. High safety criticality demands explicit decomposition of these concerns into verifiable sub-FRs before implementation. Proceeding without decomposition risks diffusion of clock logic, confidence tuning, and preprocessing ownership across Vehicle and Teleoperation modules, violating the 0.92 containment score achieved at this level.",
+    "next_level_sub_frs": [
+      "FR5.1: Establish and maintain a centralized, authoritative time reference for all telemetry timestamp validation and time-window boundary computation across distributed Safety Services nodes.",
+      "FR5.2: Expose and parameterize confidence thresholds as a queryable configuration interface such that Vehicle and Teleoperation modules retrieve threshold values from Safety Services rather than embedding local logic.",
+      "FR5.3: Enforce a formal contract that Telemetry interface delivers validated, pre-filtered measurements (outlier rejection, sensor validation) and Safety Services applies only statistical windowing and confidence computation.",
+      "FR5.4: Enforce a single shared measurement pipeline accessible via SafetyAlert interface with hazard-class tagging to prevent independent measurement pipeline duplication across safety subsystems.",
+      "FR5.5: Generate auditable measurement reports with timestamped aggregation windows, confidence metrics, and traceability to source telemetry for safety plan compliance verification."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "DP5 (decoupled measurement pipeline with time-windowed aggregation and confidence reporting) is logically sound but under-specifies critical safety-critical contracts. Revise DP5 to explicitly include: (1) centralized time reference authority and clock synchronization protocol, (2) confidence threshold parameterization and query interface design, (3) telemetry preprocessing boundary contract (what Safety Services receives vs. what it computes), (4) single shared pipeline enforcement mechanism (e.g., SafetyAlert interface as sole measurement output channel), (5) audit trail and traceability requirements. These revisions transform DP5 from a general architecture into a safety-critical specification that can be decomposed into verifiable sub-DPs."
+    },
+    "record": {
+      "assumptions": [
+        "Centralized time reference is feasible and does not introduce single point of failure (assumption: Safety Services clock is redundant or synchronized with external NTP authority).",
+        "Telemetry interface can guarantee pre-filtered, validated measurements (assumption: upstream Telemetry module has sufficient filtering and validation capability).",
+        "Vehicle and Teleoperation modules can be contractually bound to query Safety Services for confidence thresholds rather than embedding local logic (assumption: no latency or availability constraints prevent runtime queries).",
+        "SafetyAlert interface with hazard-class tagging is sufficient to prevent independent measurement pipeline duplication (assumption: downstream safety subsystems will adopt tagging convention).",
+        "Audit trail and traceability requirements do not impose unacceptable storage or computational overhead (assumption: time-windowed aggregation produces manageable report volume)."
+      ],
+      "open_risks": [
+        "Clock skew tolerance across distributed nodes is not yet specified; excessive skew could invalidate time-window boundaries and confidence metrics.",
+        "Confidence threshold tuning per vehicle type or operational mode may require runtime reconfiguration; query latency and consistency guarantees are not yet defined.",
+        "Telemetry preprocessing boundary may blur if Vehicle module performs in-band filtering before Telemetry interface delivery; enforcement mechanism (e.g., schema validation, interface contract) is not yet specified.",
+        "SafetyAlert interface adoption by downstream safety subsystems is not guaranteed; independent measurement pipelines may still emerge if adoption is voluntary.",
+        "Audit trail requirements may conflict with real-time reporting latency constraints; trade-off between auditability and responsiveness is not yet resolved.",
+        "High safety criticality demands formal verification of time-window correctness and confidence metric computation; verification approach (e.g., model checking, formal proof) is not yet selected."
+      ],
+      "evidence_needed": [
+        "Specification of centralized time reference authority: clock source (e.g., NTP, GPS, Safety Services internal), synchronization protocol, and clock skew tolerance.",
+        "Confidence threshold parameterization interface design: query protocol (e.g., REST, gRPC, shared memory), response latency SLA, and consistency guarantees.",
+        "Telemetry preprocessing contract: explicit list of preprocessing operations performed upstream (e.g., outlier rejection, sensor validation, unit conversion) and list of operations performed by Safety Services (e.g., time-windowing, statistical aggregation).",
+        "SafetyAlert interface specification: hazard-class tagging scheme, filtering semantics, and enforcement mechanism to prevent independent pipeline duplication.",
+        "Audit trail and traceability requirements: what data must be logged (e.g., raw telemetry, aggregation windows, confidence metrics), retention period, and access control.",
+        "Formal verification plan: approach to verify time-window correctness, confidence metric computation, and safety-critical properties (e.g., no measurement loss, no false negatives in safety alerts).",
+        "Performance and scalability analysis: measurement report generation frequency, confidence threshold query throughput, and distributed node synchronization overhead."
+      ]
+    }
+  }
+}

@@ -1,0 +1,167 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and designated work zones, with sufficient fidelity and update frequency to support autonomous path planning and operator situational awareness.",
+    "rationale": "The original FR was vague on fidelity requirements, update cadence, and intended consumers. Refinement clarifies that the worksite model must serve dual purposes: (1) autonomous planning algorithms requiring metric-level terrain and obstacle data, and (2) operator/tele-operator situational awareness requiring near-real-time hazard updates. High safety criticality demands explicit inclusion of dynamic hazard representation and work-zone boundaries.",
+    "verification_idea": "Acceptance test: (a) Terrain model accuracy within ±0.5 m RMS error over mapped area; (b) Static obstacle detection rate ≥95% for objects >0.3 m³; (c) Dynamic hazard update latency <2 s; (d) Work-zone boundary representation matches site plan with ≥99% spatial agreement; (e) Model available to planning and execution subsystems via documented interface within 5 s of request.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire and fuse multi-sensor terrain and obstacle data (LiDAR, camera, radar) into a unified 3D spatial representation.",
+      "CR-NGHE-006.2: Detect, classify, and track dynamic hazards (personnel, moving equipment) with continuous update.",
+      "CR-NGHE-006.3: Represent and enforce work-zone boundaries and no-go areas per site safety plan.",
+      "CR-NGHE-006.4: Expose worksite model to planning and execution functions via standardized query/subscription interface.",
+      "CR-NGHE-006.5: Validate model consistency and alert operators/safety systems to model degradation or sensor failures."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized mapping service (e.g., SLAM-based or grid-based occupancy mapping) running on vehicle compute, fusing onboard sensors, publishing model via message broker to planning and teleoperation clients.",
+      "DP-B: Distributed sensor processing: each sensor (LiDAR, camera, radar) streams raw or preprocessed data to a cloud-based mapping service; cloud service performs fusion and publishes model back to vehicle and tele-operator.",
+      "DP-C: Hybrid edge-cloud: vehicle runs lightweight occupancy grid update; cloud service performs high-fidelity SLAM and semantic segmentation; vehicle and cloud exchange deltas to maintain consistency.",
+      "DP-D: Operator-centric model: tele-operator manually annotates worksite features via UI; vehicle sensors provide real-time hazard alerts overlaid on operator's annotated map."
+    ],
+    "selected_dp": "DP-A: Centralized mapping service on vehicle compute, fusing onboard multi-sensor data (LiDAR, camera, radar) into a unified 3D occupancy grid and semantic layer, with model published via message broker (Telemetry interface) to planning, execution, and teleoperation clients. Model includes terrain elevation, static obstacles, dynamic hazards (via continuous sensor fusion), and work-zone boundaries (loaded from site safety plan at mission start). Vehicle-local processing ensures low-latency hazard detection and operator situational awareness; cloud connectivity optional for post-mission analysis and fleet-wide learning.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Sensor fusion algorithm couples terrain mapping to dynamic hazard detection—both require synchronized multi-sensor input. Mitigation: use time-stamped sensor frames and asynchronous fusion pipeline.",
+        "Work-zone boundary representation couples to site safety plan ingestion. Mitigation: define clear schema for safety plan import (e.g., GeoJSON or proprietary format) and validate at mission start.",
+        "Model publication couples to planning and teleoperation subsystems. Mitigation: define Telemetry interface contract (message schema, update frequency, latency SLA) and version it."
+      ],
+      "notes": "DP-A exhibits acceptable coupling: sensor fusion is inherently coupled, but decoupling via asynchronous pipelines and clear interface contracts is feasible. No circular dependencies detected."
+    },
+    "assumptions_risks": [
+      "Assumption: Vehicle compute platform has sufficient CPU/GPU and memory for real-time multi-sensor fusion (LiDAR + camera + radar). Risk: If compute is undersized, fusion latency may exceed 2 s target. Mitigation: specify compute requirements in DP refinement; prototype on target hardware.",
+      "Assumption: Onboard sensors (LiDAR, camera, radar) have sufficient coverage and accuracy to detect obstacles ≥0.3 m³ and terrain within ±0.5 m. Risk: Sensor blind spots or weather degradation may reduce detection rate. Mitigation: sensor placement study; redundancy for critical hazard detection.",
+      "Assumption: Message broker (Telemetry) is available and reliable for model publication. Risk: Broker failure or network congestion may delay model updates. Mitigation: implement local caching and graceful degradation.",
+      "Assumption: Site safety plan is available in machine-readable format at mission start. Risk: Manual or ad-hoc safety plans may not be machine-readable. Mitigation: define safety plan schema and require site manager to provide in standard format.",
+      "Assumption: Planning and teleoperation subsystems can consume model via Telemetry interface. Risk: Legacy planning algorithms may expect different model format. Mitigation: define adapter layer or require planning subsystem upgrade."
+    ],
+    "recommended_revision": "Refine DP-A to specify: (1) sensor fusion algorithm (e.g., occupancy grid with Bayesian update, or voxel-based SLAM); (2) compute platform and resource allocation (CPU cores, GPU, memory); (3) Telemetry message schema (e.g., OctoMap, PCL PointCloud2, or custom grid format); (4) update frequency (e.g., 10 Hz for hazards, 1 Hz for terrain); (5) work-zone boundary representation (e.g., GeoJSON polygons); (6) fallback behavior if sensors degrade (e.g., use last-known model with age flag)."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "The Vehicle module encompasses all onboard compute, sensors, and software responsible for real-time worksite mapping, including sensor drivers, fusion pipeline, occupancy grid/SLAM engine, work-zone boundary manager, and model publication service. The Vehicle module owns the authoritative worksite model during mission execution."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle publishes worksite model (occupancy grid, semantic layer, dynamic hazards, work-zone boundaries) to planning and teleoperation clients via Telemetry. Message schema: occupancy grid (resolution, origin, cell values), point cloud or voxel representation, hazard list (position, velocity, classification), work-zone polygons. Update frequency: 10 Hz for hazards, 1 Hz for terrain. Latency SLA: <2 s from sensor acquisition to publication."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives site safety plan and work-zone definitions from planning/site manager via Tasking interface at mission start. Format: GeoJSON or proprietary schema defining no-go areas, work zones, and safety constraints. Vehicle loads plan into work-zone boundary manager and validates against sensor data."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Vehicle publishes safety alerts (sensor failures, model degradation, hazard detection) to Safety Services via SafetyAlert. Alerts include: sensor health status, model confidence metrics, detected hazards in restricted zones, and recommended operator actions."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "NGHE Solution is the top-level system container. Worksite mapping is a core capability but not the only one (vehicle control, teleoperation, safety services are peers). Assigning IM to NGHE Solution would diffuse mapping responsibility across multiple subsystems. Not recommended as primary IM boundary."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.95,
+        "diffusion_score": 0.05,
+        "notes": "Vehicle is the natural owner of onboard sensors, compute, and real-time mapping. All sensor drivers, fusion algorithms, and model publication logic reside on vehicle. Telemetry, Tasking, and SafetyAlert interfaces are well-defined vehicle-to-external connections. Minimal diffusion: mapping is cohesive within vehicle boundary. Recommended as primary IM."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Teleoperation consumes the worksite model for operator situational awareness but does not own sensor acquisition or fusion. Assigning IM to Teleoperation would separate sensor processing from model generation, violating cohesion. Not recommended."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Safety Services consumes hazard alerts and model data but does not own sensor fusion or mapping. Assigning IM to Safety Services would diffuse mapping logic across vehicle and safety services. Not recommended."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module is the optimal IM boundary for worksite mapping because: (1) it owns all onboard sensors and compute; (2) sensor fusion and occupancy grid algorithms are tightly coupled to vehicle hardware and real-time constraints; (3) model publication via Telemetry is a natural vehicle-to-external interface; (4) work-zone boundary ingestion via Tasking is a vehicle-local initialization step; (5) safety alerts via SafetyAlert are generated by vehicle's sensor health monitoring. Containment score 0.95 reflects high cohesion and minimal diffusion.",
+    "containment_risks": [
+      "Risk: Vehicle module may become overloaded if additional perception tasks (e.g., semantic segmentation, activity recognition) are added. Mitigation: define clear sub-module boundaries within Vehicle (e.g., SensorFusion, OccupancyGrid, HazardDetector) and manage growth via architectural review.",
+      "Risk: Teleoperation and Planning subsystems may expect different model formats or update frequencies. Mitigation: define Telemetry interface contract early and enforce via interface versioning and adapter layers.",
+      "Risk: Site safety plan format may vary across projects, complicating Tasking interface. Mitigation: standardize safety plan schema (e.g., GeoJSON) and require site manager compliance.",
+      "Risk: Sensor failures or degradation may render model unreliable. Mitigation: implement model confidence metrics and publish via SafetyAlert; define fallback behavior (e.g., use last-known model with age flag)."
+    ],
+    "recommended_revision": "Refine Vehicle IM boundary to explicitly define: (1) sub-module structure (SensorDrivers, FusionEngine, OccupancyGrid, HazardDetector, WorkZoneManager, ModelPublisher); (2) internal interfaces between sub-modules; (3) Telemetry message schema and versioning strategy; (4) Tasking schema for safety plan import; (5) SafetyAlert schema for sensor health and model degradation; (6) compute resource allocation and real-time scheduling guarantees; (7) fallback and graceful degradation behavior."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-A (centralized vehicle-based mapping service) directly addresses refined FR-006: it generates a real-time worksite model representing terrain, obstacles, dynamic hazards, and work zones, with sufficient fidelity and update frequency for planning and operator situational awareness. DP-A is feasible, non-circular, and decoupled via asynchronous fusion and clear interface contracts. No blocking assumptions or unresolvable risks identified at this level."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Diffusion risk: If Vehicle module is undersized or overloaded, mapping performance may degrade. Mitigation: prototype on target hardware; define compute SLAs.",
+        "Diffusion risk: Telemetry interface may become a bottleneck if model publication frequency is too high. Mitigation: implement message compression and adaptive update rates.",
+        "Diffusion risk: Work-zone boundary manager may require frequent updates from site manager, creating tight coupling to Tasking interface. Mitigation: cache safety plan locally; define update protocol."
+      ],
+      "containment_notes": "Vehicle IM boundary exhibits high containment (0.95) and low diffusion (0.05). All sensor acquisition, fusion, and model generation logic is contained within Vehicle. External interfaces (Telemetry, Tasking, SafetyAlert) are well-defined and minimal. No diffusion of mapping responsibility to other modules detected."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification of CR-NGHE-006 is feasible via: (1) terrain model accuracy test (compare generated grid to ground truth survey); (2) obstacle detection test (place known obstacles and measure detection rate); (3) dynamic hazard test (move personnel/equipment and measure tracking latency); (4) work-zone boundary test (compare generated boundaries to site plan); (5) interface test (verify Telemetry, Tasking, SafetyAlert messages conform to schema and SLAs). All tests can be conducted in lab and field environments.",
+      "allocation_clarity": "Allocation of CR-NGHE-006 to Vehicle IM is clear: Vehicle owns sensor acquisition, fusion, model generation, and publication. Planning and Teleoperation subsystems consume model via Telemetry. Safety Services consumes alerts via SafetyAlert. Site Manager provides safety plan via Tasking. No ambiguity in responsibility allocation."
+    },
+    "recommended_revisions": [
+      "Refine DP-A to specify sensor fusion algorithm, compute platform, Telemetry message schema, and update frequency targets.",
+      "Refine Vehicle IM boundary to define sub-module structure and internal interfaces.",
+      "Define Telemetry, Tasking, and SafetyAlert interface contracts (message schemas, update frequencies, latency SLAs) and version them.",
+      "Conduct prototype/feasibility study on target vehicle compute platform to validate real-time performance assumptions.",
+      "Define fallback and graceful degradation behavior for sensor failures and model degradation."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "CR-NGHE-006 is not atomic and requires further functional decomposition. The refined FR identifies five sub-FRs (sensor fusion, dynamic hazard detection, work-zone representation, model exposure, and model validation) that must be decomposed to design parameters and implementation modules. DP-A and Vehicle IM are sound at this level, but sub-FRs require detailed design before implementation can proceed. Proceeding to next decomposition level is necessary to allocate design responsibility and verify feasibility.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire and fuse multi-sensor terrain and obstacle data (LiDAR, camera, radar) into a unified 3D spatial representation.",
+      "CR-NGHE-006.2: Detect, classify, and track dynamic hazards (personnel, moving equipment) with continuous update.",
+      "CR-NGHE-006.3: Represent and enforce work-zone boundaries and no-go areas per site safety plan.",
+      "CR-NGHE-006.4: Expose worksite model to planning and execution functions via standardized query/subscription interface.",
+      "CR-NGHE-006.5: Validate model consistency and alert operators/safety systems to model degradation or sensor failures."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Vehicle compute platform has sufficient CPU/GPU and memory for real-time multi-sensor fusion.",
+        "Onboard sensors (LiDAR, camera, radar) have sufficient coverage and accuracy to meet detection and terrain accuracy targets.",
+        "Message broker (Telemetry) is available and reliable for model publication.",
+        "Site safety plan is available in machine-readable format (e.g., GeoJSON) at mission start.",
+        "Planning and teleoperation subsystems can consume model via Telemetry interface.",
+        "Sensor fusion algorithm (e.g., occupancy grid, SLAM) is mature and available as open-source or commercial library.",
+        "Work-zone boundary representation can be standardized across projects (e.g., GeoJSON polygons)."
+      ],
+      "open_risks": [
+        "Sensor blind spots or weather degradation may reduce hazard detection rate below 95% target.",
+        "Compute platform may be undersized, causing fusion latency to exceed 2 s SLA.",
+        "Telemetry interface may become a bottleneck if model publication frequency is too high.",
+        "Site safety plan format may vary across projects, complicating Tasking interface.",
+        "Legacy planning algorithms may expect different model format, requiring adapter layer.",
+        "Model confidence metrics and fallback behavior not yet defined; may impact operator trust and safety."
+      ],
+      "evidence_needed": [
+        "Prototype/feasibility study on target vehicle compute platform validating real-time fusion performance.",
+        "Sensor placement and coverage analysis confirming detection rate targets.",
+        "Telemetry interface specification and message schema (occupancy grid format, update frequency, latency SLA).",
+        "Tasking interface specification for safety plan import (GeoJSON or proprietary schema).",
+        "SafetyAlert interface specification for sensor health and model degradation alerts.",
+        "Fallback and graceful degradation behavior specification (e.g., use last-known model with age flag).",
+        "Integration test plan for Telemetry, Tasking, and SafetyAlert interfaces.",
+        "Field trial data validating terrain accuracy, obstacle detection, and dynamic hazard tracking."
+      ]
+    }
+  }
+}

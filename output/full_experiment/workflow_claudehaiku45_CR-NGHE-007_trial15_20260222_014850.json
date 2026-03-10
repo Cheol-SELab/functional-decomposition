@@ -1,0 +1,172 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current operational state within the customer-defined latency target.",
+    "rationale": "The original FR conflates two concerns: (1) the obligation to update the model, and (2) the obligation to meet a timeliness constraint. The refined FR isolates the functional requirement (what must be updated and when relative to operational need) from the acceptance criterion (p95 ≤ 1.0 s), which is a measurable constraint on the DP/IM realization. The phrase 'customer-required timeliness' is solution-neutral and defers the specific numeric target to the acceptance criteria baseline, avoiding embedding implementation assumptions (e.g., 'within 1 second') into the FR itself.",
+    "verification_idea": "Measure the elapsed time between a state change in the physical worksite (e.g., equipment position, obstacle detection, safety zone breach) and the corresponding update reflected in the worksite model accessible to all stakeholders (Site Manager, Operator, Tele-operator, Safety Manager). Verify that the measured latency meets the customer-defined target across supported update scenarios (e.g., equipment movement, sensor input, manual input, safety event).",
+    "sub_frs": [
+      "FR-NGHE-007.1: The NGHE solution shall capture worksite state changes from all enabled sensors and input sources.",
+      "FR-NGHE-007.2: The NGHE solution shall propagate captured worksite state changes to the worksite model.",
+      "FR-NGHE-007.3: The NGHE solution shall make updated worksite model state accessible to authorized stakeholders."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Synchronous update pipeline with direct model mutation on event receipt, blocking until persistence confirmation",
+      "DP2: Asynchronous event-driven architecture with eventual consistency; model updates queued, processed, and persisted independently with latency monitoring",
+      "DP3: Hybrid dual-path model: fast in-memory cache layer (optimistic update) + background persistence with conflict resolution and rollback capability",
+      "DP4: Change-data-capture (CDC) pattern; operational state changes streamed from authoritative source, model reconstructed incrementally with versioning",
+      "DP5: Polling-based state reconciliation at fixed intervals with delta detection and selective model refresh"
+    ],
+    "selected_dp": "DP3: Hybrid dual-path model with fast in-memory cache layer (optimistic update) + background persistence with conflict resolution and rollback capability",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Tight coupling between cache invalidation logic and persistence layer if not abstracted via clear interface",
+        "Conflict resolution strategy must remain independent of specific data model schema to avoid brittleness",
+        "Latency monitoring instrumentation must not be embedded in core update path; use cross-cutting concern pattern",
+        "Rollback mechanism must not assume specific persistence technology (e.g., transaction semantics); design for eventual consistency semantics"
+      ],
+      "notes": "DP3 decouples the latency-critical path (in-memory update) from the durability path (background persistence), reducing blocking and enabling p95 ≤ 1.0s compliance. Conflict resolution and rollback are logically independent concerns that can be packaged separately. Risk: if cache and persistent store diverge, model integrity depends on deterministic reconciliation; this must be validated against safety plan constraints."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Customer-defined latency target is measurable and consistent across all supported update scenarios; if scenarios vary widely (e.g., bulk updates vs. single-field changes), p95 may not be achievable uniformly.",
+      "ASSUMPTION: Worksite safety plan permits temporary inconsistency between in-memory model and persistent state (optimistic update); if safety-critical decisions depend on durable state, this violates safety requirements.",
+      "RISK: Conflict resolution strategy (e.g., last-write-wins, operational-policy-based merge) must be defined before IM selection; undefined strategy will cause DP->IM mapping to fail.",
+      "RISK: Rollback capability requires versioning and state snapshots; storage overhead and recovery latency must be validated against operational constraints.",
+      "RISK: If operational policies change dynamically, conflict resolution logic must be externalized and reloadable; embedding it in code creates coupling to policy domain.",
+      "ASSUMPTION: Network and persistence layer failures are transient; if persistent store is unavailable for extended periods, cache-only operation may violate durability expectations."
+    ],
+    "recommended_revision": "FR should be refined to explicitly state: (1) acceptable consistency model (strong vs. eventual), (2) rollback/recovery expectations in case of cache-persistence divergence, (3) whether latency target applies to all update types or specific scenarios, and (4) safety-critical constraints that bound the use of optimistic updates. Additionally, clarify whether 'worksite model' is a single authoritative copy or distributed replicas; this affects DP3 feasibility. Propose secondary FR: 'The NGHE solution shall detect and resolve divergence between in-memory model and persistent state within [T] seconds, with audit trail for safety compliance.' This makes conflict resolution an explicit requirement rather than an implicit DP detail."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "Centralized data synchronization and state management layer that orchestrates dual-path persistence (in-memory cache + background persistence) with conflict resolution and rollback semantics across all vehicle teleoperation and safety operations."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "inout",
+        "details": "Receives vehicle state updates; outputs cached/resolved state snapshots for downstream consumers (Vehicle, Teleoperation, Safety Services)."
+      },
+      {
+        "name": "Tasking",
+        "direction": "inout",
+        "details": "Receives command/task requests; outputs optimistic acknowledgments from cache layer; background persistence confirms or rolls back via this interface."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Emits rollback notifications and conflict resolution outcomes that affect safety-critical state."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Manages background persistence I/O; receives acknowledgments from persistent storage; handles retry and conflict detection."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit. NGHE Solution is the natural orchestration layer for hybrid dual-path logic. Cache management, conflict resolution, and rollback are core state-management concerns that belong in a centralized solution module. Minimal diffusion: only external interface contracts leak out (Telemetry, Tasking, SafetyAlert, Network Link). Internal cache and persistence logic remain encapsulated."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor fit. Vehicle module typically models physical vehicle state and actuators. Dual-path caching and conflict resolution are orthogonal to vehicle dynamics. Placing this DP in Vehicle would scatter persistence logic across vehicle state objects, creating tight coupling between vehicle model and synchronization concerns. High diffusion into Teleoperation and Safety Services."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Poor fit. Teleoperation is a consumer of state, not a manager of dual-path persistence. Placing cache and conflict resolution here would couple operator commands to backend synchronization logic, violating separation of concerns. Diffusion into Vehicle (state source) and Safety Services (safety-critical rollback) would be significant."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.38,
+        "diffusion_score": 0.62,
+        "notes": "Poor fit. Safety Services should focus on safety validation and alerts, not general-purpose data synchronization. Embedding dual-path persistence here would conflate safety logic with caching/conflict resolution, making safety code harder to audit and test. Diffusion into Vehicle and Teleoperation for state queries would be high."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "The NGHE Solution module is the appropriate architectural boundary for DP3 because it is the system-level orchestration layer responsible for coordinating state consistency across distributed components (Vehicle, Teleoperation, Safety Services). The dual-path model (optimistic cache + background persistence) is a cross-cutting synchronization concern that must be centralized to avoid state divergence and to enforce conflict resolution and rollback semantics uniformly. Placing this DP in NGHE Solution ensures that all state mutations flow through a single, auditable path, reducing the risk of inconsistency and simplifying rollback logic.",
+    "containment_risks": [
+      "NGHE Solution may become a performance bottleneck if cache layer is not efficiently implemented (in-memory data structure choice, lock contention). Mitigation: design cache with lock-free or read-optimized structures; profile early.",
+      "Conflict resolution logic may need domain-specific knowledge from Vehicle or Safety Services (e.g., safety-critical state must never be rolled back). Mitigation: define conflict resolution policies as pluggable callbacks; Safety Services registers handlers for safety-critical fields.",
+      "Network Link interface may introduce latency in background persistence, delaying rollback notifications. Mitigation: implement asynchronous persistence with bounded queues; SafetyAlert interface must be non-blocking.",
+      "If Vehicle, Teleoperation, or Safety Services attempt to bypass NGHE Solution and directly mutate shared state, containment breaks. Mitigation: enforce architectural layering via dependency injection and code review; make shared state immutable or read-only outside NGHE Solution."
+    ],
+    "recommended_revision": "No revision to DP3 is necessary. The DP is well-suited to NGHE Solution. However, clarify the DP to explicitly state that conflict resolution policies are configurable (e.g., 'last-write-wins', 'safety-critical-preserves', 'application-defined callback') and that rollback is asynchronous and non-blocking to Safety Services. This ensures that the DP remains implementation-agnostic while guiding the IM design toward a modular, testable architecture."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP3 (hybrid dual-path model with fast in-memory cache + background persistence with conflict resolution and rollback) directly addresses the FR requirement to update the worksite model within customer-defined latency targets. The optimistic in-memory cache layer satisfies the latency constraint (p95 ≤ 1.0 s) by enabling immediate acknowledgment, while background persistence ensures durability. Conflict resolution and rollback semantics provide safety guarantees. The DP is logically sound and implementation-agnostic."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "NGHE Solution containment score of 0.92 is strong, but the 0.08 diffusion risk materializes if Vehicle, Teleoperation, or Safety Services bypass the NGHE Solution module and directly mutate shared state. Mitigation: enforce read-only access to shared state outside NGHE Solution; use dependency injection to route all mutations through NGHE Solution.",
+        "Conflict resolution logic may require domain-specific knowledge from Safety Services (e.g., safety-critical fields must never be rolled back). If conflict resolution policies are hardcoded in NGHE Solution, diffusion of safety semantics into a general-purpose synchronization module occurs. Mitigation: implement pluggable conflict resolution callbacks; Safety Services registers handlers for safety-critical fields.",
+        "Network Link interface introduces asynchronous persistence I/O. If rollback notifications are delayed or lost, Safety Services may operate on stale state. Mitigation: implement bounded queues and guaranteed delivery for SafetyAlert interface; make rollback notifications synchronous or use event sourcing.",
+        "Cache layer performance (lock contention, memory overhead) may violate latency targets if not carefully implemented. Mitigation: profile cache data structures early; use lock-free or read-optimized structures; monitor p95 latency in integration testing."
+      ],
+      "containment_notes": "NGHE Solution is the correct architectural boundary for DP3. The dual-path persistence model is a cross-cutting synchronization concern that must be centralized to enforce consistent state management across Vehicle, Teleoperation, and Safety Services. Placing this DP in NGHE Solution ensures a single, auditable path for all state mutations and simplifies rollback semantics. The module containment analysis confirms that alternative boundaries (Vehicle, Teleoperation, Safety Services) would scatter persistence logic and create high diffusion (0.6–0.65). External interfaces (Telemetry, Tasking, SafetyAlert, Network Link) are well-defined and minimal, indicating good encapsulation of internal cache and conflict resolution logic."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Latency acceptance criterion (p95 ≤ 1.0 s) is measurable and testable via integration testing with realistic telemetry and tasking workloads. Conflict resolution and rollback behavior can be verified through scenario-based testing (e.g., network partition, concurrent updates, safety-critical state conflicts). Safety plan compliance requires traceability from rollback notifications (SafetyAlert interface) to safety-critical state fields; this can be verified via code review and formal analysis of conflict resolution policies.",
+      "allocation_clarity": "The FR is clearly allocated to NGHE Solution as the orchestration layer. Responsibilities are well-distributed: Telemetry interface receives vehicle state updates; Tasking interface handles command acknowledgments and rollback confirmations; SafetyAlert interface emits safety-critical notifications; Network Link manages background persistence. Each interface has a clear direction (in/out) and purpose. However, the allocation of conflict resolution policy ownership (NGHE Solution vs. Safety Services) should be explicitly clarified in the DP to avoid ambiguity during implementation."
+    },
+    "recommended_revisions": [
+      "Clarify DP3 to explicitly state that conflict resolution policies are configurable and pluggable (e.g., 'last-write-wins', 'safety-critical-preserves', 'application-defined callback'). This ensures that NGHE Solution remains a general-purpose synchronization layer while allowing Safety Services to register domain-specific handlers for safety-critical fields.",
+      "Specify that rollback notifications via SafetyAlert interface are asynchronous but guaranteed-delivery (e.g., via event sourcing or durable queues). This ensures that Safety Services is always notified of state rollbacks, even if network or processing delays occur.",
+      "Add a constraint to DP3: 'Cache layer must support lock-free or read-optimized access patterns to minimize latency variance and contention.' This guides implementation toward high-performance data structures and helps ensure p95 latency targets are met.",
+      "Define the boundary between optimistic cache updates and background persistence confirmation in the Tasking interface. Specify whether Tasking consumers receive immediate acknowledgments from the cache layer or wait for background persistence confirmation. This clarifies the latency vs. durability trade-off.",
+      "Add a mitigation strategy to DP3: 'Enforce architectural layering via dependency injection and code review to prevent Vehicle, Teleoperation, and Safety Services from bypassing NGHE Solution and directly mutating shared state.' This reduces the diffusion risk identified in the containment analysis."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass with strong logical soundness and architectural containment. However, the gate analysis identifies five material diffusion risks and six recommended revisions that must be resolved before proceeding to implementation. The safety criticality of this system (high) and the complexity of conflict resolution semantics warrant explicit decomposition of sub-FRs to address: (1) pluggable conflict resolution policies, (2) guaranteed-delivery rollback notifications, (3) lock-free cache access patterns, (4) latency vs. durability trade-offs in acknowledgment semantics, and (5) architectural enforcement mechanisms to prevent state mutation bypass. These sub-FRs will operationalize the mitigations and revisions, making them testable and allocatable to specific implementation modules. Stopping here would defer critical design decisions to implementation, increasing rework risk. Revising the current DP without decomposition would create a DP that is too prescriptive and difficult to validate. Decomposing sub-FRs allows us to refine the DP iteratively while maintaining traceability to safety and latency requirements.",
+    "next_level_sub_frs": [
+      "FR3.1: Enable configurable conflict resolution policies for worksite model state fields, including safety-critical fields, without hardcoding domain-specific semantics into the synchronization layer.",
+      "FR3.2: Guarantee delivery of rollback notifications to Safety Services within bounded latency, even under network partition or processing delays, to ensure safety-critical state consistency.",
+      "FR3.3: Minimize cache layer latency variance (p95 ≤ 1.0 s) through lock-free or read-optimized access patterns under concurrent read/write workloads.",
+      "FR3.4: Clarify and enforce the latency vs. durability trade-off by distinguishing between optimistic cache acknowledgments and background persistence confirmations in the Tasking interface.",
+      "FR3.5: Prevent unauthorized state mutations by Vehicle, Teleoperation, and Safety Services through architectural layering and dependency injection, ensuring all mutations route through NGHE Solution."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "DP3 is logically sound but under-specifies five critical design decisions identified in the gate analysis: (1) conflict resolution policy pluggability, (2) rollback notification delivery guarantees, (3) cache access pattern constraints, (4) acknowledgment semantics (optimistic vs. durable), and (5) mutation routing enforcement. These revisions should be incorporated into DP3 before sub-FR decomposition to ensure the revised DP is complete and unambiguous. Specifically: add explicit statement that conflict resolution policies are pluggable and configurable; specify that SafetyAlert rollback notifications use guaranteed-delivery semantics (e.g., event sourcing or durable queues); add constraint that cache layer must support lock-free or read-optimized access; clarify Tasking interface semantics for acknowledgment timing; add mitigation for dependency injection and code review enforcement. These revisions operationalize the recommended_revisions from the gate analysis and reduce ambiguity for sub-FR derivation."
+    },
+    "record": {
+      "assumptions": [
+        "Conflict resolution policies can be abstracted as pluggable callbacks without violating safety invariants (assumption: Safety Services can register handlers for safety-critical fields).",
+        "Rollback notifications can be made guaranteed-delivery through event sourcing or durable queues without exceeding the p95 ≤ 1.0 s latency target (assumption: notification latency is decoupled from cache update latency).",
+        "Lock-free or read-optimized cache data structures (e.g., copy-on-write, RCU, concurrent hash maps) are feasible for the worksite model state size and update frequency (assumption: state size is bounded and update patterns are analyzable).",
+        "Dependency injection and code review can effectively enforce architectural layering to prevent state mutation bypass (assumption: development team has expertise in dependency injection patterns and code review discipline).",
+        "Safety Services can tolerate asynchronous rollback notifications if delivery is guaranteed (assumption: safety-critical logic does not require synchronous rollback acknowledgment)."
+      ],
+      "open_risks": [
+        "Conflict resolution policy complexity: if safety-critical fields have interdependencies (e.g., position and velocity must be consistent), pluggable callbacks may not be sufficient; formal verification of conflict resolution correctness may be required.",
+        "Rollback notification latency: guaranteed-delivery mechanisms (event sourcing, durable queues) may introduce additional latency; integration testing must verify that rollback notifications do not violate safety response time requirements.",
+        "Cache layer contention under high concurrency: lock-free data structures are notoriously difficult to implement correctly; incorrect implementation may introduce race conditions or memory safety issues; early profiling and formal analysis of cache implementation is critical.",
+        "Acknowledgment semantics ambiguity: if Tasking consumers expect durable acknowledgments but receive optimistic cache acknowledgments, they may issue follow-up commands before background persistence completes, creating state divergence; this must be clarified in DP3 and validated in integration testing.",
+        "Architectural enforcement: dependency injection and code review are manual processes; without automated enforcement (e.g., static analysis, module visibility rules), developers may inadvertently bypass NGHE Solution; consider implementing compile-time or runtime checks."
+      ],
+      "evidence_needed": [
+        "Specification of pluggable conflict resolution callback interface (signature, error handling, rollback semantics) with examples for safety-critical and non-critical fields.",
+        "Design and performance analysis of guaranteed-delivery mechanism for SafetyAlert rollback notifications (event sourcing vs. durable queues vs. synchronous notification); latency measurements under network partition scenarios.",
+        "Benchmark results for lock-free cache data structures (copy-on-write, RCU, concurrent hash maps) with realistic worksite model state size and update frequency; p95 latency measurements under concurrent read/write workloads.",
+        "Clarification of Tasking interface semantics: does acknowledgment occur after cache update or after background persistence? What is the expected latency for each? How are retries and timeouts handled?",
+        "Architectural enforcement strategy: code examples of dependency injection patterns for NGHE Solution; static analysis rules or module visibility constraints to prevent direct state mutation by Vehicle, Teleoperation, Safety Services.",
+        "Safety analysis: formal verification or scenario-based testing of conflict resolution policies for safety-critical fields; traceability from rollback notifications to safety-critical state fields; verification that rollback notifications are always delivered before Safety Services operates on stale state."
+      ]
+    }
+  }
+}

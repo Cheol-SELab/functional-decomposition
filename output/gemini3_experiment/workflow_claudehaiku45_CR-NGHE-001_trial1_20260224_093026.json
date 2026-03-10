@@ -1,0 +1,173 @@
+{
+  "refined_fr": {
+    "refined_fr": "Enable measurement and reporting of material throughput in volumetric or mass units per unit time.",
+    "rationale": "The original FR conflates two distinct obligations: (1) the system's capability to measure and report throughput metrics, and (2) the achievement of a customer-defined productivity target. The latter is a business outcome dependent on operational execution, workforce skill, site conditions, and equipment utilization—not solely a system design requirement. The refined FR isolates the system's functional obligation (instrumentation and data visibility) from the acceptance criterion (target achievement during evaluation). This separation preserves solution neutrality by not prescribing how throughput is optimized, only that it is measurable and visible to stakeholders.",
+    "verification_idea": "Demonstrate that the NGHE solution collects, processes, and reports material throughput data (m³/h or ton/h) in real time or near-real time to authorized stakeholders (Site Manager, Equipment Operator, Tele-operator) via the designated interface (e.g., operator cabin display, remote monitoring dashboard). Verify accuracy against independent measurement during representative operations.",
+    "sub_frs": [
+      "Acquire material throughput data (volume or mass per time interval) from operational sensors or manual input.",
+      "Process and aggregate throughput data into standardized metrics (m³/h or ton/h).",
+      "Display or report throughput metrics to authorized stakeholders in real time or near-real time.",
+      "Store throughput data with sufficient granularity and retention to support post-operation analysis and productivity assessment."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Continuous volumetric flow measurement via inline sensor with real-time signal conditioning and local data buffering",
+      "DP2: Periodic mass-based sampling with statistical extrapolation to infer throughput rate over evaluation window",
+      "DP3: Dual-path measurement (volumetric + mass) with cross-validation logic to detect anomalies and select most reliable instantaneous rate",
+      "DP4: Time-stamped event counting (discrete material units or batches) aggregated into rate calculation with configurable time windows",
+      "DP5: Indirect inference via process parameters (e.g., power consumption, cycle time, fill-level change rate) correlated to throughput via calibration model"
+    ],
+    "selected_dp": "DP3: Dual-path measurement (volumetric + mass) with cross-validation logic to detect anomalies and select most reliable instantaneous rate",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Tight coupling between volumetric and mass measurement subsystems if they share a single data acquisition module—mitigated by independent sensor channels with separate signal conditioning",
+        "Cross-validation logic depends on both measurement streams; failure of one path degrades confidence but does not block reporting (graceful degradation)",
+        "Calibration model (DP5 fallback) introduces dependency on process parameter stability; recommend decoupling via independent validation dataset",
+        "Reporting interface must remain agnostic to which measurement path is active; use abstraction layer to avoid tight coupling to sensor selection logic"
+      ],
+      "notes": "DP3 is preferred over DP1 (single volumetric) because it provides redundancy and anomaly detection without requiring a single point of truth. DP2 (sampling) introduces statistical bias risk over short evaluation windows. DP4 (event counting) is brittle if material flow is continuous. DP5 (indirect inference) is acceptable as fallback but should not be primary due to process variability. Dual-path design supports the acceptance criterion by enabling confidence assessment and re-measurement if anomalies detected."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Volumetric and mass measurement sensors can be installed in-line without significant operational disruption or cost penalty.",
+      "ASSUMPTION: Material properties (density, moisture content) remain stable enough during evaluation period that volumetric-to-mass conversion is reliable.",
+      "RISK: If material is heterogeneous or compressible, volumetric measurement alone may not correlate linearly to mass; dual-path mitigates but requires validation.",
+      "RISK: Sensor drift or calibration drift over evaluation period could cause systematic bias; recommend pre- and post-evaluation calibration checkpoints.",
+      "RISK: Cross-validation logic must define thresholds for 'anomaly'—if thresholds are too loose, false negatives; if too tight, false positives trigger unnecessary re-measurement.",
+      "RISK: Acceptance criterion references 'productivity_target' but does not specify measurement uncertainty tolerance; recommend defining acceptable measurement error band (e.g., ±5%).",
+      "ASSUMPTION: Worksite safety plan permits installation of measurement instrumentation without creating new hazards (e.g., sensor protrusions, electrical enclosures).",
+      "RISK: Real-time signal conditioning and buffering introduce latency; if reporting must be instantaneous, buffering strategy must be specified to avoid stale data."
+    ],
+    "recommended_revision": "Refine FR to explicitly state: (1) Required measurement accuracy/uncertainty (e.g., ±X% of productivity_target), (2) Reporting frequency (real-time, batch, end-of-period), (3) Fallback behavior if one measurement path fails, (4) Definition of 'representative operations' (e.g., steady-state only, or including ramp-up/ramp-down), (5) Environmental constraints (temperature, humidity, vibration) that may affect sensor performance. Propose IM layer decomposition: IM-Volumetric-Sensor, IM-Mass-Sensor, IM-Signal-Conditioning (shared or separate), IM-Cross-Validation-Logic, IM-Reporting-Interface. This clarifies ownership boundaries and enables independent testing of each module."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "Onboard measurement acquisition, dual-path sensing logic, cross-validation, and instantaneous rate selection with anomaly detection"
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle exports validated instantaneous rate (volumetric or mass-based) and anomaly flags to NGHE Solution for logging and analysis"
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Vehicle signals critical measurement anomalies (e.g., sensor disagreement beyond threshold) to Safety Services for intervention decision"
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives measurement mode preferences or cross-validation thresholds from Teleoperation/NGHE Solution"
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Dual-path measurement (volumetric + mass sensors) and cross-validation logic are intrinsic to vehicle payload and onboard processing. Anomaly detection and rate selection occur at the point of measurement acquisition. Minimal diffusion: only validated results and alerts leave the boundary via Telemetry and SafetyAlert."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.45,
+        "diffusion_score": 0.55,
+        "notes": "NGHE is a higher-level coordination layer. Placing dual-path measurement logic here would require Vehicle to transmit raw sensor streams (volumetric and mass) continuously, creating heavy coupling and network overhead. Cross-validation and anomaly detection belong at the source, not downstream."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Teleoperation is a remote command/monitoring interface. Embedding measurement logic here violates separation of concerns and creates latency-sensitive dependencies on network link. Measurement must be autonomous onboard."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Safety Services consumes anomaly alerts but should not own the measurement logic itself. Placing dual-path validation here decouples it from the sensors and introduces unacceptable latency for real-time rate selection."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module is the natural owner of dual-path measurement and cross-validation because (1) both sensor types (volumetric and mass) are physically onboard, (2) instantaneous rate selection must occur with minimal latency at the point of acquisition, (3) anomaly detection is a local, autonomous function that does not require external coordination, and (4) the DP is cohesive: all logic operates on the same sensor pair and produces a single validated output. Diffusion is minimal: only the selected rate and anomaly flags leave the boundary.",
+    "containment_risks": [
+      "If Vehicle lacks sufficient onboard compute capacity, cross-validation logic may be deferred to NGHE Solution, increasing network coupling and latency.",
+      "If sensor calibration or threshold tuning is managed remotely, Tasking interface must support dynamic reconfiguration without blocking measurement.",
+      "If anomaly thresholds are not well-defined, Safety Services may receive excessive false alerts, degrading trust in SafetyAlert interface."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Acceptance criteria require reported productivity ≥ productivity_target over evaluation period. Vehicle module's dual-path measurement with cross-validation and anomaly detection directly enables this: instantaneous rates (volumetric or mass) are validated at source and exported via Telemetry interface to NGHE Solution for logging and analysis. Verification is feasible by comparing reported rates against ground truth (calibrated reference measurements) during representative operations. SafetyAlert interface provides independent anomaly flag stream for audit.",
+      "allocation_clarity": "FR allocation to Vehicle IM is clear and justified. The FR (enable measurement and reporting of material throughput) maps to DP3 (dual-path measurement with cross-validation), which is owned entirely by Vehicle. Reporting occurs via Telemetry interface; anomaly signaling via SafetyAlert. No ambiguity in responsibility boundaries."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP3 (dual-path measurement with cross-validation logic and instantaneous rate selection) directly and sufficiently addresses FR (enable measurement and reporting of throughput in volumetric or mass units per unit time). The DP includes both measurement acquisition (dual sensors) and validation logic (anomaly detection, rate selection), ensuring reliable instantaneous throughput reporting. Cross-validation mechanism mitigates single-sensor failure modes, supporting worksite safety plan requirements."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Onboard compute capacity constraint: If Vehicle lacks sufficient processing power for real-time cross-validation, logic may be deferred to NGHE Solution, creating network coupling and latency risk. Mitigation: specify minimum onboard compute requirements in Vehicle design specification.",
+        "Sensor calibration and threshold management: If anomaly thresholds or cross-validation tolerances are tuned remotely via Tasking interface, dynamic reconfiguration must not block measurement acquisition. Mitigation: implement non-blocking threshold update mechanism with fallback to last-known-good values.",
+        "False alert proliferation: If anomaly thresholds are poorly calibrated, SafetyAlert interface may flood Safety Services with false positives, degrading operational trust and response effectiveness. Mitigation: establish threshold tuning protocol during commissioning and include alert rate metrics in operational monitoring.",
+        "Sensor stream transmission fallback: If onboard cross-validation fails, Vehicle may default to transmitting raw sensor streams to NGHE Solution for downstream validation. This creates unintended diffusion of DP logic. Mitigation: define explicit failure mode (e.g., report last-valid rate with degraded-confidence flag) to prevent logic migration."
+      ],
+      "containment_notes": "Vehicle module exhibits strong containment (0.92 score) for DP3. Both volumetric and mass sensors are physically onboard; cross-validation and rate selection occur at point of acquisition with minimal latency. Anomaly detection is autonomous and does not require external coordination. Only validated outputs (instantaneous rate + anomaly flags) cross module boundary via Telemetry and SafetyAlert interfaces. NGHE Solution, Teleoperation, and Safety Services are correctly excluded from measurement logic ownership; they consume validated results or provide configuration inputs only. Cohesion is high: all logic operates on the same sensor pair and produces a single validated output stream."
+    },
+    "recommended_revisions": [
+      "Specify onboard compute capacity and real-time processing latency budget for cross-validation logic (e.g., <100 ms from sensor read to rate output) to prevent deferred processing.",
+      "Define anomaly threshold tuning protocol: establish baseline thresholds during commissioning, document sensitivity analysis, and specify approval process for remote threshold updates via Tasking interface.",
+      "Establish SafetyAlert rate limit and false-positive tolerance: define maximum alert frequency and acceptable false-positive rate to prevent alert fatigue at Safety Services.",
+      "Document sensor failure modes and fallback behavior: specify what Vehicle reports (e.g., last-valid rate with confidence degradation flag) if one or both sensors fail, preventing unintended logic diffusion to NGHE Solution.",
+      "Add interface specification detail to Tasking: clarify which parameters (thresholds, mode preferences, calibration offsets) can be updated remotely and which require Vehicle restart or manual intervention.",
+      "Verify acceptance criteria mapping: confirm that 'reported productivity ≥ productivity_target' is computed from Vehicle's validated instantaneous rates (not raw sensor data) and that NGHE Solution's logging preserves anomaly flags for post-hoc analysis."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-IM, FR-DP, DP-IM) pass with strong technical justification and high containment (0.92). However, the recommended_revisions and diffusion_risks expose critical sub-system concerns that require explicit functional decomposition to ensure safety criticality and architectural robustness. Specifically: (1) onboard compute capacity and real-time latency constraints are not yet formalized as FRs; (2) anomaly threshold tuning and remote reconfiguration introduce dynamic behavior not yet captured in sub-FRs; (3) sensor failure modes and fallback logic require explicit functional specification to prevent unintended logic diffusion; (4) SafetyAlert rate-limiting and false-positive tolerance are safety-critical concerns that must be elevated to functional requirements. Decomposing these concerns now prevents downstream rework and ensures safety criticality is properly allocated and verified.",
+    "next_level_sub_frs": [
+      "FR3.1: Enable real-time cross-validation of dual sensor streams with latency ≤ 100 ms from sensor acquisition to instantaneous rate output, ensuring onboard processing does not defer measurement logic to external systems.",
+      "FR3.2: Support dynamic anomaly threshold configuration via Tasking interface without blocking measurement acquisition, with automatic fallback to last-known-good thresholds on update failure.",
+      "FR3.3: Detect and report single-sensor failure modes (loss of signal, out-of-range, drift) with explicit confidence degradation flags, preventing unintended transmission of raw sensor streams to downstream systems.",
+      "FR3.4: Limit SafetyAlert anomaly notification frequency to prevent alert fatigue, with configurable rate limits and false-positive tolerance thresholds established during commissioning.",
+      "FR3.5: Maintain sensor calibration state (offsets, sensitivity curves, last-calibration timestamp) onboard with non-volatile persistence, enabling independent verification of measurement validity across power cycles and operational sessions."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "DP3 (dual-path measurement with cross-validation) is logically sound but lacks explicit specification of: (1) real-time processing architecture (onboard vs. deferred); (2) threshold update mechanism and fallback behavior; (3) sensor failure mode handling and confidence signaling; (4) SafetyAlert rate-limiting logic; (5) calibration state management. These details are essential to prevent diffusion risks and ensure safety criticality is properly contained. Revise DP3 to include these sub-DPs as explicit design choices, or decompose into sub-DPs at next level to formalize them."
+    },
+    "record": {
+      "assumptions": [
+        "Vehicle module has sufficient onboard compute capacity (CPU, memory, real-time OS) to execute cross-validation logic within 100 ms latency budget; if not, DP3 logic will diffuse to NGHE Solution.",
+        "Anomaly thresholds can be tuned remotely via Tasking interface without blocking measurement acquisition; non-blocking update mechanism is feasible.",
+        "Sensor failure modes (single-sensor loss, drift, out-of-range) are detectable and distinguishable from normal operational variance.",
+        "SafetyAlert interface can support rate-limiting and filtering without loss of critical anomaly notifications.",
+        "Calibration state (offsets, sensitivity, timestamp) can be persisted onboard and retrieved reliably across power cycles.",
+        "NGHE Solution's logging and analysis pipeline correctly interprets anomaly flags and confidence degradation signals from Vehicle."
+      ],
+      "open_risks": [
+        "Onboard compute capacity constraint: If Vehicle lacks real-time processing capability, cross-validation logic will migrate to NGHE Solution, creating network coupling, latency risk, and potential single-point-of-failure for measurement reliability. Mitigation: FR3.1 formalizes latency requirement; design specification must verify onboard compute capacity before DP3 implementation.",
+        "Threshold tuning protocol undefined: Remote anomaly threshold updates via Tasking interface may introduce race conditions, stale values, or blocking behavior if not carefully designed. Mitigation: FR3.2 formalizes non-blocking update requirement; detailed interface specification and state machine design required.",
+        "Sensor failure mode handling incomplete: If Vehicle defaults to transmitting raw sensor streams on cross-validation failure, DP logic diffuses to NGHE Solution and measurement reliability becomes dependent on network availability. Mitigation: FR3.3 formalizes explicit failure mode reporting; fallback behavior must be specified and tested.",
+        "SafetyAlert false-positive proliferation: If anomaly thresholds are poorly calibrated or sensor noise is high, SafetyAlert may flood Safety Services with false positives, degrading operational trust and response effectiveness. Mitigation: FR3.4 formalizes rate-limiting and false-positive tolerance; commissioning protocol must include threshold tuning and validation.",
+        "Calibration state loss: If sensor calibration offsets or sensitivity curves are lost (power loss, memory corruption), Vehicle may report invalid measurements without detection. Mitigation: FR3.5 formalizes persistent calibration state; non-volatile storage and integrity checks required.",
+        "Safety criticality not yet fully allocated: Measurement reliability is safety-critical (worksite safety plan depends on accurate throughput reporting), but sub-system FRs for real-time processing, failure detection, and alert rate-limiting are not yet explicit. Mitigation: Decompose to sub-FRs (FR3.1–FR3.5) to ensure safety criticality is properly allocated and verified."
+      ],
+      "evidence_needed": [
+        "Vehicle onboard compute capacity specification: CPU model, clock speed, memory (RAM, non-volatile), real-time OS, and measured latency for cross-validation logic on representative sensor data streams.",
+        "Tasking interface specification: detailed message format, state machine for threshold updates, fallback behavior on update failure, and non-blocking implementation design.",
+        "Sensor failure mode analysis: FMEA or similar for volumetric and mass sensors, including loss-of-signal, out-of-range, drift, and cross-validation failure modes; detection logic and confidence degradation mapping.",
+        "SafetyAlert rate-limiting design: specification of maximum alert frequency, false-positive tolerance, and filtering logic; commissioning protocol for threshold tuning and validation.",
+        "Calibration state management design: non-volatile storage mechanism, integrity checks, and retrieval logic; power-loss and corruption scenarios tested.",
+        "Acceptance criteria verification plan: how 'reported productivity ≥ productivity_target' will be validated against ground truth during representative operations; role of anomaly flags and confidence degradation in acceptance testing.",
+        "Safety criticality allocation matrix: mapping of worksite safety plan requirements to Vehicle measurement FRs and DPs; verification strategy for each safety-critical sub-function."
+      ]
+    }
+  }
+}

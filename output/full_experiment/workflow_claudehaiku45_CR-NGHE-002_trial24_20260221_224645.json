@@ -1,0 +1,170 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall enable execution of the load→travel→dump cycle within the customer-defined cycle time target.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting/enabling the capability to achieve cycle time, and (2) actually achieving the measured KPI. The refined FR is atomic and solution-neutral by focusing on the functional obligation—enabling the cycle to execute within the time envelope—without prescribing how (e.g., speed optimization, path planning, operator assistance). The actual achievement of p95 ≤ CT_target is a verification criterion tied to duty cycle and site conditions, not a functional requirement of the system itself. This separation clarifies that the system must provide the necessary functional capacity; measurement and validation occur in the verification domain.",
+    "verification_idea": "Conduct cycle time trials under the agreed duty cycle and site conditions. Measure p95 cycle time across a statistically significant sample (minimum 30 cycles per trial). Confirm p95 ≤ CT_target. Verify that no functional bottleneck in load, travel, or dump phases prevents target achievement when operated per design intent.",
+    "sub_frs": [
+      "FR-NGHE-002.1: The NGHE solution shall enable load acquisition within the load phase time budget.",
+      "FR-NGHE-002.2: The NGHE solution shall enable travel (loaded and unloaded) within the travel phase time budget.",
+      "FR-NGHE-002.3: The NGHE solution shall enable material dump within the dump phase time budget.",
+      "FR-NGHE-002.4: The NGHE solution shall minimize non-productive delays (e.g., positioning, stabilization, transitions) within the cycle time envelope."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Decompose the load→travel→dump cycle into sequential sub-operations (load, travel, dump) with independent timing budgets that sum to CT_target, and allocate execution control to a supervisory coordinator that sequences these operations based on state transitions and sensor feedback.",
+      "DP2: Implement a parallel execution model where load, travel, and dump operations overlap where physically feasible (e.g., travel begins while final load elements are being positioned), with a real-time scheduler that enforces hard timing constraints and detects conflicts.",
+      "DP3: Design a fixed-sequence state machine with pre-calculated operation durations calibrated to site conditions (terrain, load mass, distance), with adaptive timing adjustments triggered by measured deviations from baseline cycle segments.",
+      "DP4: Establish a demand-driven cycle execution model where each operation (load, travel, dump) is triggered by completion signals from the prior operation, with built-in timeout mechanisms and fallback paths to ensure CT_target compliance under variable site conditions."
+    ],
+    "selected_dp": "DP3: Design a fixed-sequence state machine with pre-calculated operation durations calibrated to site conditions (terrain, load mass, distance), with adaptive timing adjustments triggered by measured deviations from baseline cycle segments.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "DP3 couples cycle timing to site-condition calibration; if calibration data is incomplete or site conditions change unexpectedly, timing budgets may not hold. Mitigation: require explicit site survey and re-baseline before operation.",
+        "DP3 assumes predictable operation durations; high variability in load mass or terrain could violate p95 target. Mitigation: define acceptable variance bands and trigger re-calibration if observed cycle times drift beyond ±5% of baseline.",
+        "Adaptive adjustment logic must not introduce race conditions or state inconsistencies; requires careful synchronization between state machine and sensor feedback loops."
+      ],
+      "notes": "DP3 is preferred over DP1 (sequential) because it allows tighter timing control and avoids slack accumulation. DP2 (parallel) introduces complexity in conflict detection and is deferred unless cycle time target cannot be met sequentially. DP4 (demand-driven) is reactive and less predictable for p95 guarantees. DP3 balances predictability, adaptability, and implementability."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Site conditions (terrain roughness, load mass distribution, dump-zone accessibility) can be characterized and remain stable during operation. RISK: Uncharacterized site variability could cause p95 violations. MITIGATION: Require pre-operation site survey; define re-baseline triggers.",
+      "ASSUMPTION: Sensor feedback (position, load state, travel progress) is reliable and latency is <100ms. RISK: Sensor drift or communication delays could cause timing errors. MITIGATION: Implement sensor health monitoring and timeout-based fallback logic.",
+      "ASSUMPTION: Load mass and composition are within design envelope. RISK: Overload or unusual load geometry could extend cycle segments beyond budget. MITIGATION: Implement load-mass estimation and reject out-of-spec loads before cycle start.",
+      "ASSUMPTION: Adaptive adjustment logic can be validated and certified for safety-critical operation. RISK: Unintended state transitions or timing errors in adaptive logic could cause safety incidents. MITIGATION: Formal verification of state machine; extensive testing under duty-cycle scenarios.",
+      "ASSUMPTION: p95 measurement methodology is agreed with customer and consistently applied. RISK: Measurement ambiguity could lead to acceptance disputes. MITIGATION: Define cycle start/end events precisely; log all cycle times for statistical analysis."
+    ],
+    "recommended_revision": "Refine DP3 to explicitly separate concerns: (1) Baseline cycle timing model (calibrated to site conditions), (2) Real-time state machine (executes load→travel→dump sequence), (3) Adaptive feedback loop (monitors deviations and adjusts future cycle budgets). This separation enables independent testing and certification of each component. Additionally, add explicit acceptance criteria for site-condition variability (e.g., 'cycle time shall remain within ±5% of baseline under ±10% load mass variation') to make the DP-to-FR mapping testable and unambiguous."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "Autonomous vehicle control logic, including state machine execution, timing calibration, sensor fusion for deviation detection, and adaptive cycle management based on site-specific conditions"
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle reports measured cycle segment durations, state transitions, and deviation flags to enable monitoring and adaptive feedback"
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives mission parameters (terrain type, load mass, distance) to calibrate baseline operation durations and state machine sequencing"
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Vehicle signals safety-critical deviations (e.g., cycle segment exceeds threshold) that require intervention or mode change"
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Vehicle may receive real-time adjustments to timing parameters or state machine configuration from remote teleoperation or NGHE Solution if adaptive recalibration is needed mid-mission"
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "State machine logic, timing calibration, and deviation detection are core vehicle autonomy functions. Pre-calculated durations and adaptive adjustments are naturally owned by the vehicle controller. Minor diffusion: SafetyAlert and Telemetry interfaces require external coordination, but logic remains internal."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.65,
+        "diffusion_score": 0.35,
+        "notes": "NGHE Solution could host mission planning and calibration, but the runtime state machine execution and real-time deviation detection must reside in Vehicle for latency and autonomy. Significant diffusion: state machine logic would split between NGHE (calibration) and Vehicle (execution)."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Teleoperation is a supervisory/intervention layer, not a primary control locus. State machine and timing logic belong in autonomous Vehicle, not in remote operator interface. High diffusion: core autonomy logic would leak into Vehicle anyway."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Safety Services monitors and enforces safety constraints, but does not own the state machine or timing calibration. DP3 is a control strategy, not a safety monitor. High diffusion: state machine logic would remain in Vehicle; Safety Services only consumes SafetyAlert output."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module is the natural owner of DP3 because it encapsulates autonomous control logic, sensor fusion, and real-time adaptation. The state machine, baseline calibration, and deviation detection are all core to vehicle autonomy and must execute with low latency on the vehicle controller. External interfaces (Tasking, Telemetry, SafetyAlert, Network Link) provide inputs and outputs without requiring the DP logic to diffuse into other modules.",
+    "containment_risks": [
+      "If site-condition calibration (terrain, load mass, distance) is computed offline by NGHE Solution, the Vehicle module must receive pre-calculated parameters via Tasking interface; ensure calibration data format is stable and versioned.",
+      "Real-time adaptive timing adjustments may require feedback loops between Vehicle (measured deviations) and NGHE Solution or Teleoperation (recalibration commands); latency and consistency must be validated.",
+      "Safety Services must be able to override or halt the state machine if deviations exceed safety thresholds; define clear SafetyAlert semantics and Vehicle response behavior to avoid ambiguity.",
+      "If multiple Vehicle instances operate in a fleet, ensure each Vehicle independently maintains its own state machine and calibration; avoid shared mutable state across Vehicle boundaries."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Cycle time measurement is directly observable via Telemetry interface (measured cycle segment durations and state transitions). P95 ≤ CT_target can be validated empirically under agreed duty cycle and site conditions. State machine execution and timing calibration are deterministic and auditable within Vehicle module.",
+      "allocation_clarity": "FR allocation to Vehicle IM is clear: autonomous execution of load→travel→dump cycle with adaptive timing is a core vehicle autonomy function. Tasking interface provides site-condition inputs (terrain, load mass, distance) for calibration; Telemetry provides measurement feedback for verification. Ownership boundary is well-defined."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP3 (fixed-sequence state machine with pre-calculated durations and adaptive timing adjustments) directly addresses the FR requirement to execute the cycle within CT_target. The design is concrete: state machine sequencing is deterministic, baseline calibration is parameterized by site conditions, and adaptive adjustments respond to measured deviations. Acceptance criterion (p95 ≤ CT_target) is measurable and traceable to DP3 execution fidelity."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Calibration data ownership: If site-condition calibration (terrain, load mass, distance → baseline durations) is computed offline by NGHE Solution, ensure Tasking interface contract is versioned and stable. Vehicle must not re-derive calibration logic; it must consume pre-calculated parameters only. Risk: calibration logic diffusion if Vehicle and NGHE Solution both attempt to compute baselines.",
+        "Real-time adaptive feedback loop: Adaptive timing adjustments triggered by measured deviations require bidirectional communication (Vehicle → Telemetry/SafetyAlert, NGHE Solution/Teleoperation → Network Link). Latency and consistency of recalibration commands must be validated. Risk: if recalibration logic is split between Vehicle (detection) and NGHE Solution (adjustment computation), timing coherence may degrade.",
+        "Safety override semantics: SafetyAlert interface signals safety-critical deviations, but Vehicle response behavior (halt, mode change, continue with warning) must be unambiguous. If Safety Services interprets SafetyAlert and issues override commands via Network Link, ensure Vehicle state machine has a well-defined safe state and transition logic. Risk: ambiguous safety semantics could cause state machine logic to leak into Safety Services.",
+        "Fleet state isolation: If multiple Vehicle instances operate in parallel, each must independently maintain its own state machine instance and calibration parameters. Avoid shared mutable state or cross-vehicle timing dependencies. Risk: shared calibration or state could cause diffusion of DP3 logic across Vehicle boundaries."
+      ],
+      "containment_notes": "Vehicle module achieves 0.92 containment score with 0.08 diffusion. State machine logic, timing calibration, and deviation detection are naturally owned by Vehicle controller. External interfaces (Tasking, Telemetry, SafetyAlert, Network Link) are well-scoped: Tasking provides inputs, Telemetry and SafetyAlert provide outputs, Network Link enables supervisory recalibration without requiring Vehicle to share core autonomy logic. NGHE Solution (0.65 containment, 0.35 diffusion) should host mission planning and offline calibration, not runtime state machine execution. Teleoperation (0.4 containment, 0.6 diffusion) and Safety Services (0.35 containment, 0.65 diffusion) are supervisory layers; DP3 logic must remain in Vehicle to ensure low-latency autonomous execution and clear ownership."
+    },
+    "recommended_revisions": [
+      "Formalize Tasking interface contract: Define schema for site-condition parameters (terrain type, load mass, distance) and pre-calculated baseline durations. Include versioning and validation rules to prevent Vehicle from re-deriving calibration.",
+      "Define SafetyAlert semantics and Vehicle response: Specify which deviations trigger SafetyAlert (e.g., cycle segment exceeds threshold by X%), and Vehicle's deterministic response (halt, mode change, continue with flag). Document safe state and transition logic to avoid ambiguity.",
+      "Specify adaptive recalibration protocol: If real-time adjustments are sent via Network Link, define latency bounds, command format, and Vehicle's handling of stale or conflicting recalibration commands. Ensure Vehicle state machine can safely ignore or queue adjustments without deadlock.",
+      "Validate fleet isolation: If multiple Vehicle instances operate in parallel, confirm each maintains independent state machine and calibration. Document any shared resources (e.g., telemetry aggregation, mission queue) and ensure they do not introduce cross-vehicle timing dependencies.",
+      "Acceptance criterion operationalization: Specify measurement protocol for p95 ≤ CT_target (e.g., sample size, duty cycle definition, site conditions, measurement window). Ensure Telemetry interface provides sufficient granularity (cycle segment durations, state transition timestamps) to compute p95 empirically."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-IM, FR-DP, DP-IM) pass with high confidence. The FR is well-scoped, the DP is concrete and measurable, and the IM allocation is clear with manageable diffusion risks. However, the gate analysis identifies five critical interface and safety semantics that require sub-level decomposition to operationalize and de-risk. Specifically: (1) Tasking interface contract formalization, (2) SafetyAlert semantics and Vehicle response logic, (3) adaptive recalibration protocol, (4) fleet isolation validation, and (5) acceptance criterion operationalization. These are not defects in the current level but rather dependencies that must be resolved at the next level to ensure DP3 execution fidelity and safety coherence. Given high safety criticality, decomposing these interface and protocol requirements into explicit sub-FRs will enable rigorous verification and reduce runtime ambiguity.",
+    "next_level_sub_frs": [
+      "FR3.1: Consume site-condition calibration parameters (terrain, load mass, distance) from Tasking interface and apply them to baseline cycle duration calculation without re-deriving calibration logic.",
+      "FR3.2: Detect cycle segment deviations (measured duration vs. baseline) and signal safety-critical exceedances via SafetyAlert interface with deterministic Vehicle response semantics (halt, mode change, or continue with flag).",
+      "FR3.3: Accept real-time adaptive recalibration commands via Network Link with defined latency bounds and conflict resolution, ensuring Vehicle state machine can safely queue, apply, or ignore adjustments without deadlock.",
+      "FR3.4: Maintain independent state machine instance and calibration parameters per Vehicle instance in a multi-vehicle fleet, with no cross-vehicle timing dependencies or shared mutable state.",
+      "FR3.5: Provide Telemetry interface output with sufficient granularity (cycle segment durations, state transition timestamps, adaptive adjustment events) to enable empirical measurement of p95 cycle time against CT_target."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "DP3 is logically sound but operationally incomplete. The current DP statement does not explicitly address: (a) the contract schema for Tasking input (site-condition parameters and baseline durations), (b) the deterministic response logic for SafetyAlert triggers, (c) the protocol for handling real-time recalibration commands and latency constraints, (d) fleet isolation guarantees, or (e) Telemetry output granularity. Revise DP3 to include these operational details as sub-design parameters, or decompose into sub-DPs that map to the five sub-FRs above. This ensures the design is not only logically correct but also architecturally complete and verifiable."
+    },
+    "record": {
+      "assumptions": [
+        "Site-condition calibration (terrain, load mass, distance → baseline durations) is computed offline by NGHE Solution and provided to Vehicle via Tasking interface; Vehicle does not re-derive calibration.",
+        "SafetyAlert interface is unidirectional (Vehicle → Safety Services) and signals deviations; Vehicle response is deterministic and does not depend on external override commands for safe state transitions.",
+        "Real-time adaptive recalibration commands (if sent via Network Link) have defined latency bounds (e.g., ≤ 500 ms) and Vehicle can safely ignore stale commands without entering unsafe state.",
+        "Multiple Vehicle instances operate independently with isolated state machines and calibration parameters; no shared mutable state or cross-vehicle timing dependencies exist.",
+        "Telemetry interface provides cycle segment durations and state transition timestamps at sufficient granularity (e.g., ≤ 100 ms resolution) to compute p95 empirically."
+      ],
+      "open_risks": [
+        "Calibration data ownership and versioning: If Tasking interface contract is not formally versioned, Vehicle and NGHE Solution may diverge on baseline duration interpretation, causing cycle time drift.",
+        "SafetyAlert semantics ambiguity: If Vehicle response to SafetyAlert is not deterministically specified (e.g., halt vs. mode change vs. continue with flag), Safety Services may misinterpret Vehicle behavior or attempt to override state machine logic, causing diffusion.",
+        "Adaptive recalibration latency and consistency: If Network Link recalibration commands have unbounded latency or Vehicle does not have a clear protocol for handling stale/conflicting commands, timing coherence may degrade or state machine may deadlock.",
+        "Fleet isolation violation: If multiple Vehicle instances share calibration data or state, cross-vehicle timing dependencies could emerge, violating the assumption of independent execution.",
+        "Acceptance criterion operationalization: If Telemetry interface does not provide sufficient granularity or if measurement protocol (sample size, duty cycle, site conditions) is not agreed, p95 ≤ CT_target cannot be empirically validated."
+      ],
+      "evidence_needed": [
+        "Formal Tasking interface schema (site-condition parameters, baseline duration format, versioning rules, validation constraints).",
+        "SafetyAlert trigger thresholds and Vehicle response decision table (e.g., if segment duration > baseline + X%, then halt; if > baseline + Y%, then mode change; etc.).",
+        "Network Link recalibration protocol specification (command format, latency bounds, conflict resolution, Vehicle queuing/buffering logic).",
+        "Fleet isolation design document: confirmation that each Vehicle instance maintains independent state machine and calibration, with no shared resources that could introduce cross-vehicle dependencies.",
+        "Telemetry interface specification: output granularity (cycle segment durations, state transition timestamps, adaptive adjustment events), sampling rate, and measurement protocol for p95 computation.",
+        "Empirical validation plan: duty cycle definition, site conditions (terrain types, load masses, distances), sample size, measurement window, and acceptance criteria for p95 ≤ CT_target."
+      ]
+    }
+  }
+}

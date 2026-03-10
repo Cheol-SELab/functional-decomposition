@@ -18,13 +18,15 @@ def compare_two_methods_one_level_and_save(
     run_id: Optional[str] = None,
     model_ours: Optional[str] = None,
     model_baseline: Optional[str] = None,
+    workflow_prefix: str = "workflow",
+    baseline_prefix: str = "baseline",
 ) -> Dict[str, Any]:
     ours = run_one_level_and_save(
         inputs=inputs,
         available_modules=available_modules,
         known_interfaces=known_interfaces,
         outdir=outdir,
-        filename_prefix="workflow",
+        filename_prefix=workflow_prefix,
         run_id=run_id,
         model=model_ours,
     )
@@ -36,6 +38,7 @@ def compare_two_methods_one_level_and_save(
         outdir=outdir,
         run_id=run_id,
         model=model_baseline,
+        filename_prefix=baseline_prefix,
     )
 
     return {
@@ -54,6 +57,9 @@ def compare_nghe_cr_and_save(
     known_interfaces: List[str],
     model_ours: Optional[str] = None,
     model_baseline: Optional[str] = None,
+    run_id: Optional[str] = None,
+    workflow_prefix: str = "workflow",
+    baseline_prefix: str = "baseline",
 ) -> Dict[str, Any]:
     reqs = load_nghe_customer_requirements(requirements_file)
     cr: CustomerRequirement = find_cr(reqs, cr_id)
@@ -89,7 +95,9 @@ def compare_nghe_cr_and_save(
         available_modules=available_modules,
         known_interfaces=known_interfaces,
         outdir=outdir,
-        run_id=cr.req_id,
+        run_id=run_id or cr.req_id,
         model_ours=model_ours,
         model_baseline=model_baseline,
+        workflow_prefix=workflow_prefix,
+        baseline_prefix=baseline_prefix,
     )

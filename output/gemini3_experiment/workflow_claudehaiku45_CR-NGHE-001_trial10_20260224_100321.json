@@ -1,0 +1,169 @@
+{
+  "refined_fr": {
+    "refined_fr": "Enable measurement and reporting of material throughput in volumetric or mass units per unit time.",
+    "rationale": "The original FR conflates two distinct obligations: (1) the system's capability to measure/report throughput metrics, and (2) the achievement of a customer-defined target. The latter is a success criterion dependent on operational execution, not a system requirement. The refined FR isolates the system's functional obligation—providing visibility into throughput—which is solution-neutral and testable independent of whether a specific productivity target is met. The target itself belongs in acceptance criteria or KPI definitions, not in the FR.",
+    "verification_idea": "Demonstrate that the NGHE solution captures and reports material throughput (m³/h or ton/h) during representative operations. Verify data accuracy against independent measurement. Confirm reporting is accessible to Site Manager and relevant stakeholders in real time or near-real time.",
+    "sub_frs": [
+      "FR-NGHE-001.1: Acquire material throughput data (volume or mass per time interval) during active operations.",
+      "FR-NGHE-001.2: Calculate and aggregate throughput metrics from acquired data.",
+      "FR-NGHE-001.3: Report throughput metrics to authorized stakeholders in a human-readable format."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Continuous volumetric flow measurement via inline sensor with real-time signal conditioning and local data buffering",
+      "DP2: Periodic mass-based sampling with calibrated weighing and extrapolation to throughput rate over fixed time windows",
+      "DP3: Hybrid dual-path measurement (volumetric primary + mass-based verification) with automated cross-validation logic",
+      "DP4: Indirect throughput inference from process parameters (e.g., pump speed, conveyor velocity, material density lookup) with periodic calibration checkpoints",
+      "DP5: Decoupled measurement acquisition (sensor data collection) from reporting logic (aggregation, filtering, acceptance criterion evaluation) via standardized data interface"
+    ],
+    "selected_dp": "DP5 (Decoupled measurement acquisition from reporting logic) combined with DP1 (continuous volumetric measurement) as the primary sensing strategy",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Tight coupling between sensor signal conditioning and acceptance criterion evaluation—mitigated by DP5's explicit decoupling via standardized data interface",
+        "Dependency on material density assumptions in indirect methods (DP4)—avoided by selecting direct volumetric measurement",
+        "Cross-validation logic in DP3 introduces bidirectional dependency between two measurement paths—DP5 avoids this by keeping paths independent until reporting layer",
+        "Real-time reporting vs. batch reporting timing assumptions—DP5 allows flexible reporting cadence without affecting measurement acquisition"
+      ],
+      "notes": "DP5 enforces separation of concerns: acquisition module owns sensor interface and buffering; reporting module owns aggregation, filtering, and acceptance criterion logic. This decoupling allows independent evolution of measurement hardware and reporting policy without architectural rework. DP1 is solution-neutral at this level (does not prescribe sensor type, only the logical concept of continuous volumetric measurement with conditioning)."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Material properties (density, compressibility) remain stable during evaluation period. RISK: Significant variation could invalidate volumetric-to-mass conversion if cross-validation is later required. MITIGATION: Periodic calibration checkpoints and material property logging.",
+      "ASSUMPTION: Acceptance criterion `≥ productivity_target` is evaluated over the agreed evaluation period as a single aggregate metric. RISK: If criterion requires real-time instantaneous throughput thresholds, DP1 buffering latency may cause false negatives. MITIGATION: Clarify acceptance criterion evaluation window (instantaneous vs. rolling average vs. period aggregate).",
+      "ASSUMPTION: Worksite safety plan does not impose hard constraints on sensor placement or measurement method (e.g., no intrusive probes in hazardous zones). RISK: Safety constraints could force indirect measurement (DP4) instead of direct volumetric. MITIGATION: Validate sensor placement options against safety plan early.",
+      "ASSUMPTION: Data interface between acquisition and reporting modules can be standardized (e.g., timestamped flow rate samples, metadata). RISK: Legacy systems or third-party integrations may not support standardized interface. MITIGATION: Define interface contract explicitly; plan adapter layer if needed.",
+      "ASSUMPTION: Evaluation period is long enough to average out transient measurement noise and operational variability. RISK: Short evaluation windows may amplify sensor noise or startup/shutdown transients. MITIGATION: Confirm evaluation period duration and define noise filtering strategy."
+    ],
+    "recommended_revision": "Refine FR to explicitly state: (1) Acceptance criterion evaluation window (instantaneous, rolling average, or period aggregate); (2) Required measurement accuracy/uncertainty bounds; (3) Frequency of reporting (real-time, batch, on-demand); (4) Constraints from worksite safety plan on sensor placement and measurement method. This will enable tighter DP selection and IM boundary definition. Additionally, introduce a secondary FR for 'Enable periodic calibration and validation of throughput measurement against reference standard' to address material property variability and sensor drift risks."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "Encapsulates continuous volumetric measurement acquisition (DP1) with decoupled reporting logic (DP5), isolating sensor data collection and preprocessing from downstream telemetry and tasking consumers."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle exports processed measurement data (volume, rate, quality metrics) to NGHE Solution for aggregation and reporting."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives measurement configuration directives (sampling rate, thresholds, reporting intervals) from Teleoperation or Safety Services."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Vehicle emits critical measurement anomalies (sensor failure, out-of-range volume) directly to Safety Services when thresholds are breached."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Vehicle uses network link for bidirectional communication of telemetry and tasking payloads."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit. Vehicle naturally owns the sensor hardware (DP1 continuous volumetric measurement) and can encapsulate the decoupling logic (DP5) between raw acquisition and formatted reporting. Measurement preprocessing, buffering, and report scheduling remain internal. Minor diffusion: SafetyAlert interface requires Vehicle to know safety thresholds (owned by Safety Services), but this is acceptable as a configuration input via Tasking."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.45,
+        "diffusion_score": 0.55,
+        "notes": "Poor fit. NGHE Solution is a higher-level aggregator and should not own the sensor acquisition hardware or real-time measurement logic. Placing DP1+DP5 here would require Vehicle to be a passive data source, losing cohesion of measurement strategy. Reporting logic could live here, but decoupling from acquisition would be weak—NGHE would need to manage sensor state, which violates separation of concerns."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Very poor fit. Teleoperation is a control/command interface, not a measurement platform. Placing continuous volumetric measurement and its decoupling logic here would scatter sensor ownership across Vehicle and Teleoperation, creating tight coupling and duplicated state management. Measurement acquisition must remain on the Vehicle where sensors reside."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor fit. Safety Services should consume measurement data and enforce safety policies, not own the measurement acquisition pipeline. Placing DP1+DP5 here would create a dependency inversion: Safety Services would need to manage sensor hardware and real-time acquisition, which is not its domain. Safety Services should receive alerts and telemetry from Vehicle, not generate them."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module is the natural owner of continuous volumetric measurement acquisition (DP1) because it houses the sensor hardware and real-time data collection. Decoupling measurement from reporting (DP5) is best implemented within Vehicle as an internal architectural pattern: a measurement acquisition subsystem (raw sensor reads, buffering, preprocessing) is logically separated from a reporting subsystem (formatting, scheduling, filtering) via a well-defined internal interface. This decoupling allows Vehicle to emit telemetry on its own schedule without blocking sensor acquisition, and to route critical alerts to Safety Services independently of routine reporting to NGHE Solution. The Vehicle exports three interfaces: Telemetry (routine measurement reports), SafetyAlert (threshold breaches), and Tasking (configuration updates). This design keeps measurement strategy coherent and avoids diffusing sensor ownership across multiple modules.",
+    "containment_risks": [
+      "Risk: Vehicle may not have sufficient computational resources to implement sophisticated decoupling logic (buffering, filtering, scheduling). Mitigation: Decoupling logic should be lightweight; complex aggregation and analysis remain in NGHE Solution.",
+      "Risk: Safety thresholds are defined by Safety Services, but Vehicle must enforce them to emit SafetyAlert. This creates a configuration dependency. Mitigation: Thresholds are supplied to Vehicle via Tasking interface; Vehicle treats them as immutable parameters during operation.",
+      "Risk: If measurement reporting frequency is very high, Telemetry interface may become a bottleneck. Mitigation: Vehicle's decoupling logic includes rate-limiting and batching to reduce telemetry payload frequency without losing data fidelity.",
+      "Risk: Multiple measurement types (volume, rate, quality) may require different decoupling strategies. Mitigation: Decoupling pattern should be generic enough to handle multiple measurement streams with configurable reporting rules."
+    ],
+    "recommended_revision": "No revision to DP choice is necessary. DP1 (continuous volumetric measurement) + DP5 (decoupled measurement from reporting) are well-suited to Vehicle ownership. However, clarify that DP5's decoupling is an internal architectural pattern within Vehicle, not a separate module boundary. The decoupling manifests as: (1) a measurement acquisition thread/process that reads sensors continuously, (2) a measurement buffer that decouples acquisition from reporting, and (3) a reporting scheduler that formats and emits data on configurable intervals. This internal separation ensures that sensor acquisition is never blocked by reporting delays, and that safety-critical alerts can be emitted independently of routine telemetry."
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The Vehicle module owns continuous volumetric measurement acquisition (DP1) and decoupling logic (DP5), both of which are directly observable and measurable. Acceptance criteria require reported productivity ≥ productivity_target over an evaluation period. This can be verified by: (1) instrumenting Vehicle's measurement acquisition to log raw sensor reads and timestamps, (2) validating that reported throughput (volume/mass per unit time) matches ground truth from independent calibration, (3) confirming that SafetyAlert and Telemetry interfaces emit data with expected latency and fidelity. The worksite safety plan and operational policies constrain the thresholds and reporting intervals supplied via Tasking, making verification traceable to policy.",
+      "allocation_clarity": "Clear. Vehicle is unambiguously assigned ownership of DP1 (continuous volumetric measurement hardware and acquisition logic) and DP5 (decoupling measurement from reporting via internal buffering and scheduling). The three external interfaces (Telemetry, SafetyAlert, Tasking) define Vehicle's contract with downstream consumers. No ambiguity exists regarding which module is responsible for sensor data collection, preprocessing, or initial reporting. The internal decoupling pattern (acquisition thread → buffer → reporting scheduler) is an implementation detail within Vehicle, not a separate module boundary, which eliminates cross-module ownership disputes."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Minor: SafetyAlert interface requires Vehicle to enforce thresholds defined by Safety Services. Mitigation: Thresholds are immutable configuration parameters supplied via Tasking at startup/reconfiguration; Vehicle does not own threshold logic, only enforcement. This is acceptable coupling.",
+        "Minor: Decoupling logic (DP5) must handle multiple measurement types (volume, rate, quality metrics) with potentially different reporting cadences. Risk: If decoupling pattern is not generic, separate logic may be duplicated for each measurement type, scattering DP5 across Vehicle's codebase. Mitigation: Implement decoupling as a reusable internal pattern (e.g., a measurement stream abstraction with configurable buffering and scheduling rules) to avoid diffusion.",
+        "Minor: Vehicle's computational resources may be constrained, limiting the sophistication of buffering and filtering logic. Risk: Complex decoupling logic could be offloaded to NGHE Solution, weakening Vehicle's cohesion. Mitigation: Keep decoupling lightweight (simple FIFO buffers, rate-limiting, basic filtering); reserve complex aggregation and analysis for NGHE Solution. This preserves the FR->DP->IM mapping."
+      ],
+      "containment_notes": "Excellent containment (0.92 score). Vehicle naturally owns both DP1 (sensor hardware and continuous acquisition) and DP5 (decoupling logic). The module boundary is well-defined: Vehicle encapsulates all real-time measurement acquisition and preprocessing; downstream consumers (NGHE Solution, Safety Services, Teleoperation) receive only formatted, decoupled outputs via three clean interfaces. The decoupling is implemented as an internal architectural pattern (acquisition → buffer → reporting scheduler), not as a separate module, which keeps measurement strategy coherent and avoids diffusing sensor ownership. No alternative module (NGHE Solution, Teleoperation, Safety Services) is a viable owner of DP1+DP5 without violating separation of concerns or creating tight coupling. Recommended revision: Document the internal decoupling pattern explicitly in Vehicle's design specification to prevent future diffusion when measurement types or reporting rules evolve."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP1 (continuous volumetric measurement) + DP5 (decoupled measurement from reporting) directly and sufficiently address the FR (enable measurement and reporting of material throughput in volumetric or mass units per unit time). DP1 provides the sensing strategy (continuous acquisition of volumetric data); DP5 ensures that measurement acquisition is not blocked by reporting delays, enabling reliable throughput reporting at configurable intervals. Together, they satisfy the functional requirement without over-specification or logical gaps. The acceptance criteria (reported productivity ≥ productivity_target) are achievable through continuous measurement and decoupled reporting, as Vehicle can buffer and report data independently of sensor acquisition cadence. No alternative DP combination is necessary."
+    },
+    "recommended_revisions": [
+      "Formalize the internal decoupling pattern within Vehicle as a documented architectural component (e.g., 'Measurement Acquisition Subsystem' and 'Reporting Subsystem' with a well-defined internal interface). This prevents future diffusion if new measurement types or reporting rules are added.",
+      "Specify the configuration protocol for Tasking interface: define the schema for measurement configuration directives (sampling rate, thresholds, reporting intervals) and ensure Vehicle treats these as immutable parameters during operation. This clarifies the boundary between Vehicle's measurement logic and Safety Services' policy ownership.",
+      "Add a verification plan that validates: (1) reported throughput accuracy against ground truth (calibration), (2) SafetyAlert latency (time from threshold breach to alert emission), (3) Telemetry payload fidelity and frequency under representative operational loads. This ensures acceptance criteria are measurable.",
+      "Document the rate-limiting and batching strategy for Telemetry interface to prevent network bottlenecks. Specify maximum payload frequency, batch size, and data loss tolerance to ensure throughput reporting remains reliable under high-frequency measurement scenarios.",
+      "Clarify the ownership of measurement quality metrics (e.g., sensor health, data validity flags). If Vehicle emits quality metrics alongside volume/rate data, ensure these are generated within Vehicle's measurement acquisition subsystem, not delegated to NGHE Solution or Safety Services."
+    ]
+  },
+  "decision": {
+    "decision": "REVISE_CURRENT_LEVEL",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass with high confidence, and containment is excellent (0.92). However, the recommended_revisions identify critical architectural and verification gaps that must be resolved before proceeding to sub-level decomposition. Specifically: (1) the internal decoupling pattern within Vehicle is documented informally and risks diffusion as measurement types evolve; (2) the Tasking configuration protocol lacks formal specification, creating ambiguity in the FR-DP boundary; (3) verification plans for SafetyAlert latency and Telemetry fidelity are absent, which is unacceptable given high safety criticality; (4) measurement quality metrics ownership is unclear. These gaps do not invalidate the current-level design but must be resolved to prevent rework during detailed design and testing. Revising the current level (FR, DP, IM specifications) to incorporate these clarifications will strengthen the foundation for any future sub-level decomposition and ensure traceability to acceptance criteria.",
+    "next_level_sub_frs": [],
+    "revise": {
+      "target": "DP",
+      "why": "DP1 and DP5 are logically sound, but their realization within Vehicle requires explicit architectural specification to prevent diffusion and ensure verification feasibility. Revisions needed: (1) Formalize DP5 (decoupling measurement from reporting) as a documented internal pattern with two sub-components: 'Measurement Acquisition Subsystem' (owns sensor hardware, continuous sampling, raw data buffering) and 'Reporting Subsystem' (owns buffered data formatting, threshold enforcement, interface emission). Define the internal interface between these sub-components (e.g., measurement stream abstraction with configurable buffering and scheduling rules). (2) Specify the Tasking configuration protocol: define the schema for measurement directives (sampling_rate, volume_threshold, mass_threshold, reporting_interval, quality_flags) and document that Vehicle treats these as immutable parameters during operation. (3) Extend DP1 to explicitly include measurement quality metrics generation (sensor health, data validity flags) as part of continuous acquisition, not as a downstream responsibility. (4) Add a verification sub-strategy to DP5: specify SafetyAlert latency requirements (time from threshold breach to alert emission), Telemetry payload frequency and batch size constraints, and data loss tolerance thresholds. (5) Document rate-limiting and batching logic for Telemetry to prevent network bottlenecks under high-frequency measurement scenarios."
+    },
+    "record": {
+      "assumptions": [
+        "Vehicle's computational resources are sufficient to support lightweight decoupling logic (FIFO buffers, rate-limiting, basic filtering) without offloading to NGHE Solution.",
+        "Tasking interface is available at Vehicle startup/reconfiguration to supply immutable configuration parameters (thresholds, reporting intervals, sampling rates).",
+        "SafetyAlert and Telemetry interfaces are asynchronous and non-blocking, allowing Vehicle to emit alerts and telemetry without stalling measurement acquisition.",
+        "Ground truth calibration data is available to validate reported throughput accuracy during verification.",
+        "Safety Services owns threshold logic and policy; Vehicle owns only threshold enforcement via immutable parameters.",
+        "Measurement quality metrics (sensor health, data validity) can be generated within Vehicle's acquisition subsystem without requiring external validation."
+      ],
+      "open_risks": [
+        "High: SafetyAlert latency is not quantified. If Vehicle's reporting scheduler introduces unacceptable delays (e.g., > 100 ms) between threshold breach and alert emission, safety-critical operations may be compromised. Mitigation: Define maximum latency requirement (e.g., ≤ 50 ms) and verify via instrumentation.",
+        "Medium: Decoupling pattern (DP5) may not scale if new measurement types (e.g., particle size, moisture content) are added. Risk of diffusion if each type requires custom buffering/scheduling logic. Mitigation: Implement decoupling as a generic measurement stream abstraction with configurable rules; document extension points for new measurement types.",
+        "Medium: Telemetry interface payload frequency and batch size are not specified. Risk of network bottlenecks or data loss under high-frequency measurement scenarios (e.g., > 100 Hz sampling). Mitigation: Define maximum Telemetry frequency (e.g., 10 Hz) and batch size (e.g., 100 samples/batch); specify data loss tolerance (e.g., ≤ 1%).",
+        "Medium: Measurement quality metrics ownership is ambiguous. If Vehicle emits quality flags but NGHE Solution or Safety Services validates them, responsibility is scattered. Mitigation: Clarify that Vehicle generates quality metrics (sensor health, data validity) as part of DP1; downstream consumers interpret and act on them.",
+        "Low: Tasking configuration protocol schema is not formally defined. Risk of misinterpretation or incompatible implementations. Mitigation: Document schema in a formal specification (e.g., JSON schema, protobuf) and version it.",
+        "Low: Rate-limiting strategy for Telemetry may conflict with real-time reporting requirements. Risk of data loss if buffering capacity is exceeded. Mitigation: Define buffer overflow handling (e.g., drop oldest samples, emit warning) and document trade-offs."
+      ],
+      "evidence_needed": [
+        "Formal specification of Vehicle's internal decoupling pattern: document Measurement Acquisition Subsystem and Reporting Subsystem with internal interface definition (measurement stream abstraction, buffering rules, scheduling rules).",
+        "Tasking configuration protocol schema: define the structure and constraints for measurement directives (sampling_rate, thresholds, reporting_interval, quality_flags) with examples.",
+        "SafetyAlert latency requirement: specify maximum time from threshold breach to alert emission (e.g., ≤ 50 ms) and justify based on safety-critical operations.",
+        "Telemetry interface specification: define maximum payload frequency (e.g., 10 Hz), batch size (e.g., 100 samples/batch), and data loss tolerance (e.g., ≤ 1%).",
+        "Verification plan for throughput accuracy: describe calibration methodology, ground truth data source, and acceptance criteria (e.g., reported throughput within ±5% of ground truth).",
+        "Verification plan for SafetyAlert latency: describe instrumentation approach (e.g., timestamp logging, event correlation) and acceptance criteria (e.g., latency ≤ 50 ms in 99th percentile).",
+        "Verification plan for Telemetry fidelity: describe payload validation methodology, frequency verification, and acceptance criteria under representative operational loads.",
+        "Measurement quality metrics specification: document which metrics Vehicle generates (sensor health, data validity, calibration status) and how they are encoded in Telemetry and SafetyAlert payloads.",
+        "Rate-limiting and batching strategy documentation: specify buffer overflow handling, data loss tolerance, and trade-offs between latency and throughput."
+      ]
+    }
+  }
+}

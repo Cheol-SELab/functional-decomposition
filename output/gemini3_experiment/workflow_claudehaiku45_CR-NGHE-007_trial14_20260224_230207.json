@@ -1,0 +1,177 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall propagate worksite model state changes to all authorized consumers within the customer-defined latency threshold.",
+    "rationale": "The original FR conflates two distinct obligations: (1) detecting/capturing state changes in the worksite model, and (2) delivering those changes to consumers within a time bound. The refined FR focuses on the propagation obligation (the primary latency concern) and removes the vague 'operational use' qualifier in favor of explicit reference to customer-defined acceptance criteria. The term 'propagate' is solution-neutral (avoids prescribing polling, pub-sub, or push mechanisms) and 'authorized consumers' acknowledges that different stakeholders (operator, tele-operator, safety manager, maintenance) may have different visibility and latency requirements.",
+    "verification_idea": "Measure end-to-end latency from the moment a worksite state change is committed (e.g., equipment position update, hazard detection, task completion) to the moment all subscribed authorized consumers receive the updated model state. Validate across representative update scenarios (e.g., equipment movement, sensor event, manual annotation) and confirm p95 latency ≤ customer-defined threshold (e.g., 1.0 s). Verify that unauthorized consumers do not receive restricted state changes.",
+    "sub_frs": [
+      "FR-NGHE-007.1: The NGHE solution shall detect and capture worksite model state changes from authorized sources (equipment telemetry, sensors, operator input, external systems).",
+      "FR-NGHE-007.2: The NGHE solution shall propagate worksite model state changes to all authorized consumers within the customer-defined latency threshold.",
+      "FR-NGHE-007.3: The NGHE solution shall enforce access control such that only authorized consumers receive worksite model state changes relevant to their role."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Centralized event-driven state propagation with asynchronous message broker (decouples producers from consumers, enables selective subscription by authorization context)",
+      "DP2: Synchronous request-response state synchronization with polling intervals (simple but introduces latency variance and tight coupling between state owner and consumers)",
+      "DP3: Hybrid push-pull with change-data-capture (CDC) stream and consumer-side caching (balances latency and consistency; CDC decouples state source from propagation logic)",
+      "DP4: Peer-to-peer gossip protocol with eventual consistency (reduces central bottleneck but complicates authorization enforcement and latency guarantees)",
+      "DP5: State replication via immutable event log with consumer-driven replay (supports audit trail and offline replay; latency depends on log durability and replay speed)"
+    ],
+    "selected_dp": "DP3: Hybrid push-pull with change-data-capture (CDC) stream and consumer-side caching. CDC captures worksite model mutations at the source (state-of-record), publishes immutable change events to a durable message stream, and authorized consumers subscribe selectively. Consumers maintain local cache with bounded staleness; push notifications trigger cache invalidation within latency SLA. Authorization filtering applied at subscription and event-delivery boundaries.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Authorization context coupling: If authorization rules are embedded in CDC logic, changes to policy require source-system redeploy. Mitigation: externalize authorization as a separate policy evaluation service queried at subscription and delivery time.",
+        "Consumer cache coherence: Multiple consumers with independent cache TTLs may observe different state versions transiently. Mitigation: enforce monotonic version vectors and define acceptable staleness bounds in SLA.",
+        "Event schema evolution: Changes to worksite model structure require versioning strategy. Mitigation: use schema registry and consumer-side compatibility layer.",
+        "Latency tail risk: CDC capture, message broker, and consumer processing introduce three serialized latency points. Mitigation: instrument each stage; set per-stage budgets (e.g., CDC ≤200ms, broker ≤300ms, consumer ≤500ms for p95 ≤1.0s)."
+      ],
+      "notes": "DP3 decouples state source from consumers via event stream, enabling independent scaling and authorization policy updates without source-system changes. Asynchronous nature allows batching and prioritization. Trade-off: eventual consistency requires consumer-side handling of transient divergence."
+    },
+    "assumptions_risks": [
+      "Assumption: Worksite model mutations are discrete, identifiable events (not continuous analog streams). Risk: If model includes real-time sensor fusion, CDC may not capture sub-event-granularity changes. Mitigation: define event granularity explicitly in worksite model schema.",
+      "Assumption: p95 ≤1.0s latency is achievable with asynchronous propagation. Risk: If customer requires synchronous acknowledgment (e.g., safety-critical interlocks), DP3 must be augmented with synchronous confirmation path. Mitigation: clarify whether latency SLA is end-to-end delivery or consumer-side processing completion.",
+      "Assumption: Authorization policies are stable and can be evaluated at subscription time. Risk: If policies change frequently or depend on real-time context (e.g., worker location), per-event authorization filtering may be required, increasing latency. Mitigation: profile authorization decision latency; consider caching policy decisions with bounded TTL.",
+      "Assumption: Message broker (or CDC stream) is available and durable. Risk: Broker outage blocks propagation. Mitigation: define failover strategy (e.g., secondary broker, local queue spillover).",
+      "Assumption: Consumers are trusted to respect authorization boundaries. Risk: If consumer code is untrusted or runs in shared environment, additional isolation required. Mitigation: enforce authorization at message-delivery layer, not consumer-side.",
+      "Assumption: Worksite model state is centralized (single source-of-record). Risk: If model is distributed or federated, CDC becomes complex. Mitigation: confirm single authoritative state source; if distributed, define merge/conflict resolution rules."
+    ],
+    "recommended_revision": "FR should be refined to clarify: (1) Is p95 ≤1.0s measured from state mutation to consumer notification, or to consumer processing completion? (2) Are there safety-critical update scenarios requiring synchronous confirmation? (3) What is the acceptable staleness window for consumer caches? (4) Is authorization context static (role-based) or dynamic (context-dependent)? (5) What is the expected update frequency and cardinality (number of consumers per update)? These clarifications will validate DP3 feasibility and inform IM (implementation module) selection for CDC engine, message broker, and consumer framework."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "Enterprise-level data synchronization, change-event streaming, consumer subscription management, and distributed cache coordination across all connected vehicles and teleoperation clients. Owns CDC pipeline, message broker integration, authorization filtering logic, and cache invalidation orchestration."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Ingests worksite model mutations and state-of-record updates from Vehicle and Teleoperation subsystems; CDC captures these as immutable change events."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Delivers authorized task updates and model state changes to Vehicle and Teleoperation consumers via push notifications; triggers cache invalidation on consumer side."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "Receives safety-critical state mutations as high-priority CDC events; publishes filtered safety alerts to authorized subscribers with strict latency SLA enforcement."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Underlying transport for durable message stream delivery, subscription management, and push notification delivery to distributed consumers."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit. NGHE Solution is the natural enterprise-level owner of cross-system data synchronization, CDC infrastructure, message streaming, and authorization policy enforcement. CDC capture, event publishing, subscription filtering, and cache invalidation orchestration all belong at this layer. Minor diffusion: Vehicle and Teleoperation must implement consumer-side cache and invalidation handlers (expected and acceptable)."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor fit. Vehicle is a single-instance subsystem; CDC and message streaming are cross-system concerns. Placing CDC pipeline, broker, and subscription logic in Vehicle would require duplication across multiple vehicle instances and would couple Vehicle tightly to enterprise-wide authorization and event distribution. Authorization filtering and push coordination must remain external."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.38,
+        "diffusion_score": 0.62,
+        "notes": "Poor fit. Teleoperation is a client-side subsystem, not a data-distribution backbone. CDC capture at source, durable message streaming, multi-consumer subscription management, and authorization filtering are enterprise concerns that transcend a single teleoperation client. High diffusion: logic would leak into Vehicle and other consumers."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Poor fit. Safety Services is a specialized policy enforcement layer, not a general-purpose data synchronization platform. While Safety Services may consume CDC events and apply safety-specific filtering, it should not own the CDC pipeline, message broker, or cross-system subscription infrastructure. Containment is limited to safety-specific event filtering; core DP logic diffuses widely."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "NGHE Solution is the only module with sufficient scope and authority to own the complete CDC-to-consumer pipeline. It sits at the enterprise level, above individual subsystems (Vehicle, Teleoperation, Safety Services), and is responsible for cross-system data consistency, authorization policy enforcement, and latency-bounded notification delivery. Vehicle and Teleoperation act as authorized consumers that subscribe to filtered change events and maintain local caches; Safety Services acts as a specialized consumer that applies safety-specific filtering on top of the CDC stream. This layering preserves separation of concerns: NGHE Solution owns infrastructure and policy; Vehicle, Teleoperation, and Safety Services own consumption and local state management.",
+    "containment_risks": [
+      "NGHE Solution becomes a critical bottleneck for all state synchronization; CDC pipeline and message broker must be highly available and horizontally scalable.",
+      "Authorization filtering logic at subscription and event-delivery boundaries must be kept in sync with evolving access control policies; policy drift can lead to unauthorized data leakage or stale cache inconsistency.",
+      "Consumer-side cache invalidation latency SLA is dependent on Network Link reliability and push notification delivery guarantees; network partitions or broker failures can violate bounded staleness guarantees.",
+      "CDC capture at source (Vehicle and Teleoperation) requires instrumentation of state mutation points; incomplete or incorrect instrumentation leads to missed change events and cache divergence.",
+      "Multi-consumer subscription model introduces complexity in managing subscription lifecycle, filtering rules, and event routing; misconfiguration can cause event loss or incorrect filtering."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "HIGH. Latency SLA (p95 ≤ 1.0 s) is measurable end-to-end across CDC capture → event publishing → consumer subscription → cache invalidation → push notification delivery. Network Link provides instrumentation points; NGHE Solution owns latency orchestration and can enforce bounded staleness guarantees. Consumer-side cache invalidation handlers in Vehicle and Teleoperation are observable via local state timestamps. Authorization filtering can be audited at subscription and event-delivery boundaries.",
+      "allocation_clarity": "CLEAR. NGHE Solution is unambiguously the owner of enterprise-level data synchronization infrastructure. Vehicle and Teleoperation are clearly designated as authorized consumers responsible for local cache maintenance and invalidation handling. Safety Services is positioned as a specialized consumer applying safety-specific filtering on top of the CDC stream. Ownership boundaries are well-defined and non-overlapping."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP3 (Hybrid push-pull with CDC stream and consumer-side caching) directly and completely addresses the FR requirement to propagate worksite model state changes to all authorized consumers within customer-defined latency threshold. CDC captures mutations at source (state-of-record), immutable change events are published to durable message stream, authorized consumers subscribe selectively, and push notifications trigger cache invalidation within latency SLA. Authorization filtering is explicitly applied at subscription and event-delivery boundaries. The DP is logically sound, architecturally coherent, and operationally feasible."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "CRITICAL: CDC capture instrumentation at source (Vehicle and Teleoperation state mutation points) is diffused across multiple subsystems. Incomplete or incorrect instrumentation leads to missed change events and cache divergence. Mitigation: NGHE Solution must define and enforce CDC instrumentation contracts; Vehicle and Teleoperation must implement instrumentation handlers with verification hooks.",
+        "HIGH: Consumer-side cache invalidation logic is diffused across Vehicle and Teleoperation. Cache coherency depends on correct implementation of invalidation handlers in each consumer. Mitigation: NGHE Solution must provide standardized cache invalidation library/framework; Vehicle and Teleoperation must use it consistently.",
+        "HIGH: Authorization filtering logic is split across subscription-time filtering (NGHE Solution) and event-delivery-time filtering (NGHE Solution + Safety Services). Policy drift between layers can cause unauthorized data leakage or stale cache inconsistency. Mitigation: Centralize authorization policy engine in NGHE Solution; Safety Services applies only safety-specific filtering on top of already-authorized events.",
+        "MEDIUM: Network Link reliability and push notification delivery guarantees are external dependencies. Network partitions or broker failures can violate bounded staleness SLA. Mitigation: NGHE Solution must implement circuit breakers, retry logic, and fallback to pull-based polling; define explicit SLA contracts with Network Link.",
+        "MEDIUM: Multi-consumer subscription lifecycle management (subscribe, unsubscribe, filter updates) is owned by NGHE Solution but requires coordination with Vehicle and Teleoperation. Misconfiguration or race conditions can cause event loss or incorrect filtering. Mitigation: Implement idempotent subscription operations; use versioned filter schemas; add subscription audit logging."
+      ],
+      "containment_notes": "EXCELLENT CONTAINMENT (0.92 score). NGHE Solution is the natural and only appropriate owner of the complete CDC-to-consumer pipeline. CDC infrastructure (capture, publishing, message broker integration), subscription management, authorization filtering, and cache invalidation orchestration are all enterprise-level concerns that must be centralized to avoid duplication and coupling. Vehicle and Teleoperation correctly act as authorized consumers; their containment scores (0.35 and 0.38) correctly reflect that they should NOT own CDC infrastructure. Safety Services correctly acts as a specialized consumer (0.4 score reflects limited containment to safety-specific filtering only). The 0.08 diffusion score for NGHE Solution is acceptable and expected: consumer-side cache implementation and invalidation handlers must reside in Vehicle and Teleoperation by design. This is not a containment failure but a necessary distribution of responsibility across the consumer-provider boundary."
+    },
+    "recommended_revisions": [
+      "REVISION 1 - CDC Instrumentation Contract: Define explicit CDC instrumentation contract that Vehicle and Teleoperation must implement. Specify which state mutations must be captured, event schema, timestamp precision, and idempotency guarantees. Add verification hooks to detect missed or malformed change events.",
+      "REVISION 2 - Consumer-Side Cache Framework: Provide standardized cache invalidation library/framework (e.g., cache invalidation handler interface, TTL management, coherency verification) that Vehicle and Teleoperation must use. This reduces diffusion risk and ensures consistent cache behavior across consumers.",
+      "REVISION 3 - Authorization Policy Centralization: Consolidate all authorization filtering logic in NGHE Solution's policy engine. Safety Services should apply only safety-specific filtering on top of already-authorized events, not re-implement authorization logic. Add policy versioning and audit logging to detect drift.",
+      "REVISION 4 - Latency SLA Enforcement: Explicitly define latency SLA measurement points: (1) CDC capture timestamp, (2) event publishing timestamp, (3) consumer subscription acknowledgment, (4) push notification delivery timestamp, (5) cache invalidation completion timestamp. Implement end-to-end latency monitoring and alerting. Define fallback to pull-based polling if push notification latency exceeds SLA.",
+      "REVISION 5 - Network Link Contract: Define explicit SLA contract with Network Link for message broker availability, push notification delivery guarantees, and latency bounds. Specify circuit breaker thresholds, retry policies, and fallback mechanisms. Add network partition detection and graceful degradation logic.",
+      "REVISION 6 - Subscription Lifecycle Idempotency: Implement idempotent subscription operations (subscribe, unsubscribe, filter updates) to handle retries and race conditions. Use versioned filter schemas to prevent filter drift. Add subscription audit logging and reconciliation checks.",
+      "REVISION 7 - Acceptance Criteria Refinement: Extend acceptance criteria to include: (a) CDC instrumentation completeness verification (100% of worksite model mutations captured), (b) consumer-side cache coherency verification (cache state matches source-of-record within bounded staleness), (c) authorization filtering correctness verification (no unauthorized data leakage), (d) end-to-end latency p95 ≤ 1.0 s across all supported update scenarios, (e) subscription lifecycle correctness (no event loss or incorrect filtering)."
+    ]
+  },
+  "decision": {
+    "decision": "REVISE_CURRENT_LEVEL",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass with high confidence, and containment is excellent (0.92). However, the diffusion risk analysis identifies CRITICAL and HIGH risks that must be mitigated at the current level before decomposition proceeds. The recommended revisions are architectural and contractual in nature—they refine DP and IM specifications to reduce diffusion risk and enforce ownership boundaries. Specifically: (1) CDC instrumentation contract must be explicit to prevent missed change events; (2) consumer-side cache framework must be standardized to ensure coherency; (3) authorization filtering must be centralized to prevent policy drift; (4) latency SLA measurement and enforcement must be operationalized; (5) Network Link contract must define explicit guarantees; (6) subscription lifecycle must be idempotent. These revisions strengthen the current-level design without requiring new sub-FRs. Once revisions are incorporated, the design is sufficiently detailed and risk-mitigated to proceed to implementation planning. Given high safety criticality, the explicit latency SLA enforcement (Revision 4) and authorization filtering centralization (Revision 3) are non-negotiable before decomposition.",
+    "next_level_sub_frs": [],
+    "revise": {
+      "target": "DP",
+      "why": "DP3 (Hybrid push-pull with CDC stream and consumer-side caching) is logically sound but requires explicit refinement of: (1) CDC instrumentation contract specifying which state mutations must be captured, event schema, timestamp precision, and idempotency guarantees; (2) consumer-side cache invalidation framework defining standardized handlers, TTL management, and coherency verification; (3) authorization filtering architecture centralizing policy engine in NGHE Solution with versioning and audit logging; (4) latency SLA measurement and enforcement with explicit monitoring points and fallback to pull-based polling; (5) Network Link contract with message broker availability, push notification delivery guarantees, and circuit breaker thresholds; (6) subscription lifecycle idempotency with versioned filter schemas and reconciliation checks. These refinements are DP-level (design domain) specifications that operationalize the hybrid push-pull concept and mitigate diffusion risks without changing the fundamental solution approach."
+    },
+    "record": {
+      "assumptions": [
+        "NGHE Solution has authority and capability to define and enforce CDC instrumentation contracts with Vehicle and Teleoperation.",
+        "Vehicle and Teleoperation are willing and able to implement standardized cache invalidation framework provided by NGHE Solution.",
+        "Authorization policy engine can be centralized in NGHE Solution without creating unacceptable latency overhead for event-delivery-time filtering.",
+        "Network Link can provide explicit SLA guarantees for message broker availability and push notification delivery latency.",
+        "End-to-end latency monitoring infrastructure (CDC capture → event publishing → consumer subscription → cache invalidation → push notification delivery) can be instrumented across all subsystems.",
+        "Safety Services can operate as a specialized consumer applying safety-specific filtering on top of already-authorized events without requiring independent authorization logic.",
+        "Subscription lifecycle operations (subscribe, unsubscribe, filter updates) can be made idempotent through versioned filter schemas and audit logging."
+      ],
+      "open_risks": [
+        "CRITICAL: CDC instrumentation diffusion across Vehicle and Teleoperation. If instrumentation contracts are not explicitly defined and enforced, missed or malformed change events will cause cache divergence and violate bounded staleness SLA. Mitigation: Define CDC instrumentation contract as part of DP refinement; add verification hooks to detect incomplete instrumentation.",
+        "CRITICAL: Authorization filtering policy drift between subscription-time and event-delivery-time layers. If authorization logic is duplicated or inconsistently applied, unauthorized data leakage or stale cache inconsistency can occur. Mitigation: Centralize authorization policy engine in NGHE Solution; Safety Services applies only safety-specific filtering on top of already-authorized events.",
+        "HIGH: Consumer-side cache coherency depends on correct implementation of invalidation handlers in Vehicle and Teleoperation. Incorrect or incomplete invalidation logic will cause cache divergence. Mitigation: Provide standardized cache invalidation library/framework; Vehicle and Teleoperation must use it consistently; add coherency verification hooks.",
+        "HIGH: Network Link reliability and push notification delivery guarantees are external dependencies. Network partitions or broker failures can violate bounded staleness SLA. Mitigation: Define explicit SLA contract with Network Link; implement circuit breakers, retry logic, and fallback to pull-based polling in NGHE Solution.",
+        "MEDIUM: Subscription lifecycle race conditions and misconfiguration. Concurrent subscribe/unsubscribe operations or filter updates can cause event loss or incorrect filtering. Mitigation: Implement idempotent subscription operations; use versioned filter schemas; add subscription audit logging and reconciliation checks.",
+        "MEDIUM: Latency SLA enforcement across multi-subsystem pipeline. End-to-end latency p95 ≤ 1.0 s requires coordination across CDC capture, event publishing, consumer subscription, cache invalidation, and push notification delivery. Mitigation: Define explicit latency measurement points; implement end-to-end latency monitoring and alerting; define fallback to pull-based polling if push notification latency exceeds SLA.",
+        "MEDIUM: Safety Services specialized filtering logic. If safety-specific filtering is not clearly separated from authorization filtering, it may inadvertently re-implement authorization logic or create policy drift. Mitigation: Define clear interface between NGHE Solution authorization filtering and Safety Services safety-specific filtering; add audit logging to detect policy drift."
+      ],
+      "evidence_needed": [
+        "CDC instrumentation contract specification: Define which state mutations must be captured (Vehicle position, orientation, velocity, teleoperation command state, etc.), event schema (event type, timestamp, source, payload), timestamp precision (millisecond or microsecond), and idempotency guarantees (event deduplication, exactly-once semantics).",
+        "Consumer-side cache invalidation framework specification: Define cache invalidation handler interface, TTL management strategy, coherency verification hooks, and integration points for Vehicle and Teleoperation.",
+        "Authorization policy engine specification: Define policy schema, versioning strategy, audit logging format, and integration points for subscription-time and event-delivery-time filtering.",
+        "Latency SLA measurement and enforcement specification: Define measurement points (CDC capture timestamp, event publishing timestamp, consumer subscription acknowledgment, push notification delivery timestamp, cache invalidation completion timestamp), monitoring and alerting thresholds, and fallback to pull-based polling triggers.",
+        "Network Link SLA contract: Define message broker availability guarantees (e.g., 99.99% uptime), push notification delivery latency bounds (e.g., p95 ≤ 500 ms), circuit breaker thresholds, retry policies, and fallback mechanisms.",
+        "Subscription lifecycle idempotency specification: Define idempotent subscription operations (subscribe, unsubscribe, filter updates), versioned filter schema format, and reconciliation check procedures.",
+        "End-to-end latency measurement data: Collect baseline latency measurements across CDC capture → event publishing → consumer subscription → cache invalidation → push notification delivery pipeline to verify p95 ≤ 1.0 s SLA is achievable.",
+        "Authorization filtering correctness verification: Define test cases and audit procedures to verify no unauthorized data leakage and no policy drift between subscription-time and event-delivery-time filtering.",
+        "Cache coherency verification: Define test cases and monitoring procedures to verify cache state matches source-of-record within bounded staleness across all supported update scenarios."
+      ]
+    }
+  }
+}

@@ -1,0 +1,164 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current operational state (vehicle position, equipment status, environmental conditions, safety events) within p95 ≤ 1.0 s latency for all supported update scenarios (teleoperated commands, autonomous sensor data, safety alerts, operator inputs).",
+    "rationale": "CR-NGHE-007 is underspecified as stated. 'Worksite model' and 'customer-required timeliness' lack concrete definition. Refinement clarifies: (1) what constitutes the model (state variables), (2) which update scenarios drive latency requirements, (3) the p95 acceptance criterion as a quantified performance gate. High safety criticality demands explicit inclusion of safety event propagation in latency scope.",
+    "verification_idea": "Instrument end-to-end latency measurement from source event (sensor reading, command issuance, safety trigger) to worksite model state change. Collect p95 latency across representative scenarios (teleoperation, autonomous, mixed). Compare against 1.0 s threshold and customer-specific targets.",
+    "sub_frs": [
+      "FR-007.1: Acquire operational state data (vehicle telemetry, sensor readings, operator commands) from field sources.",
+      "FR-007.2: Transmit state data from field to worksite model service with bounded network latency.",
+      "FR-007.3: Process and integrate state updates into worksite model with bounded computation latency.",
+      "FR-007.4: Propagate safety-critical state changes (SafetyAlert events) with priority handling to meet p95 ≤ 1.0 s.",
+      "FR-007.5: Validate worksite model consistency and detect/report update failures or stale data."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-007.A: Centralized worksite model service with real-time data ingestion pipeline; prioritized queue for safety events; network protocol optimized for low-latency telemetry (e.g., UDP-based or MQTT with QoS 1/2); local caching at vehicle/teleoperation nodes to reduce round-trip latency.",
+      "DP-007.B: Distributed worksite model replicas at vehicle and teleoperation nodes; eventual consistency model with periodic reconciliation; safety events propagated via dedicated high-priority channel.",
+      "DP-007.C: Hybrid model: authoritative worksite model at central service; local predictive models at vehicle and teleoperation for immediate responsiveness; reconciliation on network recovery; safety events always routed through central service with fallback to local safety logic."
+    ],
+    "selected_dp": "DP-007.C: Hybrid model with authoritative central worksite service, local predictive replicas at vehicle and teleoperation nodes, dedicated safety event channel, and reconciliation on network recovery. This balances latency (local prediction reduces perceived delay), consistency (central authority prevents divergence), and safety (dedicated safety channel ensures critical events are never delayed by general telemetry congestion).",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between FR-007.2 (network transmission) and FR-007.3 (model processing): both contribute to end-to-end latency. DP-007.C decouples via local prediction—vehicle/teleoperation can act on local model while central update is in flight.",
+        "Coupling between FR-007.4 (safety propagation) and FR-007.3 (general model updates): DP-007.C mitigates by isolating safety events on dedicated channel, preventing congestion from general telemetry.",
+        "Coupling between FR-007.1 (data acquisition) and FR-007.2 (transmission): DP-007.C assumes vehicle/teleoperation nodes can buffer and batch telemetry; acceptable if network bandwidth is sufficient."
+      ],
+      "notes": "DP-007.C introduces architectural complexity (dual models, reconciliation logic) but decouples latency-critical paths. Acceptable trade-off given high safety criticality and p95 ≤ 1.0 s constraint."
+    },
+    "assumptions_risks": [
+      "Assumption: Network bandwidth sufficient to transmit telemetry + safety events within 1.0 s p95. Risk: If network is congested or unreliable, latency may exceed target. Mitigation: Prioritize safety events; implement adaptive telemetry sampling.",
+      "Assumption: Local predictive models at vehicle/teleoperation are sufficiently accurate to guide immediate decisions. Risk: Stale or incorrect predictions could lead to unsafe actions. Mitigation: Validate predictions against central model; implement fallback to conservative behavior if divergence detected.",
+      "Assumption: Reconciliation logic correctly merges local and central state without data loss or inconsistency. Risk: Complex state merging could introduce bugs. Mitigation: Formal verification of reconciliation algorithm; extensive testing.",
+      "Assumption: Safety event channel has guaranteed delivery and priority. Risk: If safety events are lost or delayed, safety goals are violated. Mitigation: Implement acknowledgment and retry; monitor safety event latency separately."
+    ],
+    "recommended_revision": "Refine DP-007.C to explicitly specify: (1) network protocol and QoS settings for telemetry and safety channels, (2) local prediction algorithm and accuracy bounds, (3) reconciliation strategy (last-write-wins, vector clocks, application-specific merge), (4) fallback behavior if central service is unreachable. These details are essential for IM assignment and implementation."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "Top-level system integration module encompassing vehicle, teleoperation, and safety services. Responsible for orchestrating worksite model updates across all subsystems, managing network communication, and ensuring end-to-end latency compliance."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Inbound telemetry from Vehicle (position, sensor readings, equipment status) and Teleoperation (operator commands, tele-operator state). Feeds worksite model update pipeline."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Outbound tasking commands from NGHE Solution to Vehicle and Teleoperation based on worksite model state and operational decisions."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "Bidirectional safety event channel. Inbound: safety alerts from Vehicle and Safety Services. Outbound: safety state updates to Vehicle and Teleoperation for immediate action."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Underlying network transport for all telemetry, tasking, and safety alert messages. Latency of Network Link directly impacts end-to-end worksite model update latency."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "NGHE Solution is the top-level system module. Worksite model update is a system-level concern spanning vehicle, teleoperation, and safety services. Containment is high because the orchestration, latency management, and reconciliation logic naturally belong at the system level. Diffusion is minimal—no duplication across other modules."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 40,
+        "diffusion_score": 60,
+        "notes": "Vehicle module handles local telemetry acquisition and local predictive model (per DP-007.C). However, the authoritative worksite model, central reconciliation, and end-to-end latency orchestration must reside at NGHE Solution level. If worksite model logic is placed in Vehicle, it will diffuse across Vehicle and Teleoperation, violating single-source-of-truth principle."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 35,
+        "diffusion_score": 65,
+        "notes": "Teleoperation module handles tele-operator commands and local predictive model. Similar to Vehicle, the authoritative worksite model and reconciliation must be at NGHE Solution level. Placing model logic in Teleoperation creates diffusion and inconsistency."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 50,
+        "diffusion_score": 50,
+        "notes": "Safety Services handles safety event generation and validation. Safety event propagation (SafetyAlert interface) is part of worksite model update. However, Safety Services should not own the authoritative worksite model or reconciliation logic—that belongs at NGHE Solution. Safety Services provides safety event input; NGHE Solution integrates it into the model."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "The worksite model update latency requirement (FR-007) is a system-level concern that spans vehicle, teleoperation, and safety services. The authoritative worksite model, latency orchestration, and reconciliation logic must be owned by NGHE Solution to ensure single-source-of-truth and prevent diffusion. Vehicle, Teleoperation, and Safety Services provide inputs (telemetry, commands, safety events) via well-defined interfaces (Telemetry, Tasking, SafetyAlert). NGHE Solution integrates these inputs, manages Network Link latency, and updates the model within p95 ≤ 1.0 s.",
+    "containment_risks": [
+      "Risk: If worksite model logic is split between NGHE Solution and Vehicle/Teleoperation, reconciliation becomes complex and error-prone. Mitigation: Enforce clear ownership—NGHE Solution owns authoritative model; Vehicle/Teleoperation own local predictive replicas only.",
+      "Risk: Network Link latency is outside NGHE Solution's direct control. If network is congested, p95 ≤ 1.0 s may not be achievable. Mitigation: Implement adaptive telemetry sampling, prioritize safety events, and establish network SLA with operations team.",
+      "Risk: Safety event propagation must be guaranteed and low-latency. If SafetyAlert interface is congested by general telemetry, safety events may be delayed. Mitigation: Implement separate high-priority queue for SafetyAlert; monitor SafetyAlert latency independently.",
+      "Risk: Local predictive models at Vehicle/Teleoperation may diverge from central model if reconciliation is delayed or fails. Mitigation: Implement divergence detection and fallback to conservative behavior."
+    ],
+    "recommended_revision": "Clarify the internal architecture of NGHE Solution: (1) Define the worksite model data structure and update semantics. (2) Specify the reconciliation algorithm for merging local and central state. (3) Define the priority queue and scheduling for Telemetry vs. SafetyAlert. (4) Establish latency budgets for each component (network, processing, reconciliation). (5) Define fallback behavior if central service is unreachable or SafetyAlert is delayed. These details will inform the next level of decomposition (FR-007.1 through FR-007.5)."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-007.C (hybrid model with local prediction and dedicated safety channel) directly addresses the refined FR-007 (p95 ≤ 1.0 s worksite model update latency). The DP decouples latency-critical paths (local prediction reduces perceived delay; dedicated safety channel prevents congestion) and aligns with high safety criticality. Coupling analysis shows acceptable trade-offs. DP is implementable and verifiable."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Risk: If worksite model logic is not clearly owned by NGHE Solution, it may diffuse across Vehicle, Teleoperation, and Safety Services. Mitigation: Enforce ownership boundary; document interfaces clearly.",
+        "Risk: Local predictive models at Vehicle and Teleoperation may duplicate logic if not carefully abstracted. Mitigation: Define a common prediction algorithm; implement as shared library or service."
+      ],
+      "containment_notes": "NGHE Solution is the appropriate IM boundary for DP-007.C. It owns the authoritative worksite model, reconciliation logic, and latency orchestration. Vehicle, Teleoperation, and Safety Services are consumers/providers of inputs via Telemetry, Tasking, SafetyAlert, and Network Link interfaces. Containment score of 95 for NGHE Solution reflects high alignment."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification of FR-007 is feasible via end-to-end latency measurement. Instrument the worksite model update pipeline to capture latency from source event (telemetry, command, safety alert) to model state change. Collect p95 latency across representative scenarios. Compare against 1.0 s threshold. Feasibility is high if Network Link latency is measurable and predictable.",
+      "allocation_clarity": "Allocation of FR-007 to NGHE Solution is clear. Sub-FRs (FR-007.1 through FR-007.5) allocate to Vehicle (acquisition), Network Link (transmission), NGHE Solution (processing/integration), Safety Services (safety event generation), and NGHE Solution (validation). Ownership boundaries are well-defined."
+    },
+    "recommended_revisions": [
+      "Refine DP-007.C to specify network protocol, QoS settings, local prediction algorithm, and reconciliation strategy. These details are essential for IM assignment and implementation.",
+      "Define latency budgets for each component (network, processing, reconciliation) to ensure p95 ≤ 1.0 s is achievable. Allocate budgets to Vehicle, Network Link, and NGHE Solution.",
+      "Establish monitoring and alerting for worksite model update latency. Track p95 latency in production; alert if threshold is exceeded.",
+      "Document fallback behavior if central worksite service is unreachable or SafetyAlert is delayed. Ensure safety goals are maintained even in degraded mode."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-007 is refined and non-atomic. DP-007.C is selected and passes coupling analysis. NGHE Solution is assigned as the IM boundary with high containment score (95). All gates pass. The next step is to decompose FR-007 into sub-FRs (FR-007.1 through FR-007.5) and perform functional decomposition at the next level. This will allocate latency budgets, define data structures, and specify interfaces for Vehicle, Teleoperation, Safety Services, and Network Link.",
+    "next_level_sub_frs": [
+      "FR-007.1: Acquire operational state data (vehicle telemetry, sensor readings, operator commands) from field sources with minimal latency impact.",
+      "FR-007.2: Transmit state data from field to worksite model service with bounded network latency (e.g., p95 ≤ 300 ms).",
+      "FR-007.3: Process and integrate state updates into worksite model with bounded computation latency (e.g., p95 ≤ 400 ms).",
+      "FR-007.4: Propagate safety-critical state changes (SafetyAlert events) with priority handling to meet p95 ≤ 200 ms.",
+      "FR-007.5: Validate worksite model consistency and detect/report update failures or stale data within p95 ≤ 100 ms."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Network bandwidth is sufficient to transmit telemetry + safety events within 1.0 s p95.",
+        "Local predictive models at Vehicle/Teleoperation are sufficiently accurate to guide immediate decisions.",
+        "Reconciliation logic correctly merges local and central state without data loss or inconsistency.",
+        "Safety event channel has guaranteed delivery and priority over general telemetry.",
+        "Worksite model update latency is measurable and can be instrumented end-to-end.",
+        "Customer-defined latency target is p95 ≤ 1.0 s (or will be specified during requirements refinement)."
+      ],
+      "open_risks": [
+        "Network congestion or unreliability may cause latency to exceed p95 ≤ 1.0 s. Mitigation: Implement adaptive telemetry sampling and prioritize safety events.",
+        "Local predictive models may diverge from central model if reconciliation is delayed. Mitigation: Implement divergence detection and fallback to conservative behavior.",
+        "Reconciliation algorithm may introduce bugs or data loss. Mitigation: Formal verification and extensive testing.",
+        "Safety event channel may be congested by general telemetry. Mitigation: Implement separate high-priority queue for SafetyAlert.",
+        "Central worksite service may become a bottleneck or single point of failure. Mitigation: Design for high availability (redundancy, failover)."
+      ],
+      "evidence_needed": [
+        "Network latency measurements (p95, p99) for telemetry and safety event transmission.",
+        "Worksite model processing latency (p95, p99) for typical update scenarios.",
+        "Local prediction accuracy and divergence rates under various network conditions.",
+        "Reconciliation algorithm correctness proof or extensive test coverage.",
+        "End-to-end latency measurements from source event to model state change (p95, p99) across representative scenarios.",
+        "Customer acceptance criteria and latency targets (if different from p95 ≤ 1.0 s)."
+      ]
+    }
+  }
+}

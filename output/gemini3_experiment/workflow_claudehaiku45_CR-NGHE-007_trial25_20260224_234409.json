@@ -1,0 +1,167 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall propagate worksite model state changes to all authorized consumers within the customer-defined latency threshold.",
+    "rationale": "The original FR conflates two distinct obligations: (1) detecting/capturing state changes in the worksite model, and (2) delivering those changes to consumers within a time bound. The refined FR focuses on the propagation obligation (the primary latency concern) and removes the vague 'operational use' qualifier in favor of explicit reference to customer-defined acceptance criteria. The term 'propagate' is solution-neutral (avoids prescribing polling, pub-sub, or push mechanisms) and 'authorized consumers' acknowledges that different stakeholders (operator, tele-operator, safety manager, maintenance) may receive updates selectively.",
+    "verification_idea": "Measure end-to-end latency from the moment a worksite state change is committed (e.g., equipment position update, hazard detection, task completion) to the moment all subscribed authorized consumers receive the updated model state. Validate across representative update scenarios (position updates, safety events, task transitions) that p95 latency ≤ customer-defined threshold (e.g., 1.0 s). Confirm that authorization rules are enforced (e.g., maintenance staff do not receive operator-restricted updates).",
+    "sub_frs": [
+      "FR-NGHE-007.1: The NGHE solution shall detect and capture worksite model state changes from all monitored sources (equipment sensors, operator inputs, external systems).",
+      "FR-NGHE-007.2: The NGHE solution shall propagate worksite model state changes to all authorized consumers within the customer-defined latency threshold.",
+      "FR-NGHE-007.3: The NGHE solution shall enforce authorization rules to ensure only entitled stakeholders receive specific worksite model updates."
+    ],
+    "is_atomic": false,
+    "note": "The refined FR is more atomic than the original, but the three sub-FRs represent a complete decomposition of the latency concern. If further atomicity is required, FR-NGHE-007.2 could be the primary FR, with FR-NGHE-007.1 and FR-NGHE-007.3 treated as supporting functional requirements or constraints."
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Centralized event-driven state propagation with asynchronous message broker (decouples producers from consumers, enables selective subscription by authorization context)",
+      "DP2: Synchronous request-response state synchronization with polling intervals (simple but introduces latency variance and tight coupling between state owner and consumers)",
+      "DP3: Hybrid push-pull model with event notification + on-demand state fetch (balances latency guarantees with consumer autonomy, adds complexity)",
+      "DP4: Replicated state store with eventual consistency and conflict resolution (distributes state ownership, requires reconciliation logic and bounded divergence guarantees)",
+      "DP5: Direct peer-to-peer state propagation with consumer-side filtering (eliminates intermediary, but couples authorization logic across distributed nodes)"
+    ],
+    "selected_dp": "DP1: Centralized event-driven state propagation with asynchronous message broker. Producers emit worksite model change events to a logically centralized broker; broker routes events to authorized consumer subscriptions based on consumer identity and worksite safety/operational policy rules. Broker guarantees delivery ordering per logical entity (worksite) and enforces latency SLA through bounded queue depth and consumer acknowledgment timeouts.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Authorization policy coupling: If authorization rules are embedded in broker routing logic rather than externalized as a policy service, changes to safety/operational policies require broker redeployment (MITIGATED: externalize policy evaluation to dedicated authorization module with versioned policy contracts)",
+        "Consumer contract coupling: If event schema is tightly bound to specific consumer implementations, schema evolution breaks consumers (MITIGATED: use schema versioning and consumer-side adaptation layer; define canonical event contracts in design domain)",
+        "Broker availability coupling: Single broker instance becomes critical path for all state propagation (MITIGATED: broker is logically centralized but physically replicated; failover and replication strategy defined at IM layer, not DP)",
+        "Latency coupling to broker throughput: If broker capacity is undersized, p95 latency degrades across all consumers (MITIGATED: capacity planning and monitoring are explicit design concerns; broker throughput is a DP-level constraint, not hidden in implementation)"
+      ],
+      "notes": "DP1 achieves functional independence: producers do not know consumers; consumers do not know producers; authorization logic is decoupled from both. Event ordering and latency guarantees are explicit design contracts. Rejected alternatives: DP2 introduces tight coupling and polling overhead; DP4 distributes state ownership and complicates consistency guarantees; DP5 couples authorization across peers."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Worksite model change events can be expressed as discrete, idempotent messages. RISK: If model updates are non-idempotent or require transactional atomicity across multiple entities, event-driven model may require additional coordination (e.g., saga pattern). MITIGATION: Define event semantics and idempotency guarantees in DP contract.",
+      "ASSUMPTION: Authorized consumers can be identified and filtered at broker level (e.g., by consumer identity, role, or worksite scope). RISK: If authorization is context-dependent (e.g., time-based, location-based, or conditional on operational state), broker-level filtering is insufficient. MITIGATION: Externalize authorization to policy service; broker enforces policy decisions, not policy logic.",
+      "ASSUMPTION: p95 ≤ 1.0 s latency is achievable with asynchronous message broker. RISK: If broker is geographically distributed or network latency is high, p95 may exceed threshold. MITIGATION: Latency budget must account for network propagation, broker processing, and consumer processing; if threshold is unachievable, escalate to FR owner.",
+      "ASSUMPTION: Worksite model state is authoritative at a single logical source (e.g., worksite management service). RISK: If multiple sources can modify state concurrently, event-driven propagation may not guarantee consistency. MITIGATION: Enforce single-writer principle at DP level; if multi-writer is required, define conflict resolution strategy.",
+      "ASSUMPTION: Consumer failure does not block state propagation to other consumers. RISK: If one consumer is slow or unavailable, broker queue may back up and delay other consumers. MITIGATION: Implement per-consumer queue isolation and timeout policies; define SLA for consumer acknowledgment.",
+      "ASSUMPTION: Worksite safety and operational policies are stable and can be versioned. RISK: If policies change frequently or are context-dependent, policy versioning and rollout strategy becomes complex. MITIGATION: Define policy versioning and rollout process as part of IM design."
+    ],
+    "recommended_revision": "FR should be refined to explicitly state: (1) Idempotency requirement for worksite model updates; (2) Authorization model (role-based, attribute-based, or policy-based); (3) Consistency guarantee (strong, eventual, or bounded); (4) Single-writer vs. multi-writer assumption; (5) Consumer failure handling (queue isolation, timeout, retry policy); (6) Latency budget breakdown (network, broker, consumer processing). DP1 is sound but requires explicit design contracts for event schema, authorization policy interface, and latency SLA enforcement. IM layer must specify broker replication strategy, consumer subscription management, and policy versioning mechanism."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Safety Services",
+      "scope": "Centralized event broker and message routing infrastructure that manages worksite model change events, enforces authorization policies, maintains delivery ordering guarantees per logical entity, and applies latency SLAs through queue management and consumer acknowledgment timeouts."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Worksite model change events (position updates, equipment state, environmental conditions) produced by Vehicle and Teleoperation subsystems; broker consumes and routes based on policy."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Authorized safety-critical event notifications routed to consumer subscriptions; broker enforces safety/operational policy rules before delivery."
+      },
+      {
+        "name": "Tasking",
+        "direction": "inout",
+        "details": "Task-related state changes may trigger or be triggered by worksite model events; broker coordinates ordering and delivery guarantees across task lifecycle."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Broker manages bounded queue depth and consumer acknowledgment timeouts to enforce latency SLAs over potentially unreliable network transport."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Safety Services",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit: Safety Services is the natural owner of authorization, policy enforcement, and event routing logic. Event-driven state propagation is a core safety infrastructure concern. Delivery ordering and SLA enforcement align with safety-critical reliability requirements. Minor diffusion: Telemetry ingestion and Tasking coordination require external interface contracts, but core broker logic remains contained."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.65,
+        "diffusion_score": 0.35,
+        "notes": "Moderate fit but overly broad: NGHE Solution is a top-level system container. Placing the event broker here would make it a foundational infrastructure component, but ownership and operational responsibility would be diffuse. Policy enforcement and authorization logic would need to reference safety domain concerns scattered across Safety Services, creating bidirectional coupling. Not specific enough."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.25,
+        "diffusion_score": 0.75,
+        "notes": "Poor fit: Vehicle is a producer of telemetry events, not a broker. Placing centralized routing and policy enforcement in Vehicle would create tight coupling to vehicle-specific concerns and scatter broker logic across multiple vehicle instances. Delivery ordering and SLA enforcement are system-wide concerns, not vehicle-local. High diffusion."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Poor fit: Teleoperation is a consumer and producer of task-related events, not a broker. Centralizing event routing and policy enforcement here would conflate operator control logic with infrastructure concerns. Authorization and safety policy rules belong in Safety Services, not Teleoperation. High diffusion and poor separation of concerns."
+      }
+    ],
+    "ownership_candidate": "Safety Services",
+    "containment_hypothesis": "Safety Services is the most specific and cohesive boundary for the event-driven state propagation DP. The module's core responsibility is safety policy enforcement and authorization, which directly aligns with the broker's role in routing events based on consumer identity and safety/operational policy rules. Delivery ordering and latency SLA enforcement are reliability and safety-critical concerns that belong in Safety Services. External interfaces (Telemetry in, SafetyAlert out, Tasking and Network Link inout) are well-defined contract boundaries that do not require the DP logic to diffuse into Vehicle, Teleoperation, or NGHE Solution.",
+    "containment_risks": [
+      "Risk: If worksite model change events originate from multiple heterogeneous sources (Vehicle, Teleoperation, external sensors), Safety Services must define a unified event schema and ingestion contract. Failure to do so will force producers to adapt to Safety Services' internal event format, creating tight coupling.",
+      "Risk: Consumer subscriptions may span multiple modules (Vehicle, Teleoperation, NGHE Solution). If authorization and policy rules are tightly coupled to Safety Services' internal state, changes to policy will require Safety Services to maintain awareness of all consumer contexts, increasing coupling.",
+      "Risk: Latency SLA enforcement (bounded queue depth, acknowledgment timeouts) requires Safety Services to have visibility into network conditions and consumer processing capacity. If these are not exposed via Network Link and Tasking interfaces, Safety Services will need to infer or hardcode SLA parameters, reducing adaptability.",
+      "Risk: Delivery ordering per logical entity (worksite) assumes a clear definition of 'logical entity' boundaries. If worksite boundaries are ambiguous or change dynamically, the broker's ordering guarantees may become inconsistent or require frequent reconfiguration."
+    ],
+    "recommended_revision": "No revision to DP required. The selected DP is well-suited to Safety Services as the implementation boundary. However, to mitigate containment risks, recommend explicit DP refinement to clarify: (1) event schema and producer adaptation contract (Telemetry interface), (2) authorization and policy rule externalization mechanism (SafetyAlert interface), and (3) SLA parameter exposure and negotiation protocol (Network Link interface). These refinements will ensure the DP remains contained within Safety Services while allowing producers and consumers to evolve independently."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP1 (centralized event-driven state propagation with asynchronous message broker) directly addresses the FR requirement to propagate worksite model state changes to authorized consumers within customer-defined latency threshold. The DP specifies concrete mechanisms: (1) logically centralized broker for routing, (2) authorization enforcement based on consumer identity and policy rules, (3) delivery ordering guarantees per logical entity (worksite), and (4) latency SLA enforcement via bounded queue depth and acknowledgment timeouts. The DP is sufficiently detailed to be implementable and testable against the p95 ≤ 1.0 s latency acceptance criterion."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Event schema fragmentation: If producers (Vehicle, Teleoperation, external sensors) emit heterogeneous event formats, Safety Services broker must normalize or adapt. Risk of tight coupling if producers are forced to conform to Safety Services' internal schema rather than Safety Services accepting a well-defined external contract.",
+        "Policy rule coupling: Consumer subscriptions span multiple modules (Vehicle, Teleoperation, NGHE Solution). If authorization and policy enforcement logic is tightly bound to Safety Services' internal state representation, policy changes will require Safety Services to maintain awareness of all consumer contexts, increasing bidirectional coupling and reducing modularity.",
+        "SLA parameter inference: Latency SLA enforcement requires visibility into network conditions and consumer processing capacity. If these parameters are not explicitly exposed via Network Link and Tasking interfaces, Safety Services risks hardcoding SLA thresholds, reducing adaptability to customer-defined latency targets and network variability.",
+        "Logical entity boundary ambiguity: Delivery ordering per logical entity (worksite) assumes clear, stable worksite boundary definitions. If worksite boundaries are dynamic or ambiguous, the broker's ordering guarantees may become inconsistent, requiring frequent reconfiguration and creating a hidden coupling between Safety Services and worksite model evolution."
+      ],
+      "containment_notes": "Safety Services is the correct IM boundary with a containment score of 0.92 and diffusion score of 0.08. The module's core responsibility (safety policy enforcement and authorization) aligns directly with the broker's role in routing events based on consumer identity and safety/operational policy rules. Delivery ordering and latency SLA enforcement are safety-critical reliability concerns that belong in Safety Services. External interfaces are well-defined: Telemetry (in), SafetyAlert (out), Tasking (inout), and Network Link (inout) establish clear contract boundaries. However, the 0.08 residual diffusion score reflects the four containment risks identified above, which must be mitigated through explicit interface contracts and DP refinement to prevent diffusion into producers and consumers."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The FR acceptance criterion (p95 latency ≤ 1.0 s) is measurable and can be verified through end-to-end latency instrumentation across the broker's ingestion, routing, and delivery paths. Safety Services as the IM boundary provides a single point of instrumentation for queue depth, acknowledgment timeouts, and consumer delivery latency. Verification requires: (1) instrumentation of Telemetry ingestion latency, (2) broker routing and policy enforcement latency, (3) SafetyAlert delivery latency to consumers, and (4) network transport latency via Network Link. All are observable within Safety Services' scope.",
+      "allocation_clarity": "Moderate with caveats. The allocation of the DP to Safety Services is clear and well-justified. However, allocation clarity is reduced by ambiguity in three areas: (1) Producer adaptation contract: Telemetry interface must specify whether producers conform to a Safety Services event schema or Safety Services adapts to producer formats. (2) Consumer authorization contract: SafetyAlert interface must specify how authorization policies are defined, versioned, and updated without requiring Safety Services to maintain awareness of all consumer contexts. (3) SLA negotiation: Network Link interface must specify how latency SLA parameters (queue depth, timeout thresholds) are exposed, negotiated, and adapted to customer-defined targets and network conditions. Clarifying these three interface contracts will elevate allocation clarity from moderate to high."
+    },
+    "recommended_revisions": [
+      "Refine DP1 to explicitly define the event schema contract: Specify whether Safety Services accepts a standardized external event format from producers (Telemetry interface) or whether producers must adapt to Safety Services' internal schema. Recommend the former (external contract) to minimize producer coupling.",
+      "Refine DP1 to externalize authorization and policy rule definition: Introduce a policy rule repository or configuration mechanism that decouples Safety Services' internal enforcement logic from specific consumer contexts. This allows policy changes without requiring Safety Services to maintain awareness of all consumer modules.",
+      "Refine DP1 to expose SLA parameters via Network Link interface: Define a protocol for Safety Services to expose and negotiate latency SLA parameters (queue depth, acknowledgment timeout, delivery deadline) with network transport and consumers. This enables adaptation to customer-defined latency targets and network variability without hardcoding thresholds.",
+      "Clarify logical entity (worksite) boundary definition: Specify how worksite boundaries are defined, versioned, and communicated to Safety Services. If worksite boundaries are dynamic, define a mechanism for Safety Services to subscribe to worksite model changes and update delivery ordering guarantees accordingly.",
+      "Add explicit interface specification for Tasking coordination: Define the contract for task-related state changes that may trigger or be triggered by worksite model events. Specify whether Safety Services coordinates ordering across task lifecycle or delegates to Tasking module, and how delivery guarantees are maintained across module boundaries."
+    ]
+  },
+  "decision": {
+    "decision": "REVISE_CURRENT_LEVEL",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass, but the recommended_revisions and diffusion_risks reveal critical interface contract ambiguities that must be resolved before decomposing further. The DP is logically sound and Safety Services is the correct IM boundary, but the residual diffusion score (0.08) and four explicit containment risks indicate that proceeding to sub-FR decomposition without clarifying these contracts will propagate ambiguity downward, creating hidden coupling and reducing modularity. Given high safety criticality, interface clarity is a prerequisite to safe decomposition. Revise DP1 and interface specifications at the current level to eliminate diffusion risks and achieve allocation clarity ≥ 0.95 before deriving sub-FRs.",
+    "next_level_sub_frs": [],
+    "revise": {
+      "target": "DP",
+      "why": "DP1 must be refined to address five critical interface contract gaps: (1) Event schema contract (producer adaptation vs. Safety Services adaptation), (2) Authorization policy externalization (decouple enforcement from consumer context awareness), (3) SLA parameter exposure (Network Link interface protocol for latency negotiation), (4) Logical entity boundary definition (worksite model stability and versioning), and (5) Tasking coordination contract (ordering guarantees across task lifecycle). These revisions are essential to reduce diffusion risk from 0.08 to <0.05 and elevate allocation clarity from moderate to high. Revisions should be captured as explicit interface specifications (Telemetry, SafetyAlert, Network Link, Tasking) with clear contract boundaries, schema definitions, and parameter negotiation protocols."
+    },
+    "record": {
+      "assumptions": [
+        "Worksite boundaries are stable or have a well-defined versioning mechanism that Safety Services can subscribe to.",
+        "Producers (Vehicle, Teleoperation, external sensors) can conform to a standardized external event schema or Safety Services has a well-defined adaptation layer that does not require producer awareness of internal schema.",
+        "Authorization policies are externalized and can be updated independently of Safety Services' internal state representation without requiring bidirectional coupling to consumer modules.",
+        "Network Link interface exposes latency SLA parameters (queue depth, acknowledgment timeout, delivery deadline) that can be negotiated and adapted to customer-defined targets.",
+        "Tasking module has a clear interface contract for task-related state changes that may trigger or be triggered by worksite model events, with explicit ordering guarantees across module boundaries."
+      ],
+      "open_risks": [
+        "Event schema fragmentation: Heterogeneous event formats from producers may force Safety Services to maintain multiple adapters or require producers to conform to Safety Services' internal schema, creating tight coupling.",
+        "Policy rule coupling: If authorization and policy enforcement logic is tightly bound to Safety Services' internal state, policy changes will require Safety Services to maintain awareness of all consumer contexts, reducing modularity.",
+        "SLA parameter inference: Latency SLA enforcement requires visibility into network conditions and consumer processing capacity. If these parameters are not explicitly exposed via Network Link interface, Safety Services risks hardcoding thresholds, reducing adaptability.",
+        "Logical entity boundary ambiguity: Dynamic or ambiguous worksite boundaries may cause broker's ordering guarantees to become inconsistent, requiring frequent reconfiguration and creating hidden coupling to worksite model evolution.",
+        "Tasking coordination ambiguity: Unclear contract for task-related state changes may result in ordering guarantee violations across module boundaries or require Safety Services to maintain awareness of Tasking module internals."
+      ],
+      "evidence_needed": [
+        "Formal specification of Telemetry interface contract: Define standardized external event schema, producer adaptation requirements, and Safety Services' schema normalization/adaptation logic.",
+        "Authorization policy externalization design: Specify policy rule repository, versioning mechanism, and how policy changes are propagated to Safety Services without requiring consumer context awareness.",
+        "Network Link interface protocol: Define SLA parameter exposure mechanism, negotiation protocol, and how latency thresholds are adapted to customer-defined targets and network variability.",
+        "Worksite model boundary specification: Document worksite boundary definition, versioning mechanism, and subscription protocol for Safety Services to track worksite model changes.",
+        "Tasking coordination contract: Specify task lifecycle state changes, ordering guarantees across task-related events, and delegation boundaries between Safety Services and Tasking module.",
+        "End-to-end latency instrumentation plan: Define measurement points (Telemetry ingestion, broker routing, SafetyAlert delivery, network transport) and acceptance criteria for p95 ≤ 1.0 s verification."
+      ]
+    }
+  }
+}

@@ -1,0 +1,168 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall enable measurement and reporting of energy consumption per unit of work output.",
+    "rationale": "The original FR conflates two distinct obligations: (1) the ability to measure and report energy efficiency metrics, and (2) the achievement of a target value. The latter is a performance constraint on the system's operation, not a functional requirement of the system itself. The refined FR focuses on the functional capability—providing visibility into energy efficiency—which is solution-neutral and measurable. Achievement of the energy_per_ton ≤ E_target acceptance criterion is a system-level performance requirement that emerges from the combined design of the NGHE solution, not a single FR.",
+    "verification_idea": "Verify that the NGHE solution provides a mechanism (e.g., telemetry interface, dashboard, data export) to capture and report energy_per_ton = energy_used / ton_moved over the agreed evaluation period, with sufficient accuracy and temporal resolution to support acceptance testing.",
+    "sub_frs": [
+      "FR-NGHE-003.1: The NGHE solution shall measure total energy consumed during operation.",
+      "FR-NGHE-003.2: The NGHE solution shall measure or infer total work output (e.g., mass moved, distance traveled, work cycles completed) during operation.",
+      "FR-NGHE-003.3: The NGHE solution shall compute and report the ratio of energy consumed to work output."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Instrument energy input (fuel/electricity) at source; instrument work output (tonnage moved) at point of delivery; compute ratio offline via data aggregation pipeline",
+      "DP2: Embed real-time energy and tonnage sensors in the equipment; compute energy_per_ton locally on edge device; transmit periodic summaries to reporting system",
+      "DP3: Establish energy metering at equipment power interface; establish independent tonnage measurement via load cells or displacement tracking; synchronize timestamps and compute ratio in centralized analytics service",
+      "DP4: Delegate energy measurement to existing fleet telematics (if available); add tonnage instrumentation; reconcile data streams asynchronously in reporting database"
+    ],
+    "selected_dp": "DP3: Establish energy metering at equipment power interface; establish independent tonnage measurement via load cells or displacement tracking; synchronize timestamps and compute ratio in centralized analytics service",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Energy and tonnage measurement subsystems remain logically decoupled (different physical principles, independent sensor types, separate data streams)",
+        "Timestamp synchronization is a weak coupling point—mitigated by loose time-window reconciliation rather than hard real-time lock-step",
+        "Centralized analytics service creates a single point of dependency for ratio computation, but this is acceptable because it is a stateless aggregation function, not a control loop"
+      ],
+      "notes": "DP3 avoids tight coupling by separating measurement concerns (energy vs. work) and deferring fusion to a dedicated analytics layer. This supports independent evolution of sensor technologies and allows offline or near-real-time computation without blocking equipment operation. DP1 is too coarse (no real-time visibility); DP2 risks embedding computation logic in equipment firmware (poor maintainability); DP4 introduces dependency on external telematics system availability."
+    },
+    "assumptions_risks": [
+      "Assumption: Energy metering hardware (power meter, fuel flow meter) can be retrofitted or is available on equipment without major redesign.",
+      "Assumption: Tonnage measurement method (load cells, GPS displacement, or volumetric inference) is feasible and repeatable across worksite conditions.",
+      "Risk: Timestamp drift between energy and tonnage sensors could introduce systematic bias in ratio calculation if synchronization window is too loose.",
+      "Risk: Data transmission failures or gaps in sensor streams could result in incomplete reporting periods; mitigation requires clear data quality rules and acceptance criteria for partial periods.",
+      "Risk: Worksite operational variability (idle time, partial loads, equipment downtime) may require filtering logic to isolate 'productive' work; acceptance criteria must clarify whether E_target applies to all measured time or only active work periods.",
+      "Assumption: Centralized analytics service has sufficient uptime and data retention to support agreed evaluation period without loss."
+    ],
+    "recommended_revision": "Refine FR to explicitly state: (1) whether energy_per_ton is computed over all measured time or only during active work periods; (2) acceptable data quality thresholds (e.g., minimum % of time both sensors must be operational); (3) timestamp synchronization tolerance (e.g., ±5 seconds). This will reduce ambiguity in DP realization and IM boundary definition. Additionally, specify whether energy metering includes only direct equipment consumption or includes auxiliary systems (e.g., site lighting, compressors) to avoid scope creep during IM design."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "Centralized analytics and metering coordination service that aggregates energy consumption data from equipment power interfaces, integrates tonnage measurements from distributed load cells or displacement sensors, synchronizes heterogeneous timestamps, and computes efficiency ratios across the fleet."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Receives raw energy meter readings from equipment power interfaces and tonnage sensor data (load cells, displacement tracking) from Vehicle modules"
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Publishes computed efficiency ratios, synchronized metering records, and analytics summaries back to Vehicle and Teleoperation for display and logging"
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Ensures reliable transport of metering and tonnage data streams with timestamp synchronization guarantees"
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit. NGHE Solution is the natural home for centralized analytics, data aggregation, and cross-equipment ratio computation. Energy metering coordination and tonnage normalization are fleet-level concerns. Minor diffusion: raw sensor acquisition logic remains distributed in Vehicle modules; NGHE Solution consumes via Telemetry interface."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.45,
+        "diffusion_score": 0.55,
+        "notes": "Poor fit for centralized analytics. Vehicle modules are equipment-specific and would duplicate metering logic across multiple instances. Timestamp synchronization and cross-equipment ratio computation require fleet-wide visibility that Vehicle lacks. High diffusion: analytics logic would scatter across many vehicle instances."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Weak fit. Teleoperation is a user-facing control interface, not an analytics backbone. Placing metering coordination here conflates operator commands with data aggregation. High diffusion: analytics would be entangled with UI/control logic, violating separation of concerns."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Very poor fit. Safety Services is orthogonal to efficiency metering. While energy/tonnage data may inform safety thresholds, the primary DP (metering, measurement, ratio computation) is not a safety function. Placing it here creates false coupling and obscures safety-critical logic."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution (Analytics & Fleet Coordination Team)",
+    "containment_hypothesis": "The DP is best contained within NGHE Solution because: (1) centralized analytics is the defining purpose of this module; (2) fleet-wide data aggregation and synchronization require a single authoritative service; (3) efficiency ratio computation is a cross-equipment concern that cannot be localized to individual vehicles; (4) the Telemetry interface provides a clean contract for consuming distributed sensor data without Vehicle modules needing to know about analytics logic.",
+    "containment_risks": [
+      "Sensor acquisition and calibration logic remains distributed in Vehicle modules; NGHE Solution depends on consistent, well-formatted telemetry streams. Mitigation: establish strict telemetry schema and validation at the Telemetry interface.",
+      "Timestamp synchronization assumes reliable clock sources across distributed equipment. If clock drift is significant, ratio computation accuracy degrades. Mitigation: implement clock synchronization protocol (NTP or similar) as a prerequisite.",
+      "High data volume from continuous metering may create latency or throughput bottlenecks in NGHE Solution. Mitigation: design for streaming aggregation and consider time-windowed batch processing.",
+      "Vehicle modules must expose energy and tonnage data via Telemetry; if sensor integration is incomplete or inconsistent across vehicle types, NGHE Solution cannot compute reliable ratios. Mitigation: define mandatory telemetry fields and validation rules."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP3 directly addresses the FR by specifying three concrete mechanisms: (1) energy metering at equipment power interface, (2) independent tonnage measurement via load cells or displacement tracking, (3) centralized analytics service that synchronizes and computes the ratio. The DP is solution-complete and measurable against the acceptance criterion (energy_per_ton ≤ E_target). No logical gaps detected."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Sensor acquisition logic (energy meter integration, load cell/displacement sensor calibration) remains distributed in Vehicle modules. NGHE Solution depends on consistent telemetry schema. Risk: if Vehicle modules implement metering differently or omit calibration, NGHE Solution receives corrupted input. Mitigation: enforce strict telemetry schema validation and mandatory calibration handoff at Telemetry interface.",
+        "Timestamp synchronization assumes reliable, synchronized clocks across distributed equipment. Risk: clock drift or network latency in timestamp delivery degrades ratio computation accuracy and reproducibility. Mitigation: implement NTP or GPS-based clock synchronization as a prerequisite; document acceptable clock skew tolerance.",
+        "High-volume continuous metering data streams may create throughput or latency bottlenecks in NGHE Solution's aggregation pipeline. Risk: delayed or dropped telemetry events lead to incomplete or biased efficiency ratios. Mitigation: design for streaming aggregation with time-windowed batch processing; establish SLA for telemetry latency.",
+        "Vehicle modules must expose energy and tonnage data via Telemetry interface; incomplete or inconsistent sensor integration across vehicle types breaks NGHE Solution's ability to compute fleet-wide ratios. Risk: heterogeneous vehicle fleets with missing sensors cannot be normalized. Mitigation: define mandatory telemetry fields per vehicle type; implement validation rules and fallback handling."
+      ],
+      "containment_notes": "NGHE Solution achieves 0.92 containment score and is the correct architectural home for DP3. Centralized analytics, fleet-wide data aggregation, and cross-equipment ratio computation are inherently fleet-level concerns that cannot be localized to individual Vehicle modules without severe duplication and loss of synchronization. The Telemetry interface provides a clean contract boundary: Vehicle modules produce sensor data; NGHE Solution consumes and aggregates. Minor diffusion (0.08) is acceptable and expected—raw sensor acquisition remains in Vehicle modules by design, not by oversight. No alternative module (Vehicle, Teleoperation, Safety Services) offers better containment without violating separation of concerns."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The acceptance criterion (energy_per_ton ≤ E_target) is directly computable from NGHE Solution's output. Verification requires: (1) validated energy meter readings from equipment power interfaces, (2) validated tonnage measurements from load cells or displacement tracking, (3) synchronized timestamps with documented clock skew tolerance, (4) documented evaluation period and aggregation window. All inputs are observable and measurable. NGHE Solution must expose computed efficiency ratios and supporting telemetry records for audit and validation.",
+      "allocation_clarity": "Clear. FR is allocated to NGHE Solution as the primary owner of DP3 implementation. Allocation of sub-concerns: Vehicle modules own sensor acquisition and telemetry production (energy meter integration, load cell/displacement sensor calibration); NGHE Solution owns data aggregation, timestamp synchronization, and ratio computation; Telemetry interface owns schema definition and validation. Ownership boundaries are explicit and non-overlapping. Worksite safety plan and operational policies are external constraints that inform evaluation period definition and E_target baseline but do not alter the DP<->IM mapping."
+    },
+    "recommended_revisions": [
+      "Establish and document a mandatory telemetry schema for energy and tonnage data, including field definitions, units, precision, and validation rules. Publish schema to all Vehicle module teams and enforce via interface contract.",
+      "Define clock synchronization protocol (NTP, GPS, or equivalent) as a prerequisite for NGHE Solution deployment. Document acceptable clock skew tolerance (e.g., ±100 ms) and include clock health monitoring in NGHE Solution's telemetry validation.",
+      "Specify data aggregation and time-windowing strategy in NGHE Solution design (e.g., 1-minute rolling windows, hourly batch summaries). Document latency SLA for telemetry ingestion and ratio computation to ensure evaluation period granularity is achievable.",
+      "Create a Vehicle module telemetry checklist: mandatory fields (energy_wh, tonnage_kg, timestamp_utc, vehicle_id, sensor_status) and optional fields (calibration_date, sensor_confidence). Require all vehicle types to populate mandatory fields before NGHE Solution can compute ratios.",
+      "Add a telemetry validation and fallback handling section to NGHE Solution design: define behavior when energy or tonnage data is missing, stale, or out-of-range (e.g., skip record, flag as invalid, alert operator). Document impact on ratio computation accuracy.",
+      "Clarify evaluation period definition in acceptance criteria: specify whether E_target is computed over a calendar period, operational hours, or work cycles. Ensure NGHE Solution's aggregation window aligns with evaluation period boundaries to avoid partial-period bias."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass with high confidence. The DP is solution-complete and measurable; NGHE Solution is the correct architectural home with acceptable diffusion (0.08). However, the gate results expose four critical diffusion risks and six recommended revisions that are not merely implementation details—they represent unresolved sub-functional concerns that must be decomposed to ensure safety criticality and verification feasibility. Specifically: (1) telemetry schema validation and sensor calibration handoff require explicit functional decomposition to prevent corrupted input to NGHE Solution; (2) clock synchronization is a prerequisite functional requirement, not a design assumption; (3) data aggregation strategy and latency SLA are functional constraints that affect ratio computation accuracy; (4) telemetry validation and fallback handling are functional requirements for robustness under sensor failure or data loss. These concerns are currently embedded in diffusion notes and mitigation strategies but lack explicit FR-DP-IM traceability. Decomposing them now ensures safety-critical verification is achievable and architectural ownership is unambiguous.",
+    "next_level_sub_frs": [
+      "FR3.1: Ensure energy and tonnage telemetry data conform to a mandatory schema with validated field definitions, units, precision, and sensor status indicators before NGHE Solution ingests data.",
+      "FR3.2: Synchronize timestamps across all distributed equipment (Vehicle modules, energy meters, load cells) to within a documented clock skew tolerance (e.g., ±100 ms) to enable accurate ratio computation.",
+      "FR3.3: Validate incoming telemetry records for completeness, staleness, and out-of-range values; flag invalid records and implement fallback handling (skip, alert, or substitute) to prevent biased efficiency ratio computation.",
+      "FR3.4: Aggregate energy and tonnage telemetry data using a time-windowed strategy (e.g., 1-minute rolling windows, hourly batch summaries) with documented latency SLA to ensure evaluation period granularity is achievable and ratio computation is reproducible.",
+      "FR3.5: Calibrate and validate energy meter and tonnage sensor readings at equipment power interfaces and load cell/displacement sensor points before telemetry production, with calibration metadata (date, confidence, sensor status) included in telemetry records."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "DP3 is logically sound but underspecifies the mechanisms for telemetry schema enforcement, clock synchronization, data validation, and aggregation strategy. These are not implementation details—they are design parameters that directly affect the correctness and safety of the efficiency ratio computation. Revise DP3 to explicitly include: (1) telemetry schema contract with validation rules; (2) clock synchronization protocol and tolerance; (3) data validation and fallback logic; (4) time-windowing and aggregation strategy with latency SLA. This revision ensures DP3 is complete enough to guide sub-FR decomposition and prevents diffusion risks from propagating into implementation."
+    },
+    "record": {
+      "assumptions": [
+        "Vehicle modules can reliably produce energy meter readings and tonnage measurements with consistent precision and units across all vehicle types.",
+        "Distributed equipment clocks can be synchronized to within ±100 ms via NTP, GPS, or equivalent protocol.",
+        "NGHE Solution has sufficient throughput and latency headroom to ingest, validate, and aggregate high-volume continuous telemetry streams without dropping or delaying records.",
+        "Evaluation period definition (calendar, operational hours, or work cycles) is stable and known at the time NGHE Solution is deployed.",
+        "Sensor failures, calibration drift, and data loss are infrequent enough that fallback handling (skip, alert, substitute) does not systematically bias efficiency ratio computation."
+      ],
+      "open_risks": [
+        "Telemetry schema is not yet published or enforced; Vehicle module teams may implement sensor acquisition inconsistently, producing corrupted or incompatible data streams.",
+        "Clock synchronization protocol is not yet specified; timestamp skew may exceed tolerance, degrading ratio computation accuracy and reproducibility.",
+        "Data validation and fallback handling logic is not yet designed; invalid or missing telemetry records may propagate into ratio computation, producing biased or unreliable efficiency metrics.",
+        "Aggregation strategy (time-windowing, batch processing, latency SLA) is not yet defined; evaluation period granularity and ratio computation latency are unknown.",
+        "Sensor calibration handoff between Vehicle modules and NGHE Solution is not yet formalized; calibration metadata may be missing or inconsistent, preventing audit and verification.",
+        "Safety criticality of efficiency ratio computation is high (informs operational decisions and safety planning), but verification feasibility depends on all sub-FRs being resolved; incomplete decomposition increases verification risk."
+      ],
+      "evidence_needed": [
+        "Mandatory telemetry schema document with field definitions, units, precision, validation rules, and sensor status indicators; published to all Vehicle module teams and enforced via interface contract.",
+        "Clock synchronization protocol specification (NTP, GPS, or equivalent) with documented acceptable clock skew tolerance (e.g., ±100 ms) and clock health monitoring requirements.",
+        "Data aggregation and time-windowing strategy design document specifying window size (e.g., 1-minute rolling, hourly batch), latency SLA for telemetry ingestion and ratio computation, and evaluation period alignment.",
+        "Telemetry validation and fallback handling design: behavior when energy or tonnage data is missing, stale, or out-of-range; impact on ratio computation accuracy; alert and logging requirements.",
+        "Sensor calibration handoff procedure: calibration metadata schema (date, confidence, sensor status), calibration validation rules, and audit trail requirements.",
+        "Evaluation period definition clarification: calendar period, operational hours, or work cycles; alignment with NGHE Solution's aggregation window; impact on E_target baseline and acceptance criterion.",
+        "Verification plan for FR3.1–FR3.5 with test cases covering nominal operation, sensor failures, clock drift, data loss, and edge cases (e.g., partial-period evaluation, heterogeneous vehicle fleets)."
+      ]
+    }
+  }
+}

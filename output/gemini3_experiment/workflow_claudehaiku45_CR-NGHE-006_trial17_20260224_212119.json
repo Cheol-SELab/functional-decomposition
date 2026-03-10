@@ -1,0 +1,180 @@
+{
+  "refined_fr": {
+    "refined_fr": "Capture and represent worksite spatial features in a machine-readable model.",
+    "rationale": "The candidate FR bundles three distinct obligations: (1) terrain analysis, (2) obstacle identification, and (3) work-zone representation. Each is a separate functional concern with different data sources, processing logic, and stakeholder consumption patterns. The refined FR is solution-neutral (avoids 'mapping/modeling' terminology which implies implementation choice) and focuses on the core problem: making spatial features available in a structured, reusable form. Splitting into atomic sub-FRs allows independent DP selection and IM packaging for each concern.",
+    "verification_idea": "Confirm that a worksite model exists in a machine-readable format (e.g., point cloud, mesh, semantic graph) that can be queried and consumed by downstream planning and execution functions. Verify that the model schema is documented and accessible to authorized stakeholders.",
+    "sub_frs": [
+      "FR-NGHE-006.1: Acquire terrain elevation and surface geometry data from the worksite.",
+      "FR-NGHE-006.2: Identify and classify static obstacles (structures, vegetation, utilities) within the worksite boundary.",
+      "FR-NGHE-006.3: Define and persist work-zone boundaries and operational constraints for equipment movement.",
+      "FR-NGHE-006.4: Provide query and retrieval access to worksite spatial features for planning and execution functions."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Acquire raw spatial data from multiple independent sensor modalities (vision, range, inertial) and store in a unified sensor buffer; apply modality-agnostic feature extraction and geometric reconstruction to produce a normalized spatial representation; expose the model through a query interface that supports feature lookup, spatial relationships, and temporal snapshots.",
+      "DP2: Designate a single authoritative sensor modality (e.g., vision-based) as the primary data source; apply feature extraction and model generation specific to that modality; cache results in a feature store; provide read-only access to planning/execution via a fixed schema API.",
+      "DP3: Decompose spatial capture into independent sub-processes: (a) raw data ingestion from heterogeneous sources, (b) per-modality feature extraction, (c) multi-modal fusion and conflict resolution, (d) model persistence and versioning; expose each layer through well-defined contracts so planning/execution can consume at any abstraction level.",
+      "DP4: Implement a real-time streaming pipeline that continuously ingests sensor data, applies incremental feature updates, and broadcasts model deltas to subscribers; maintain a queryable snapshot store for planning/execution to retrieve current or historical model states on demand.",
+      "DP5: Capture spatial features via a hybrid approach: use a lightweight, rule-based feature detector for high-confidence features (e.g., marked hazard zones, equipment positions) and a probabilistic model for uncertain features (e.g., terrain roughness); expose both confidence scores and raw observations so planning/execution can apply their own risk thresholds."
+    ],
+    "selected_dp": "DP3: Decompose spatial capture into independent sub-processes: (a) raw data ingestion from heterogeneous sources, (b) per-modality feature extraction, (c) multi-modal fusion and conflict resolution, (d) model persistence and versioning; expose each layer through well-defined contracts so planning/execution can consume at any abstraction level.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Fusion logic (step c) may become tightly coupled to specific feature types if not abstracted via a common feature schema; mitigate by defining a canonical feature representation (geometry, confidence, timestamp, source modality) early.",
+        "Versioning and temporal consistency: if planning/execution queries the model while fusion is updating, stale or inconsistent reads may occur; mitigate via snapshot isolation or explicit versioning semantics in the query contract.",
+        "Modality-specific extraction (step b) may introduce hidden dependencies on sensor calibration or preprocessing; mitigate by requiring each extractor to declare its input assumptions and output guarantees."
+      ],
+      "notes": "DP3 achieves loose coupling by separating concerns (ingestion, extraction, fusion, persistence) and exposing contracts at each boundary. This allows planning/execution to remain independent of sensor hardware choices and supports incremental model refinement without cascading changes. The main risk is fusion logic complexity; this is acceptable because fusion is inherently a cross-cutting concern and should be centralized."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Worksite safety plan and operational policies are available and can be encoded as constraints on feature types and spatial relationships (e.g., 'hazard zones must be marked', 'equipment must be within designated areas'). RISK: If policies are vague or change frequently, the feature schema may require constant revision.",
+      "ASSUMPTION: Planning/execution functions can tolerate a bounded latency between real-world changes and model updates. RISK: If latency requirements are sub-second, streaming (DP4) may be necessary instead of batch processing.",
+      "ASSUMPTION: Multi-modal fusion is feasible and adds value (i.e., no single modality is sufficient). RISK: If one modality dominates, DP2 (single-modality) may be simpler and more maintainable.",
+      "ASSUMPTION: Feature extraction can be decoupled from fusion (i.e., extractors do not need to know about other modalities). RISK: Some features may be inherently multi-modal (e.g., detecting occlusion requires both vision and range data); this may force fusion logic into extractors, violating the decomposition.",
+      "ASSUMPTION: Worksite model is queried by planning/execution at discrete intervals (not continuous streaming). RISK: If real-time updates are critical, the persistence layer must support efficient incremental queries and subscriptions.",
+      "ASSUMPTION: Spatial features can be represented in a common coordinate frame (e.g., site-relative or global). RISK: If coordinate frame alignment is uncertain or drifts over time, model accuracy degrades; requires explicit calibration and drift detection."
+    ],
+    "recommended_revision": "Refine DP3 by explicitly defining: (1) the canonical feature schema (geometry type, confidence, timestamp, source modality, metadata), (2) the fusion conflict resolution strategy (e.g., majority vote, weighted average, modality priority), (3) the query interface contract (e.g., 'return features within bounding box with confidence >= threshold'), and (4) the versioning/snapshot semantics (e.g., 'snapshots are immutable; queries default to latest snapshot unless version is specified'). Additionally, add a validation step after fusion to check that the model satisfies worksite safety constraints; if violations are detected, flag them for human review before exposing the model to planning/execution. This ensures that the model is not only machine-readable but also safety-compliant."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "Centralized spatial capture pipeline encompassing raw data ingestion, per-modality feature extraction, multi-modal fusion, conflict resolution, and model persistence with versioning. Acts as the authoritative perception layer that exposes layered contracts for consumption by planning/execution subsystems."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Ingests heterogeneous raw sensor data (camera, lidar, radar, IMU, GPS) from Vehicle and Teleoperation sources; supports streaming and batch ingestion modes."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Exposes multi-level perception contracts: (1) raw sensor streams, (2) per-modality feature vectors, (3) fused world model with conflict metadata, (4) versioned model snapshots for planning/execution consumption."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Emits high-confidence conflict detections and fusion anomalies that require Safety Services intervention (e.g., sensor disagreement, modality dropout)."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Supports distributed feature extraction and fusion across edge/cloud boundaries; enables model versioning and persistence to remote storage."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit. NGHE is the natural perception/sensing backbone. All four sub-processes (ingestion, per-modality extraction, fusion, persistence) are cohesively owned within NGHE. Minimal diffusion: only outbound contracts to Tasking (planning consumption) and SafetyAlert (anomaly escalation) are necessary; no internal leakage to Vehicle or Teleoperation logic."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor fit. Vehicle is a physical platform; it should consume perception outputs, not own the perception pipeline. Placing DP3 here would scatter feature extraction and fusion logic across vehicle firmware, creating tight coupling to hardware variants and diffusing perception contracts across multiple vehicle types."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.25,
+        "diffusion_score": 0.75,
+        "notes": "Poor fit. Teleoperation is a control/command interface for remote operators. Embedding spatial capture and fusion here conflates perception with operator interaction, causing high diffusion: fusion logic would leak into UI/command handling, and multi-modal feature extraction would be entangled with teleoperation latency/bandwidth constraints."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Poor fit. Safety Services is a reactive monitor/enforcer. Placing the entire spatial capture pipeline here inverts responsibility: Safety should consume fused perception and validate safety invariants, not own the perception pipeline itself. High diffusion: fusion logic would be scattered across safety rule engines."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "NGHE Solution is the single authoritative owner of the spatial capture pipeline (DP3). It encapsulates all four sub-processes as internal layers with well-defined contracts exposed via Tasking (for planning/execution consumption at multiple abstraction levels) and SafetyAlert (for anomaly escalation). Vehicle, Teleoperation, and Safety Services are consumers of these contracts, not contributors to the pipeline internals.",
+    "containment_risks": [
+      "Risk: If NGHE Solution is not yet established as a distinct architectural boundary, DP3 ownership may be ambiguous. Mitigation: Formalize NGHE as a dedicated module with clear API contracts.",
+      "Risk: Distributed edge/cloud deployment of feature extraction may require coordination across Network Link boundaries. Mitigation: Ensure NGHE owns the orchestration logic; edge nodes are implementation details, not separate module boundaries.",
+      "Risk: Safety Services may demand real-time access to raw sensor streams for independent validation. Mitigation: Expose raw Telemetry contract from NGHE; Safety consumes but does not own ingestion.",
+      "Risk: Vehicle firmware may have legacy sensor drivers that conflict with NGHE's ingestion abstraction. Mitigation: Establish a clear Vehicle → NGHE sensor adapter layer; Vehicle owns drivers, NGHE owns normalization."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP3 correctly decomposes the FR into four independent, logically coherent sub-processes (ingestion, per-modality extraction, fusion, persistence) with well-defined contracts. The layered abstraction strategy directly addresses the requirement to capture and represent worksite spatial features in machine-readable form. The exposure of multiple abstraction levels (raw streams → feature vectors → fused model → versioned snapshots) enables flexible consumption by downstream planning/execution functions, satisfying the acceptance criterion that 'a worksite model/map is generated and available to planning/execution functions.'"
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "NGHE Solution ownership is contingent on formal architectural establishment. If NGHE is not yet a recognized module boundary with explicit API contracts, DP3 ownership will diffuse across Vehicle (sensor drivers), Teleoperation (operator-driven data requests), and Safety Services (real-time validation demands). Mitigation: Formalize NGHE as a dedicated architectural module with published interface specifications before implementation.",
+        "Distributed edge/cloud deployment of feature extraction introduces a secondary diffusion risk: orchestration logic for edge node coordination may leak into Network Link management or Vehicle firmware if NGHE does not explicitly own the deployment/scheduling layer. Mitigation: Ensure NGHE owns all orchestration; edge nodes are implementation details of the Ingestion and Extraction sub-processes, not separate module boundaries.",
+        "Safety Services may demand direct access to raw Telemetry streams for independent sensor validation, creating a secondary ingestion path that bypasses NGHE's normalization layer. This would fragment the authoritative perception contract. Mitigation: Expose raw Telemetry contract from NGHE; Safety consumes but does not own or re-ingest.",
+        "Vehicle firmware sensor drivers may have legacy abstractions that conflict with NGHE's ingestion normalization. If Vehicle retains ownership of driver logic without a clear adapter boundary, feature extraction will be scattered across Vehicle and NGHE. Mitigation: Establish explicit Vehicle → NGHE sensor adapter layer; Vehicle owns drivers, NGHE owns normalization and contract exposure."
+      ],
+      "containment_notes": "NGHE Solution exhibits excellent containment (0.92 score) for DP3. All four sub-processes are cohesively owned within a single module boundary. External interfaces are well-defined: Telemetry (inbound raw data), Tasking (outbound multi-level contracts), SafetyAlert (outbound anomalies), and Network Link (distributed deployment support). No internal leakage to Vehicle, Teleoperation, or Safety Services logic is evident in the current specification. However, containment quality depends critically on: (1) NGHE being formally established as a distinct architectural boundary with published API contracts, (2) clear ownership of edge/cloud orchestration logic, (3) explicit adapter layers between Vehicle drivers and NGHE ingestion, and (4) Safety Services consuming (not owning) perception outputs. The provided module containment scores correctly identify Vehicle (0.35), Teleoperation (0.25), and Safety Services (0.2) as poor fits, validating NGHE as the single authoritative owner."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The acceptance criterion 'a worksite model/map is generated and available to planning/execution functions for an agreed set of site features' is directly verifiable through NGHE's Tasking interface. Verification can be performed by: (1) confirming that fused world model snapshots are produced and versioned, (2) validating that planning/execution subsystems can consume at least one abstraction level (e.g., fused model with conflict metadata), (3) confirming that model coverage includes agreed site features (e.g., obstacles, terrain, hazards), and (4) testing that model updates propagate to planning/execution within acceptable latency. The layered contract exposure (raw streams → feature vectors → fused model → versioned snapshots) provides multiple verification points.",
+      "allocation_clarity": "High. NGHE Solution is unambiguously allocated as the owner of DP3. The ownership candidate, containment hypothesis, and module containment scores all converge on NGHE as the single authoritative perception layer. Allocation clarity is further strengthened by: (1) explicit external interfaces (Telemetry in, Tasking/SafetyAlert out), (2) clear separation of concerns (NGHE owns perception; Vehicle owns hardware; Teleoperation owns operator interaction; Safety owns validation), and (3) well-defined sub-process boundaries within NGHE (ingestion → extraction → fusion → persistence). However, allocation clarity depends on formalizing NGHE as a distinct architectural module with published API contracts before detailed design and implementation commence."
+    },
+    "recommended_revisions": [
+      "Formalize NGHE Solution as a dedicated architectural module with explicit API contracts for each of the four sub-processes (ingestion, per-modality extraction, fusion, persistence) and each outbound abstraction level (raw streams, feature vectors, fused model, versioned snapshots). Publish these contracts to Vehicle, Teleoperation, Safety Services, and Planning/Execution subsystems.",
+      "Establish a clear Vehicle → NGHE sensor adapter layer. Define which components own sensor drivers (Vehicle) and which own normalization/abstraction (NGHE). Document the adapter interface to prevent diffusion of feature extraction logic across module boundaries.",
+      "Explicitly allocate orchestration logic for distributed edge/cloud feature extraction to NGHE. Clarify that edge nodes are implementation details of the Ingestion and Extraction sub-processes, not separate module boundaries. Define the Network Link interface to support this orchestration without leaking control logic to Vehicle or Teleoperation.",
+      "Define the SafetyAlert interface to include raw Telemetry contract exposure. Clarify that Safety Services consumes raw sensor streams from NGHE (not directly from Vehicle) to enable independent validation without fragmenting the authoritative perception contract.",
+      "Add a sub-requirement to DP3 specifying conflict resolution semantics: when multi-modal fusion detects disagreement (e.g., lidar vs. camera obstacle detection), define the priority/arbitration rules and the metadata structure for conflict reporting. This ensures that the 'conflict resolution' sub-process is concrete and verifiable.",
+      "Specify versioning and persistence strategy for the fused world model: define snapshot frequency, retention policy, and the interface for planning/execution to query historical model states. This ensures that the 'model persistence and versioning' sub-process is concrete and supports planning/execution requirements.",
+      "Add acceptance criteria for model availability and latency: specify the maximum acceptable latency for fused model updates to reach planning/execution, and the minimum availability/uptime requirement for the spatial capture pipeline. This enables verification of the FR against operational constraints."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "Gate results confirm DP3 is logically sound (FR→DP pass) and architecturally feasible (DP→IM pass with high containment 0.92 for NGHE). However, the FR→IM gate surfaces critical allocation clarity dependencies: NGHE must be formally established as a distinct architectural module with published API contracts before detailed design proceeds. The recommended revisions are architectural formalization tasks, not decomposition blockers. The safety-critical nature of spatial perception (high safety criticality factor) and the complexity of multi-modal fusion with conflict resolution warrant explicit sub-FR derivation to ensure: (1) conflict resolution semantics are concrete and verifiable, (2) model persistence/versioning strategy is explicit, (3) latency and availability requirements are captured as acceptance criteria. Proceeding to next-level decomposition will expose these requirements as sub-FRs, enabling rigorous allocation to NGHE sub-processes and verification planning. The gate passes; formalization and sub-FR derivation proceed in parallel.",
+    "next_level_sub_frs": [
+      "FR3.1: Ingest multi-modal sensor streams (LiDAR, camera, radar, IMU) from Vehicle in real-time, normalize to common coordinate frame and timestamp, and expose raw Telemetry contract to downstream consumers (Safety Services, Planning/Execution).",
+      "FR3.2: Extract per-modality spatial features (obstacles, terrain, hazards, landmarks) from normalized sensor streams with configurable feature vocabularies, and expose Feature Vector contract at multiple abstraction levels (raw detections, filtered features, confidence-annotated features).",
+      "FR3.3: Fuse multi-modal feature streams into a unified world model with explicit conflict detection, resolution, and metadata annotation; expose Fused Model contract with conflict provenance and arbitration rules.",
+      "FR3.4: Persist versioned snapshots of the fused world model with configurable snapshot frequency and retention policy; expose Model Query contract enabling Planning/Execution to retrieve current and historical model states within specified latency bounds.",
+      "FR3.5: Detect and report anomalies in sensor streams or fusion results (e.g., sensor degradation, conflicting modalities, out-of-range detections) to Safety Services via SafetyAlert contract with severity classification and raw evidence attachment.",
+      "FR3.6: Orchestrate distributed edge/cloud deployment of ingestion and extraction sub-processes, including edge node coordination, load balancing, and failover, without leaking orchestration logic to Vehicle firmware or Network Link management."
+    ],
+    "revise": {
+      "target": "IM",
+      "why": "Formalize NGHE Solution as a dedicated architectural module with explicit API contracts for each sub-process (Ingestion, Extraction, Fusion, Persistence, Anomaly Detection, Orchestration) and each outbound abstraction level (raw streams, feature vectors, fused model, versioned snapshots). Establish clear ownership boundaries: Vehicle owns sensor drivers and hardware abstraction; NGHE owns normalization, feature extraction, fusion, and persistence; Safety Services consumes (not owns) perception outputs; Planning/Execution consumes model contracts. Document Vehicle → NGHE sensor adapter layer and SafetyAlert interface to prevent diffusion. This formalization is a prerequisite for detailed design and implementation; it does not block decomposition but must proceed in parallel."
+    },
+    "record": {
+      "assumptions": [
+        "NGHE Solution will be formally established as a distinct architectural module with published API contracts before detailed design commences.",
+        "Vehicle firmware retains ownership of sensor drivers; NGHE owns normalization and abstraction layers.",
+        "Safety Services will consume raw Telemetry and SafetyAlert contracts from NGHE, not directly from Vehicle.",
+        "Planning/Execution subsystems can consume at least one abstraction level of the fused world model (e.g., fused model with conflict metadata).",
+        "Multi-modal fusion conflict resolution follows a deterministic arbitration rule (e.g., priority-based, voting-based, or confidence-weighted).",
+        "Model persistence and versioning strategy supports Planning/Execution queries for historical model states.",
+        "Distributed edge/cloud orchestration logic is owned by NGHE and does not leak to Vehicle firmware or Network Link management."
+      ],
+      "open_risks": [
+        "NGHE module boundary formalization is contingent on organizational architecture governance; if not established, ownership will diffuse across Vehicle, Teleoperation, and Safety Services.",
+        "Conflict resolution semantics in multi-modal fusion are not yet concrete; ambiguity in arbitration rules may lead to inconsistent behavior or safety-critical disagreements.",
+        "Model persistence and versioning strategy is not yet specified; Planning/Execution latency and availability requirements may conflict with NGHE's snapshot frequency and retention policy.",
+        "Edge/cloud orchestration logic may leak to Network Link or Vehicle firmware if NGHE does not explicitly own deployment/scheduling; this is a secondary diffusion risk.",
+        "Safety Services may demand direct access to raw sensor streams, bypassing NGHE's normalization layer; this would fragment the authoritative perception contract.",
+        "Legacy Vehicle firmware sensor driver abstractions may conflict with NGHE's ingestion normalization; adapter layer design is critical to prevent feature extraction scattering."
+      ],
+      "evidence_needed": [
+        "Formal NGHE architectural module specification with published API contracts for Ingestion, Extraction, Fusion, Persistence, Anomaly Detection, and Orchestration sub-processes.",
+        "Vehicle → NGHE sensor adapter layer design document with clear ownership boundaries and interface specifications.",
+        "Multi-modal fusion conflict resolution specification: arbitration rules, priority/voting semantics, and metadata structure for conflict reporting.",
+        "Model persistence and versioning strategy: snapshot frequency, retention policy, and Planning/Execution query interface.",
+        "SafetyAlert interface specification: severity classification, raw evidence attachment, and contract exposure for raw Telemetry streams.",
+        "Distributed edge/cloud orchestration design: edge node coordination, load balancing, failover logic, and Network Link interface.",
+        "Acceptance criteria for model availability and latency: maximum acceptable latency for fused model updates, minimum uptime requirement for spatial capture pipeline.",
+        "Verification plan for FR3 acceptance criterion: test cases for model generation, availability to Planning/Execution, and coverage of agreed site features."
+      ]
+    }
+  }
+}

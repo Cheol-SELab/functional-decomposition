@@ -1,0 +1,170 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation communication reliability within the customer-defined packet loss threshold during agreed network conditions.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting teleoperation capability and (2) meeting a specific quality metric (packet loss limit). The refined FR isolates the quality/reliability obligation as a single atomic requirement, expressed in the problem domain (what reliability must be achieved) without prescribing how (e.g., redundancy, error correction, network selection). The phrase 'communication quality' is replaced with the measurable, customer-defined metric 'packet loss threshold' to eliminate ambiguity. 'Agreed network conditions' anchors the requirement to realistic operational context rather than ideal conditions.",
+    "verification_idea": "Conduct teleoperation sessions across the agreed network conditions (e.g., 4G/5G coverage, latency profiles, congestion scenarios) and measure end-to-end packet loss using network monitoring tools. Confirm that measured packet loss does not exceed the customer-defined threshold (e.g., ≤1%) over a statistically significant sample of operations.",
+    "sub_frs": [
+      "FR-NGHE-009.1: The NGHE solution shall enable remote operation of heavy equipment from a tele-operator station.",
+      "FR-NGHE-009.2: The NGHE solution shall maintain teleoperation command and feedback transmission with packet loss not exceeding the customer-defined threshold under agreed network conditions."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Implement adaptive packet redundancy and selective retransmission based on real-time network quality metrics (latency, jitter, loss rate) to maintain effective throughput within acceptable operator response time.",
+      "DP2: Establish a dual-path communication architecture with independent network routes and automatic failover to ensure continuous command/feedback flow during transient network degradation.",
+      "DP3: Deploy application-level forward error correction (FEC) encoding with configurable redundancy ratio, tuned to customer-defined packet loss threshold and network SLA parameters.",
+      "DP4: Implement a buffering and prioritization strategy that segregates critical control commands from non-critical telemetry, ensuring safety-critical packets meet latency and delivery guarantees.",
+      "DP5: Establish a closed-loop acknowledgment and timeout-driven retransmission protocol with exponential backoff, calibrated to network round-trip time and customer-defined loss tolerance."
+    ],
+    "selected_dp": "DP3 + DP4 (composite): Deploy application-level forward error correction (FEC) encoding with configurable redundancy ratio, tuned to customer-defined packet loss threshold and network SLA parameters, combined with a buffering and prioritization strategy that segregates critical control commands from non-critical telemetry to ensure safety-critical packets meet latency and delivery guarantees.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "DP3 and DP4 are logically orthogonal: FEC operates at the codec/encoding layer (independent of packet semantics), while prioritization operates at the queue/dispatch layer (independent of encoding scheme). Both can be implemented and tuned independently.",
+        "Weak coupling risk: FEC overhead (redundancy ratio) must be coordinated with network bandwidth constraints and operator latency tolerance; this is a parameter-tuning dependency, not a structural coupling.",
+        "DP4 prioritization requires classification of control vs. telemetry packets; this is a data-flow concern that does not constrain DP3's FEC algorithm selection or configuration."
+      ],
+      "notes": "Composite DP avoids single-point-of-failure risk inherent in DP1 (reactive retransmission alone) and DP2 (dual-path cost/complexity without loss mitigation). DP5 is subsumed by DP3 (FEC is proactive; retransmission is reactive fallback). DP3+DP4 supports graceful degradation: FEC handles ambient loss; prioritization ensures critical commands survive congestion."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Customer-defined packet loss threshold (≤1%) is achievable under agreed network conditions without requiring 100% redundancy (which would double bandwidth). Risk: If network SLA is worse than stated, FEC redundancy ratio may need to exceed practical limits. Mitigation: Establish baseline network characterization before tuning FEC parameters.",
+      "ASSUMPTION: Operator latency tolerance (e.g., <200ms round-trip for safe teleoperation) is compatible with FEC encoding/decoding overhead and retransmission delays. Risk: FEC adds deterministic latency; if operator response time budget is <50ms, FEC overhead may be unacceptable. Mitigation: Measure end-to-end latency impact during design validation.",
+      "ASSUMPTION: Critical control commands can be reliably classified and segregated from telemetry at the application layer. Risk: Misclassification or dynamic command priority changes could violate safety guarantees. Mitigation: Define explicit command taxonomy and priority rules in operational procedures.",
+      "ASSUMPTION: Network conditions remain stable during a teleoperation session (no sudden topology changes, no competing traffic spikes). Risk: If network degrades mid-session, FEC ratio may become insufficient. Mitigation: Implement adaptive FEC ratio adjustment based on real-time loss monitoring (extends DP3 with feedback loop).",
+      "ASSUMPTION: Worksite safety plan permits graceful degradation (e.g., operator can pause/abort if packet loss exceeds threshold). Risk: If safety plan requires zero-loss guarantee, DP3+DP4 alone is insufficient; dual-path (DP2) or hybrid approach required. Mitigation: Align DP selection with safety plan review."
+    ],
+    "recommended_revision": "FR (refined): The NGHE solution shall maintain teleoperation communication reliability by achieving ≤1% effective packet loss (or customer-defined target) under agreed network conditions, through application-level forward error correction and command prioritization, while preserving operator latency response time within [customer-specified threshold, e.g., <200ms]. The solution shall support adaptive tuning of FEC redundancy based on real-time network quality monitoring and shall degrade gracefully if network conditions exceed design assumptions, triggering operator alert and optional session pause per worksite safety plan."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Encapsulates network-level reliability mechanisms (FEC encoding, buffering, prioritization) that bridge vehicle command/telemetry streams with physical network transport, ensuring safety-critical control commands and telemetry meet latency and delivery SLAs."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives operator commands and control directives; Teleoperation applies prioritization and FEC encoding before network transmission."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Outputs decoded, de-buffered telemetry streams to consumers; Teleoperation manages FEC decoding and packet recovery on inbound network data."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "Receives safety-critical packet loss thresholds and SLA parameters; outputs alerts if FEC redundancy or latency guarantees are violated."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Transmits FEC-encoded, prioritized packets to network; receives raw network packets for FEC decoding and recovery."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit: FEC encoding/decoding, buffering, and prioritization are core teleoperation concerns. Tasking (commands) and Telemetry (sensor data) are natural inputs/outputs. Network Link is the physical transport boundary. Minor diffusion: SLA parameter tuning may require coordination with Safety Services for threshold definition, but enforcement remains in Teleoperation."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.65,
+        "diffusion_score": 0.35,
+        "notes": "Moderate fit: Safety Services owns SLA thresholds and safety-critical packet classification, but FEC encoding/decoding logic and buffering/prioritization algorithms are not safety-specific—they are network reliability mechanisms. Placing DP here would scatter network transport logic across modules and create tight coupling between safety policy and transport implementation."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Poor fit: Vehicle owns actuators and sensors, not network transport. FEC and buffering are not vehicle-internal concerns; they belong at the communication boundary. High diffusion: would require Vehicle to manage network reliability, violating separation of concerns."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.5,
+        "diffusion_score": 0.5,
+        "notes": "Weak fit: NGHE Solution is a top-level system container. While it could logically own all subsystems, placing DP here offers no architectural clarity or module boundary. Diffusion is high because the DP must still be realized in a concrete subsystem (Teleoperation or Safety Services); NGHE Solution would not directly implement FEC or buffering."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "Teleoperation is the natural owner of network-level reliability mechanisms because it sits at the boundary between operator commands (Tasking) and vehicle telemetry (Telemetry), and it directly interfaces with the Network Link. FEC encoding, buffering, and prioritization are transport-layer concerns that ensure command and telemetry packets meet latency and delivery SLAs. Safety Services provides the policy (SLA thresholds, critical packet classification) via SafetyAlert; Teleoperation enforces that policy through algorithm tuning and monitoring.",
+    "containment_risks": [
+      "SLA parameter tuning (packet loss threshold, redundancy ratio) requires tight coordination with Safety Services; if Safety Services changes thresholds dynamically, Teleoperation must react in real-time. Mitigation: define a clear SafetyAlert interface contract for threshold updates.",
+      "Prioritization logic must correctly classify packets as critical vs. non-critical; misclassification could violate safety guarantees. Mitigation: Safety Services owns the classification rules; Teleoperation applies them. Validate classification logic in integration tests.",
+      "FEC encoding overhead and buffering latency could themselves violate SLAs if not tuned carefully. Mitigation: include performance modeling and tuning as part of DP realization; monitor actual latency in production.",
+      "Network Link interface must support both raw packet transmission (for FEC-encoded data) and metadata (packet priority, SLA class). Mitigation: ensure Network Link contract is explicit about supported packet types and metadata fields."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. Acceptance criterion (packet loss ≤ 1% under agreed network conditions) is measurable and testable. Teleoperation module can be instrumented to log FEC encoding/decoding statistics, packet recovery rates, and end-to-end latency. Network simulation and field trials under defined packet loss conditions can validate that DP3+DP4 composite achieves the target. SLA parameter tuning can be traced to customer-defined thresholds via SafetyAlert interface.",
+      "allocation_clarity": "Clear. FR is allocated to Teleoperation IM with explicit responsibility for FEC encoding/decoding, buffering, prioritization, and SLA enforcement. Tasking and Telemetry interfaces define input/output boundaries. SafetyAlert interface clarifies that Safety Services provides policy (thresholds, critical packet classification) while Teleoperation enforces it. Network Link interface is the physical transport boundary. Ownership is unambiguous."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP3+DP4 composite directly addresses FR. Application-level FEC encoding with configurable redundancy ratio is a proven mechanism for packet loss mitigation. Buffering and prioritization strategy ensures safety-critical control commands meet latency guarantees while non-critical telemetry tolerates higher latency. DP is tunable to customer-defined packet loss threshold and network SLA parameters. Logic is sound and implementable. No logical gaps between FR (maintain reliability within threshold) and DP (FEC + prioritization + buffering)."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "SLA parameter tuning (packet loss threshold, redundancy ratio) creates a tight coupling between Teleoperation and Safety Services. If Safety Services dynamically updates thresholds in response to changing network conditions or safety policy, Teleoperation must react in real-time. Mitigation: define SafetyAlert interface contract with explicit versioning and update semantics; implement parameter change handlers in Teleoperation with validation and logging.",
+        "Packet classification logic (critical vs. non-critical) is split between Safety Services (policy definition) and Teleoperation (enforcement). Misclassification could violate safety guarantees. Mitigation: Safety Services must provide a clear, testable classification rule set; Teleoperation applies rules deterministically; integration tests must validate classification accuracy against known packet types.",
+        "FEC encoding overhead and buffering latency could themselves violate SLAs if not tuned carefully. This creates a secondary DP-IM risk: the algorithm (DP) is correct, but the implementation (IM) may not meet latency constraints due to poor buffering strategy or excessive redundancy ratio. Mitigation: include performance modeling and sensitivity analysis as part of DP realization; establish latency budgets for FEC encoding and buffering stages; monitor actual latency in production with alerts if SLA margins are violated.",
+        "Network Link interface must support both raw packet transmission (for FEC-encoded data) and metadata (packet priority, SLA class). If Network Link does not expose these capabilities, Teleoperation cannot fully realize DP. Mitigation: ensure Network Link contract is explicit about supported packet types, metadata fields, and priority queue semantics before Teleoperation implementation begins."
+      ],
+      "containment_notes": "Teleoperation is the optimal IM owner (containment score 0.92, diffusion score 0.08). FEC encoding/decoding, buffering, and prioritization are transport-layer concerns that naturally belong at the communication boundary between operator commands and vehicle telemetry. Teleoperation sits at this boundary and directly interfaces with Network Link. Safety Services provides policy (SLA thresholds, critical packet classification) via SafetyAlert; Teleoperation enforces that policy through algorithm tuning and monitoring. This separation of concerns minimizes diffusion: network reliability mechanisms are not scattered across Vehicle, Safety Services, or top-level NGHE Solution. Minor diffusion risk exists in SLA parameter coordination, but this is mitigated by a clear interface contract. Recommended: do not place DP in Safety Services (would scatter network logic and create tight coupling) or Vehicle (violates separation of concerns). Teleoperation is the clear choice."
+    },
+    "recommended_revisions": [
+      "Formalize SafetyAlert interface contract: define message schema for SLA threshold updates (packet loss target, redundancy ratio, latency budget), update frequency, and validation rules. Include version control and backward compatibility strategy.",
+      "Document packet classification rules as a separate artifact owned by Safety Services and referenced by Teleoperation. Include test cases for classification accuracy (e.g., control commands must be classified as critical, telemetry as non-critical).",
+      "Add performance modeling and latency budget analysis to DP realization plan. Specify maximum acceptable latency for FEC encoding, buffering, and decoding stages. Include sensitivity analysis for redundancy ratio vs. latency trade-off.",
+      "Extend Network Link interface specification to explicitly document support for packet metadata (priority, SLA class), priority queue semantics, and any constraints on packet size or encoding format imposed by the physical transport layer.",
+      "Define monitoring and alerting strategy for Teleoperation: log FEC statistics (encoding/decoding rates, packet recovery success), measure end-to-end latency, and alert if SLA margins are violated (e.g., if actual packet loss approaches customer threshold or latency exceeds budget).",
+      "Include integration test plan that validates FEC+buffering+prioritization composite under simulated network conditions (packet loss, jitter, congestion) with packet loss target ≤ 1%. Test both nominal and edge cases (e.g., sustained high packet loss, sudden threshold changes from Safety Services)."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass with high confidence. The composite DP (FEC encoding + buffering + prioritization) is logically sound, directly addresses the FR, and is allocated to a clear IM owner (Teleoperation) with well-defined interfaces. However, the recommended revisions and diffusion risks reveal that successful realization depends on several sub-level design decisions that are not yet fully specified: (1) SafetyAlert interface contract and SLA parameter update semantics, (2) packet classification rule formalization and enforcement, (3) latency budget allocation across FEC/buffering/decoding stages, (4) Network Link interface capabilities for metadata and priority queuing, and (5) monitoring/alerting strategy for SLA compliance. These are not gaps in the current FR-DP-IM logic, but rather implementation details that must be decomposed to ensure the DP can be realized without violating latency or safety constraints. Proceeding directly to implementation (STOP) risks discovering these gaps late in the development cycle. Decomposing to the next level (ZIGZAG_DOWN) allows these concerns to be addressed systematically as sub-FRs, with explicit ownership and verification criteria. Safety criticality is high, justifying this more rigorous approach.",
+    "next_level_sub_frs": [
+      "FR3.1: Formalize and enforce SLA parameter update semantics between Safety Services and Teleoperation (SafetyAlert interface contract, versioning, validation rules, update frequency constraints).",
+      "FR3.2: Define and validate packet classification rules (critical vs. non-critical) with deterministic enforcement in Teleoperation and testable accuracy criteria.",
+      "FR3.3: Allocate and verify latency budgets for FEC encoding, buffering, and decoding stages such that end-to-end latency remains within SLA bounds under all network conditions.",
+      "FR3.4: Ensure Network Link interface exposes required capabilities for packet metadata (priority, SLA class), priority queue semantics, and packet size/encoding constraints.",
+      "FR3.5: Implement monitoring, logging, and alerting for FEC statistics, packet recovery rates, end-to-end latency, and SLA margin violations in Teleoperation."
+    ],
+    "revise": {
+      "target": null,
+      "why": "No revisions to current FR, DP, or IM are required. All three gates pass. The recommended revisions from the gate analysis are not corrections to the current level but rather decomposition guidance for the next level. Proceeding with ZIGZAG_DOWN incorporates these recommendations as sub-level FRs."
+    },
+    "record": {
+      "assumptions": [
+        "SafetyAlert interface will be formalized with explicit message schema, versioning, and update semantics before Teleoperation implementation begins.",
+        "Packet classification rules will be provided by Safety Services as a testable artifact (e.g., lookup table or rule engine) that Teleoperation can apply deterministically.",
+        "Network Link interface supports packet metadata fields (priority, SLA class) and priority queue semantics; if not, Network Link DP must be revised before Teleoperation can realize DP3+DP4.",
+        "FEC redundancy ratio and buffering strategy can be tuned post-deployment via SafetyAlert parameter updates without requiring code changes to Teleoperation core logic.",
+        "Customer-defined packet loss threshold (≤ 1%) and latency SLA are stable and will not change during Teleoperation implementation; if they do, SafetyAlert update mechanism will propagate changes reliably."
+      ],
+      "open_risks": [
+        "SLA parameter coupling: tight coupling between Teleoperation and Safety Services via SafetyAlert could create race conditions or inconsistent state if parameter updates are not atomic and validated. Mitigation: formalize SafetyAlert contract with explicit update semantics (FR3.1).",
+        "Packet classification accuracy: misclassification of packets (e.g., treating non-critical telemetry as critical) could waste FEC overhead or violate latency SLAs. Mitigation: formalize classification rules and include integration tests (FR3.2).",
+        "Latency budget violation: FEC encoding, buffering, and decoding latencies could accumulate and exceed SLA bounds if not carefully budgeted. Mitigation: allocate and verify latency budgets at next level (FR3.3).",
+        "Network Link capability gap: if Network Link does not support packet metadata or priority queuing, Teleoperation cannot fully realize DP. Mitigation: validate Network Link interface before Teleoperation implementation (FR3.4).",
+        "Monitoring blind spots: if Teleoperation does not log FEC statistics and latency metrics, SLA violations may go undetected in production. Mitigation: implement comprehensive monitoring and alerting (FR3.5)."
+      ],
+      "evidence_needed": [
+        "SafetyAlert interface specification document with message schema, versioning strategy, update frequency constraints, and validation rules (for FR3.1).",
+        "Packet classification rule set (lookup table, rule engine, or decision tree) owned by Safety Services with test cases validating classification accuracy (for FR3.2).",
+        "Latency budget analysis and sensitivity study showing FEC encoding, buffering, and decoding latencies under nominal and worst-case network conditions, with margins to SLA bounds (for FR3.3).",
+        "Network Link interface specification confirming support for packet metadata fields, priority queue semantics, and any constraints on packet size or encoding format (for FR3.4).",
+        "Monitoring and alerting design document specifying FEC statistics to be logged, latency measurement points, SLA margin thresholds, and alert conditions (for FR3.5).",
+        "Integration test plan with test cases for FEC+buffering+prioritization composite under simulated packet loss, jitter, and congestion, validating packet loss target ≤ 1% and latency SLA compliance (for all sub-FRs)."
+      ]
+    }
+  }
+}

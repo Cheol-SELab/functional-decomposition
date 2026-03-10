@@ -1,0 +1,179 @@
+{
+  "refined_fr": {
+    "refined_fr": "Capture and represent worksite spatial features in a machine-readable model.",
+    "rationale": "The original FR conflates three distinct functional obligations: (1) terrain analysis, (2) obstacle identification, and (3) work-zone representation. Each is a separate concern with different data sources, processing logic, and stakeholder consumption patterns. The refined FR is solution-neutral (avoids 'mapping/modeling' terminology which implies implementation choice) and focuses on the core problem: making spatial features available in a structured, reusable form. Atomicity is achieved by deferring the specific feature types (terrain, obstacles, zones) to sub-FRs.",
+    "verification_idea": "Verify that a worksite model exists in a defined schema/format, contains spatial coordinates and feature classifications, and is accessible to downstream planning and execution functions per the acceptance criteria.",
+    "sub_frs": [
+      "FR-NGHE-006.1: Acquire terrain elevation and surface properties across the worksite.",
+      "FR-NGHE-006.2: Identify and locate static obstacles (structures, vegetation, utilities) within the worksite boundary.",
+      "FR-NGHE-006.3: Define and represent designated work zones (operational areas, restricted zones, safety perimeters) in the worksite model.",
+      "FR-NGHE-006.4: Persist and version the worksite model for access by planning and execution functions."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Acquire spatial feature data through multi-modal sensing (vision, range, inertial) and fuse into a unified coordinate frame; store as a structured spatial graph with feature attributes (geometry, classification, safety zone) queryable by planning/execution functions.",
+      "DP2: Decompose worksite into discrete zones; assign feature capture responsibility to zone-specific acquisition modules; merge zone models via spatial registration and conflict resolution; expose unified model through a feature query interface.",
+      "DP3: Implement a real-time streaming pipeline that ingests raw sensor observations, applies incremental feature extraction and classification, and maintains a versioned spatial database; provide read-only snapshots and change notifications to downstream consumers.",
+      "DP4: Capture worksite features via manual annotation (operator input) with semi-automated validation; store in a hierarchical feature catalog indexed by location and safety relevance; synchronize with operational policies to flag constraint violations.",
+      "DP5: Establish a federated model architecture where each feature type (obstacles, hazards, access routes, equipment) is independently acquired and classified; integrate via a spatial index that maps feature instances to worksite coordinates; expose through a unified query API."
+    ],
+    "selected_dp": "DP5: Establish a federated model architecture where each feature type (obstacles, hazards, access routes, equipment) is independently acquired and classified; integrate via a spatial index that maps feature instances to worksite coordinates; expose through a unified query API.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Spatial index implementation must remain agnostic to feature type acquisition methods to avoid tight coupling between feature classifiers and integration logic.",
+        "Query API contract must be stable and feature-type-agnostic; changes to one feature classifier should not require API revision.",
+        "Coordinate frame alignment across independent feature acquisition modules requires explicit registration protocol; misalignment could propagate errors to planning/execution.",
+        "Versioning and temporal consistency: if feature types are acquired asynchronously, the model must define acceptable staleness bounds to prevent planning decisions on inconsistent snapshots."
+      ],
+      "notes": "DP5 achieves loose coupling by separating feature acquisition (per type) from integration (spatial index) and exposure (query API). Each feature type can evolve independently as long as it produces (location, attributes) tuples. The spatial index acts as a decoupling layer. Risk: coordinate frame drift and temporal inconsistency require explicit governance."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Worksite safety plan and operational policies are stable and can be encoded as queryable constraints (e.g., hazard zones, access restrictions) within the model.",
+      "RISK: If policies change frequently or are context-dependent, the model schema may require frequent revision, increasing maintenance burden.",
+      "ASSUMPTION: Planning/execution functions can tolerate model latency and staleness within defined bounds (e.g., features acquired within last N seconds).",
+      "RISK: If real-time consistency is critical (e.g., moving hazards), asynchronous feature acquisition may violate safety requirements.",
+      "ASSUMPTION: Feature types (obstacles, hazards, routes, equipment) are well-defined and their boundaries do not overlap significantly.",
+      "RISK: Ambiguous or overlapping feature classifications could lead to duplicate or conflicting entries in the spatial index.",
+      "ASSUMPTION: Coordinate frame registration across independent acquisition modules can be achieved with acceptable accuracy (e.g., via calibration or GPS).",
+      "RISK: Systematic registration errors could cause planning functions to mislocate features, creating safety hazards.",
+      "ASSUMPTION: The query API is sufficient to express all planning/execution information needs without requiring direct access to raw sensor data.",
+      "RISK: Unforeseen query patterns or feature attributes may require API extension, creating coupling with downstream consumers."
+    ],
+    "recommended_revision": "Refine DP5 to explicitly define: (1) the spatial index schema and coordinate frame definition (e.g., WGS84 + local offset, or site-relative grid); (2) the query API contract, including supported feature types, attribute sets, and temporal semantics (e.g., 'latest snapshot' vs. 'time-windowed history'); (3) the registration protocol for aligning independent feature acquisition modules (e.g., calibration checkpoints, drift detection); (4) the model versioning and change notification mechanism to support incremental updates to planning/execution functions. Additionally, introduce an explicit IM layer (e.g., 'Spatial Index Module', 'Feature Query Service', 'Feature Classifier Modules per Type') to clarify ownership boundaries and interface contracts, enabling independent development and testing of feature acquisition pipelines."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Safety Services",
+      "scope": "Centralized feature acquisition, classification, spatial indexing, and unified query API for worksite environmental model (obstacles, hazards, access routes, equipment)"
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Receives raw sensor data (LiDAR, camera, thermal) and vehicle pose from Vehicle module for feature detection and classification"
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Emits safety-critical alerts when hazards or access violations are detected via spatial index queries"
+      },
+      {
+        "name": "Tasking",
+        "direction": "inout",
+        "details": "Receives task context and route constraints; returns feasible access routes and equipment availability via unified query API"
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Synchronizes federated feature model across distributed agents; receives remote sensor contributions for collaborative mapping"
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Safety Services",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit: Safety Services owns environmental hazard modeling, feature classification, and spatial reasoning. Federated architecture aligns with multi-agent safety coordination. Minor diffusion: Vehicle telemetry ingestion and Teleoperation query routing require external interfaces, but core DP logic (indexing, classification, API) is fully contained."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.65,
+        "diffusion_score": 0.35,
+        "notes": "Moderate fit: NGHE is a top-level orchestrator; placing feature model here would blur separation of concerns. Feature acquisition and spatial indexing are domain-specific safety functions, not orchestration logic. High diffusion: Teleoperation, Vehicle, and external agents would need direct access to internal indexing structures, violating encapsulation."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Poor fit: Vehicle module owns locomotion and onboard sensing. Federated feature model is a system-level concern, not vehicle-specific. High diffusion: Obstacles, hazards, access routes, and equipment are worksite-wide features, not vehicle state. Classification logic would leak into Teleoperation and Safety Services."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor fit: Teleoperation owns remote control and operator interface. Feature model is a backend service, not UI/control logic. High diffusion: Spatial indexing and federated acquisition belong in Safety Services; placing here would require Teleoperation to manage infrastructure-level concerns."
+      }
+    ],
+    "ownership_candidate": "Safety Services",
+    "containment_hypothesis": "Safety Services is the natural owner of DP5 because: (1) feature classification (obstacles, hazards) is inherently a safety function; (2) spatial indexing and access route validation are core to safety-critical decision-making; (3) federated architecture supports multi-agent safety coordination; (4) unified query API is a safety service contract. Telemetry, Tasking, and Network Link interfaces provide clean boundaries for sensor input, task constraints, and distributed synchronization without leaking implementation details.",
+    "containment_risks": [
+      "Risk: Telemetry interface may become a bottleneck if feature acquisition rate exceeds processing capacity. Mitigation: Implement asynchronous, prioritized ingestion with backpressure handling.",
+      "Risk: Spatial index consistency across federated agents may degrade under network partitions. Mitigation: Define eventual consistency semantics and conflict resolution rules in Network Link protocol.",
+      "Risk: Unified query API may accumulate ad-hoc query patterns from Teleoperation and Tasking, leading to scope creep. Mitigation: Enforce strict API contract; route non-standard queries through Tasking as formal requests.",
+      "Risk: Feature classification logic may require domain-specific tuning per worksite type (construction, mining, etc.), risking tight coupling to external data models. Mitigation: Parameterize classifiers; expose configuration via Tasking interface."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. Acceptance criteria require 'worksite model/map generated and available to planning/execution functions for agreed set of site features.' Safety Services module boundary explicitly owns feature acquisition, classification, spatial indexing, and unified query API. Verification can measure: (1) model completeness against agreed feature set (obstacles, hazards, access routes, equipment); (2) API availability and latency to Tasking/SafetyAlert consumers; (3) spatial index consistency across federated agents. Telemetry, Tasking, and Network Link interfaces provide measurable input/output contracts.",
+      "allocation_clarity": "Excellent. Safety Services is unambiguously allocated ownership of DP5 with 0.92 containment score. FR (capture and represent worksite spatial features) maps cleanly to DP (federated model with spatial index and unified API) and IM (Safety Services module). External interfaces (Telemetry in, SafetyAlert/Tasking/Network Link inout) establish clear responsibility boundaries. No ambiguity regarding which module owns feature classification, indexing, or query logic."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP5 directly addresses FR: federated acquisition of feature types (obstacles, hazards, access routes, equipment) satisfies 'capture'; spatial index + unified query API satisfies 'represent in machine-readable model.' DP is solution-complete and logically sound. Federated architecture enables multi-agent collaboration required by 'worksite safety plan and operational policies' constraint. No logical gaps between functional requirement and design parameter."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Telemetry interface bottleneck: Feature acquisition rate may exceed processing capacity. Mitigation specified (asynchronous, prioritized ingestion with backpressure) is sound but requires implementation verification. Risk level: Medium.",
+        "Spatial index consistency under network partition: Federated agents may diverge if Network Link fails. Mitigation (eventual consistency semantics) is appropriate but must be formally defined in protocol specification. Risk level: Medium.",
+        "Unified query API scope creep: Ad-hoc query patterns from Teleoperation and Tasking may accumulate, diffusing DP logic across consumers. Mitigation (strict API contract, formal request routing through Tasking) is adequate if enforced. Risk level: Medium-High. Recommend explicit API versioning and deprecation policy.",
+        "Feature classifier domain coupling: Classification logic may require per-worksite tuning, risking tight coupling to external data models. Mitigation (parameterized classifiers, configuration via Tasking) is appropriate. Risk level: Low-Medium if parameterization is enforced at module boundary."
+      ],
+      "containment_notes": "Safety Services achieves 0.92 containment with only 0.08 diffusion. Core DP logic (spatial indexing, classification, unified API) is fully contained within module boundary. Minor diffusion (0.08) is acceptable and well-justified: Telemetry ingestion and Tasking query routing are external interface responsibilities, not internal logic leakage. Vehicle, Teleoperation, and NGHE are correctly excluded (containment scores 0.4, 0.35, 0.65 respectively) due to separation of concerns. No evidence of scattered DP responsibilities across multiple modules. Federated architecture aligns with multi-agent safety coordination without violating encapsulation."
+    },
+    "recommended_revisions": [
+      "Formalize Network Link protocol specification to define eventual consistency semantics, conflict resolution rules, and failure recovery procedures for federated spatial index synchronization. Include acceptance criteria for consistency bounds (e.g., maximum divergence window, resolution time).",
+      "Establish explicit Unified Query API contract with versioning and deprecation policy. Define allowed query patterns; route non-standard queries through Tasking as formal feature requests to prevent scope creep and maintain DP containment.",
+      "Implement asynchronous, prioritized telemetry ingestion with backpressure handling and monitoring. Define SLAs for feature detection latency and throughput to verify Telemetry interface does not become a bottleneck.",
+      "Parameterize feature classifiers to support per-worksite domain tuning without tight coupling. Expose classifier configuration schema via Tasking interface; document supported worksite types and required calibration data.",
+      "Add explicit acceptance criterion: 'Spatial index consistency is maintained across federated agents with maximum divergence of [X] seconds under normal network conditions and [Y] seconds during transient partitions.' Verify via integration testing.",
+      "Document Safety Services module interface contracts (Telemetry, SafetyAlert, Tasking, Network Link) with formal specifications (e.g., message schemas, timing constraints, error handling) to ensure external modules do not leak DP logic into their own boundaries."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass with high confidence. FR is logically sound, DP is solution-complete, and IM allocation is unambiguous with 0.92 containment. However, safety criticality is HIGH, and the gate results identify four medium-to-medium-high diffusion risks that require architectural decomposition at the next level to establish explicit sub-module boundaries and interface contracts. Specifically: (1) Telemetry ingestion bottleneck and backpressure handling require sub-FR decomposition to isolate ingestion logic from indexing logic; (2) Spatial index consistency under network partition requires sub-FR decomposition to separate consensus/synchronization concerns from query logic; (3) Unified query API scope creep requires sub-FR decomposition to establish a formal query routing sub-module; (4) Feature classifier domain coupling requires sub-FR decomposition to isolate parameterized classification from core indexing. These decompositions will harden the module boundary and reduce residual risk from 'Medium-High' to 'Low-Medium' before implementation. Given high safety criticality, proceeding to implementation without this decomposition would violate risk management discipline.",
+    "next_level_sub_frs": [
+      "FR5.1: Ingest and buffer telemetry feature observations asynchronously with prioritization and backpressure handling to prevent ingestion bottleneck and ensure bounded latency to spatial index updates.",
+      "FR5.2: Maintain spatial index consistency across federated agents under transient network partitions using eventual consistency semantics with formal conflict resolution and bounded divergence windows.",
+      "FR5.3: Route and validate feature queries through a unified API contract with strict request patterns, versioning, and deprecation policy to prevent scope creep and maintain DP containment.",
+      "FR5.4: Classify and parameterize worksite features (obstacles, hazards, access routes, equipment) using domain-tunable classifiers exposed via configuration interface to support per-worksite calibration without tight coupling to external data models."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "DP5 is logically sound but requires explicit sub-DP decomposition to address the four medium-to-medium-high diffusion risks identified in the gate. Current DP5 statement ('federated model with spatial index and unified API') is too coarse-grained to guide implementation without risking architectural diffusion. Sub-DPs must specify: (1) asynchronous ingestion pipeline with backpressure semantics; (2) eventual consistency protocol with conflict resolution rules; (3) formal query API contract with routing logic; (4) parameterized classifier framework. These sub-DPs will establish explicit internal module boundaries within Safety Services and reduce implementation risk."
+    },
+    "record": {
+      "assumptions": [
+        "Telemetry ingestion rate is predictable and can be characterized for backpressure tuning.",
+        "Network partitions are transient and bounded; permanent network failure is out of scope.",
+        "Federated agents can tolerate eventual consistency with bounded divergence (e.g., <5 seconds under normal conditions).",
+        "Feature classifiers can be parameterized without requiring per-agent retraining or online learning.",
+        "Tasking module is capable of enforcing strict API contracts and routing non-standard queries as formal feature requests.",
+        "Safety Services module has sufficient computational capacity to maintain spatial index and serve queries within SLA bounds."
+      ],
+      "open_risks": [
+        "Telemetry interface bottleneck: Ingestion rate may exceed processing capacity under high-density worksite conditions. Mitigation (asynchronous, prioritized ingestion with backpressure) is sound but requires implementation verification and SLA definition. Risk level: Medium. Acceptance criterion needed: 'Feature detection latency <[X] seconds for 95th percentile under nominal worksite density.'",
+        "Spatial index consistency under network partition: Federated agents may diverge if Network Link fails. Eventual consistency semantics must be formally specified with conflict resolution rules and bounded divergence windows. Risk level: Medium. Acceptance criterion needed: 'Maximum divergence <[Y] seconds under transient partition; resolution time <[Z] seconds after partition heals.'",
+        "Unified query API scope creep: Ad-hoc query patterns from Teleoperation and Tasking may accumulate, diffusing DP logic across consumers. Mitigation (strict API contract, formal request routing through Tasking) is adequate if enforced. Risk level: Medium-High. Acceptance criterion needed: 'All feature queries conform to published API contract; non-standard queries are rejected or routed through Tasking as formal feature requests.'",
+        "Feature classifier domain coupling: Classification logic may require per-worksite tuning, risking tight coupling to external data models. Mitigation (parameterized classifiers, configuration via Tasking) is appropriate but requires explicit parameterization framework. Risk level: Low-Medium. Acceptance criterion needed: 'Classifier configuration is externalized via Tasking interface; no worksite-specific logic is embedded in Safety Services code.'",
+        "Integration testing coverage: Federated consistency, backpressure handling, and API contract enforcement require integration testing across multiple agents and network conditions. Risk level: Medium. Evidence needed: Integration test plan covering nominal, degraded, and failure scenarios."
+      ],
+      "evidence_needed": [
+        "Formal specification of Network Link protocol for federated spatial index synchronization, including eventual consistency semantics, conflict resolution rules, failure recovery procedures, and acceptance criteria for consistency bounds.",
+        "Explicit Unified Query API contract with message schemas, allowed query patterns, versioning policy, deprecation procedures, and formal request routing rules through Tasking.",
+        "Asynchronous telemetry ingestion architecture with backpressure handling, prioritization logic, and SLA definitions for feature detection latency and throughput.",
+        "Parameterized feature classifier framework with configuration schema, supported worksite types, required calibration data, and interface contract for Tasking-driven configuration.",
+        "Integration test plan covering federated consistency under nominal, degraded (transient partition), and failure (permanent partition) network conditions.",
+        "Performance characterization of spatial index under high-density worksite conditions (e.g., >1000 features, >10 agents) to verify ingestion and query latency meet SLA bounds.",
+        "Formal definition of 'agreed set of site features' (acceptance criterion for FR5) with explicit feature types, classification taxonomy, and per-worksite calibration requirements."
+      ]
+    }
+  }
+}

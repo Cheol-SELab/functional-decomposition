@@ -1,0 +1,173 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current operational state (vehicle position, task progress, environmental changes, safety events) within p95 ≤ 1.0 s latency for all supported update scenarios (teleoperated commands, autonomous task execution, sensor data ingestion, safety alerts).",
+    "rationale": "CR-NGHE-007 is a latency requirement that must be decomposed into functional sub-requirements addressing data acquisition, transmission, processing, and model refresh. The refined statement explicitly names the update sources and acceptance criterion to enable testable allocation. High safety criticality demands that latency failures are detectable and do not mask safety-critical state changes.",
+    "verification_idea": "Measure end-to-end latency (timestamp of event occurrence to timestamp of model update visibility) across representative scenarios: (1) teleoperated vehicle movement, (2) autonomous task state change, (3) sensor-detected obstacle, (4) safety alert generation. Collect p95 latency distribution; confirm ≤ 1.0 s for each scenario under nominal and degraded network conditions.",
+    "sub_frs": [
+      "FR-007.1: Acquire operational state data (vehicle telemetry, task status, sensor readings, safety events) from vehicle and field sources.",
+      "FR-007.2: Transmit operational state data from field to worksite model service with bounded network latency.",
+      "FR-007.3: Process and validate incoming state data to detect anomalies and safety-critical changes.",
+      "FR-007.4: Update worksite model representation with validated state data and make updated model available to stakeholders.",
+      "FR-007.5: Monitor end-to-end latency and alert if p95 latency exceeds threshold or update path fails."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized pull-based model update (worksite model service polls vehicle and sensors at fixed interval; high latency variance, simple logic)",
+      "DP-B: Distributed push-based telemetry (vehicle and sensors push state changes asynchronously to worksite model service; lower latency, requires event buffering and deduplication)",
+      "DP-C: Hybrid push-pull with priority queuing (safety-critical events pushed immediately; routine telemetry pulled on schedule; requires event classification and dual-path logic)",
+      "DP-D: Edge-local model caching with eventual consistency (vehicle maintains local model replica; pushes deltas; worksite model reconciles; high complexity, eventual consistency risk)"
+    ],
+    "selected_dp": "DP-C: Hybrid push-pull with priority queuing. Safety-critical state changes (safety alerts, emergency stop, collision detection) are pushed immediately via SafetyAlert interface with dedicated low-latency path. Routine telemetry (position, task progress, sensor readings) is pushed via Telemetry interface on a configurable cadence (e.g., 100 ms). Worksite model service maintains a priority queue, processes safety events first, then batches routine updates. This design balances latency (safety events ≤ 100 ms, routine ≤ 500 ms) with network efficiency and fault tolerance.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "SafetyAlert and Telemetry interfaces are decoupled by design (separate push paths); worksite model service must handle both concurrently without blocking safety processing on telemetry backlog.",
+        "Vehicle and field sensors must implement push capability; this couples DP-C to vehicle firmware and sensor integration (acceptable, as these are within NGHE scope).",
+        "Network Link must support dual-priority queuing; this couples DP-C to network infrastructure (acceptable, as Network Link is a known interface)."
+      ],
+      "notes": "DP-C introduces moderate coupling between safety and routine data paths, but this is intentional and manageable. The decoupling of push paths (SafetyAlert vs. Telemetry) mitigates risk of routine telemetry congestion blocking safety alerts."
+    },
+    "assumptions_risks": [
+      "Assumption: Vehicle and field sensors can implement push-based telemetry with sub-100 ms latency for safety events. Risk: Legacy sensors may only support polling; mitigation: adapter layer in Vehicle module.",
+      "Assumption: Network Link supports priority queuing and can guarantee SafetyAlert delivery within 100 ms under nominal conditions. Risk: Network congestion or packet loss may exceed latency target; mitigation: redundant network paths, local buffering, and latency monitoring.",
+      "Assumption: Worksite model service can process and apply updates at ≥ 10 Hz (100 ms cycle). Risk: Model update logic may be CPU-bound; mitigation: profile and optimize update algorithm, consider multi-threaded processing.",
+      "Assumption: Safety-critical events are correctly classified at source (vehicle/sensor). Risk: Misclassification may delay safety alerts; mitigation: validation logic in worksite model service and Safety Services module."
+    ],
+    "recommended_revision": "DP-C is sound but requires explicit specification of: (1) event classification rules (what constitutes 'safety-critical'), (2) SafetyAlert latency SLA (e.g., p99 ≤ 100 ms), (3) Telemetry cadence tuning strategy (adaptive based on task type), (4) fallback behavior if push path fails (revert to pull-based polling). These should be captured in DP refinement at next decomposition level."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Safety Services",
+      "scope": "Safety Services module owns the worksite model update logic for safety-critical state changes. It receives SafetyAlert events from Vehicle and Teleoperation modules, validates and processes them with priority, updates the safety-relevant portion of the worksite model (hazard map, vehicle safety state, operator alerts), and broadcasts SafetyAlert notifications to stakeholders. Safety Services also monitors latency of safety-critical updates and triggers alerts if p95 latency exceeds threshold."
+    },
+    "external_interfaces": [
+      {
+        "name": "SafetyAlert",
+        "direction": "in",
+        "details": "Receives safety-critical state changes (collision detection, emergency stop, safety zone violation, operator override) from Vehicle and Teleoperation modules. Expected latency: ≤ 100 ms from event occurrence to SafetyAlert message."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Broadcasts validated safety alerts and updated safety model state to Site Manager, Equipment Operator, Tele-operator, and Safety Manager. Includes worksite hazard map, vehicle safety state, and recommended actions."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Receives routine operational telemetry (vehicle position, task progress, sensor readings) from Vehicle module on configurable cadence (e.g., 100 ms). Safety Services filters and prioritizes telemetry relevant to safety model (e.g., vehicle proximity to hazards)."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Uses Network Link for reliable delivery of SafetyAlert messages with priority queuing. Safety Services monitors Network Link health and latency; triggers fallback to local polling if push path degrades."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Safety Services",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Safety Services is the natural owner of safety-critical model updates. It has clear ownership of SafetyAlert processing, safety model state, and latency monitoring. Diffusion risk: routine telemetry processing (non-safety) may leak into Safety Services; mitigation: separate telemetry handler thread with clear interface boundary."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.65,
+        "diffusion_score": 0.35,
+        "notes": "NGHE Solution is the system-level container but lacks specificity for latency-critical processing. If assigned here, worksite model update logic would be diffused across multiple sub-modules (Vehicle, Teleoperation, Safety Services), making latency accountability unclear. Not recommended as primary owner."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.45,
+        "diffusion_score": 0.55,
+        "notes": "Vehicle module owns telemetry generation and push capability but should not own worksite model update logic (that is a system-level concern, not vehicle-local). High diffusion risk if model update is split between Vehicle and worksite service. Vehicle should be a data source, not the model owner."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.5,
+        "diffusion_score": 0.5,
+        "notes": "Teleoperation module owns tele-operator commands and feedback but should not own the authoritative worksite model (that is a shared system resource). Teleoperation should consume model updates, not produce them. Moderate diffusion risk if model update logic is split between Teleoperation and Safety Services."
+      }
+    ],
+    "ownership_candidate": "Safety Services",
+    "containment_hypothesis": "Safety Services is the appropriate owner of worksite model update logic because: (1) it has clear ownership of safety-critical state and SafetyAlert processing, (2) latency requirements are driven by safety criticality, (3) it can enforce priority queuing and latency monitoring, (4) it has natural interfaces to Vehicle (SafetyAlert in), Teleoperation (SafetyAlert in), and stakeholders (SafetyAlert out). Routine telemetry processing (non-safety) should be delegated to a separate telemetry handler or worksite model service, but Safety Services owns the safety-critical path.",
+    "containment_risks": [
+      "Risk: Safety Services may become overloaded if it also processes routine telemetry. Mitigation: Separate telemetry handler thread with independent queue; Safety Services processes only SafetyAlert and safety-relevant telemetry.",
+      "Risk: Worksite model state may be split between Safety Services (safety model) and another module (operational model), leading to inconsistency. Mitigation: Define clear model partitioning; Safety Services owns safety model, another module (e.g., worksite model service) owns operational model; they synchronize via well-defined interfaces.",
+      "Risk: Latency monitoring logic may be duplicated across Safety Services and Network Link. Mitigation: Safety Services owns end-to-end latency monitoring; Network Link owns link-level latency; they share metrics via telemetry interface.",
+      "Risk: Event classification (what is 'safety-critical') may be ambiguous, leading to misrouting of events. Mitigation: Define explicit event taxonomy and classification rules; validate at source (Vehicle/Teleoperation) and at Safety Services."
+    ],
+    "recommended_revision": "Assign primary ownership of worksite model update logic to Safety Services for safety-critical path (SafetyAlert processing, safety model updates, latency monitoring). Assign secondary ownership of routine telemetry processing to a separate worksite model service or telemetry handler (not detailed in current IM candidates; may be sub-module of NGHE Solution or Vehicle). Define clear interface contract between Safety Services and telemetry handler to ensure consistency and avoid diffusion."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid push-pull with priority queuing) directly addresses FR-007 (worksite model update latency ≤ 1.0 s p95). The DP specifies: (1) push-based SafetyAlert for safety-critical events (≤ 100 ms), (2) push-based Telemetry for routine updates (≤ 500 ms), (3) priority queue processing in worksite model service. These mechanisms are sufficient to achieve the latency target under nominal conditions. Coupling is acceptable and intentional (safety vs. routine paths are decoupled). DP-C is implementable and testable."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Diffusion risk: Routine telemetry processing is not explicitly assigned to an IM candidate. If Safety Services owns both SafetyAlert and Telemetry processing, it may become overloaded. Mitigation: Separate telemetry handler (sub-module of NGHE Solution or Vehicle) should own routine telemetry; Safety Services owns only safety-critical path.",
+        "Diffusion risk: Worksite model state may be split between Safety Services (safety model) and another module (operational model). Mitigation: Define clear model partitioning and synchronization interface.",
+        "Diffusion risk: Network Link is a known interface but its implementation (priority queuing, latency monitoring) is not assigned to an IM candidate. Mitigation: Assume Network Link is owned by infrastructure/platform team; Safety Services and Vehicle modules use it as a service."
+      ],
+      "containment_notes": "Safety Services is a strong containment candidate (score 0.92) for safety-critical model update logic. It has clear ownership of SafetyAlert processing and safety model state. However, the full DP-C (including routine telemetry processing) may exceed Safety Services' scope. Recommend splitting: Safety Services owns safety-critical path; a separate telemetry handler (not yet assigned) owns routine path. Both paths converge in a worksite model service (also not yet assigned as primary IM). This requires refinement at next decomposition level."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification of FR-007 is feasible with DP-C and Safety Services ownership. Test plan: (1) inject safety-critical events (collision, emergency stop) and measure latency from event occurrence to SafetyAlert broadcast; (2) inject routine telemetry and measure latency from telemetry arrival to model update visibility; (3) measure p95 latency across representative scenarios; (4) confirm ≤ 1.0 s p95 under nominal and degraded network conditions. Verification requires instrumentation of SafetyAlert and Telemetry interfaces and worksite model service.",
+      "allocation_clarity": "Allocation is clear for safety-critical path (Safety Services owns SafetyAlert processing and safety model updates). Allocation is less clear for routine telemetry processing and overall worksite model state management. Recommend explicit allocation of: (1) telemetry handler (Vehicle or NGHE Solution sub-module), (2) worksite model service (NGHE Solution or separate module), (3) model state partitioning (safety vs. operational). These should be captured in next decomposition level."
+    },
+    "recommended_revisions": [
+      "Refine DP-C to explicitly specify: (1) event classification rules, (2) SafetyAlert latency SLA (p99 ≤ 100 ms), (3) Telemetry cadence tuning strategy, (4) fallback behavior if push path fails.",
+      "Assign routine telemetry processing to an explicit IM candidate (e.g., Vehicle module or NGHE Solution sub-module). Do not overload Safety Services with non-safety telemetry.",
+      "Define worksite model state partitioning: Safety Services owns safety model (hazard map, vehicle safety state); another module owns operational model (vehicle position, task progress). Define synchronization interface.",
+      "Specify Network Link implementation requirements: priority queuing, latency monitoring, redundancy, fallback to polling if push path fails.",
+      "Add latency monitoring and alerting logic to Safety Services: track end-to-end latency, trigger alert if p95 exceeds threshold, log latency metrics for analysis."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-007 is not atomic and requires decomposition into sub-FRs (FR-007.1 through FR-007.5) to allocate latency budget and assign ownership. DP-C is sound and addresses the high-level latency requirement, but its implementation requires refinement of: (1) event classification and routing logic, (2) telemetry cadence tuning, (3) worksite model state management, (4) latency monitoring. Safety Services is a strong IM candidate for safety-critical path, but routine telemetry processing and overall model state management require additional IM assignment at next level. Recommend decomposing FR-007 into sub-FRs and assigning each to specific IM candidates with explicit latency budgets.",
+    "next_level_sub_frs": [
+      "FR-007.1: Acquire operational state data (vehicle telemetry, task status, sensor readings, safety events) from vehicle and field sources. [Latency budget: ≤ 50 ms]",
+      "FR-007.2: Transmit operational state data from field to worksite model service with bounded network latency. [Latency budget: ≤ 300 ms for safety events, ≤ 500 ms for routine telemetry]",
+      "FR-007.3: Process and validate incoming state data to detect anomalies and safety-critical changes. [Latency budget: ≤ 100 ms for safety events, ≤ 200 ms for routine telemetry]",
+      "FR-007.4: Update worksite model representation with validated state data and make updated model available to stakeholders. [Latency budget: ≤ 100 ms for safety model, ≤ 300 ms for operational model]",
+      "FR-007.5: Monitor end-to-end latency and alert if p95 latency exceeds threshold or update path fails. [Latency budget: ≤ 50 ms for latency check, ≤ 100 ms for alert generation]"
+    ],
+    "revise": {
+      "target": "IM",
+      "why": "Current IM assignment (Safety Services) is incomplete. It addresses safety-critical path but does not assign ownership of routine telemetry processing, worksite model state management, or latency monitoring. Recommend: (1) assign FR-007.1 to Vehicle module (telemetry acquisition), (2) assign FR-007.2 to Network Link (transmission), (3) assign FR-007.3 to Safety Services (safety event validation) and a separate telemetry handler (routine telemetry validation), (4) assign FR-007.4 to a worksite model service (model updates), (5) assign FR-007.5 to Safety Services (latency monitoring). This requires refinement of IM candidates or introduction of new sub-modules."
+    },
+    "record": {
+      "assumptions": [
+        "Vehicle and field sensors can implement push-based telemetry with sub-100 ms latency for safety events.",
+        "Network Link supports priority queuing and can guarantee SafetyAlert delivery within 100 ms under nominal conditions.",
+        "Worksite model service can process and apply updates at ≥ 10 Hz (100 ms cycle).",
+        "Safety-critical events are correctly classified at source (vehicle/sensor).",
+        "Worksite model state can be partitioned into safety model (owned by Safety Services) and operational model (owned by another module) without consistency issues.",
+        "Latency monitoring can be implemented as a separate concern (not blocking model update logic)."
+      ],
+      "open_risks": [
+        "Network congestion or packet loss may exceed latency target for SafetyAlert (100 ms). Mitigation: redundant network paths, local buffering, adaptive cadence.",
+        "Worksite model service may become CPU-bound if update logic is not optimized. Mitigation: profile and optimize, consider multi-threaded processing.",
+        "Event classification may be ambiguous, leading to misrouting of events. Mitigation: define explicit event taxonomy and validation logic.",
+        "Routine telemetry processing may leak into Safety Services, causing overload. Mitigation: separate telemetry handler with independent queue.",
+        "Worksite model state may become inconsistent if safety and operational models are not synchronized. Mitigation: define clear partitioning and synchronization interface.",
+        "Latency monitoring may introduce additional latency if not implemented efficiently. Mitigation: use asynchronous logging and metrics collection."
+      ],
+      "evidence_needed": [
+        "Latency measurements from representative scenarios (teleoperated movement, autonomous task, sensor detection, safety alert) under nominal and degraded network conditions.",
+        "Network Link specification: priority queuing, latency SLA, redundancy, fallback behavior.",
+        "Event classification taxonomy and validation rules.",
+        "Worksite model state partitioning design (safety vs. operational).",
+        "Telemetry cadence tuning strategy (adaptive based on task type).",
+        "Latency monitoring implementation (metrics, alerting, logging).",
+        "Performance profile of worksite model service (CPU, memory, throughput).",
+        "Test plan and acceptance criteria for FR-007 verification."
+      ]
+    }
+  }
+}

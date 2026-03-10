@@ -1,0 +1,168 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall enable execution of the load→travel→dump cycle within the customer-defined cycle time target.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting/enabling the capability to achieve cycle time, and (2) actually achieving the measured KPI. The refined FR is atomic and solution-neutral by focusing on the functional obligation—enabling the cycle to execute within the time envelope—without prescribing how (e.g., via speed optimization, path planning, operator training, or equipment design). The actual achievement of p95 ≤ CT_target is a verification criterion, not a functional requirement. This separation allows DPs to address enablement independently of operational performance measurement.",
+    "verification_idea": "Demonstrate that under nominal duty cycle and site conditions, the NGHE solution's design permits completion of load→travel→dump within CT_target. Measure p95 cycle time across representative worksite trials; if p95 ≤ CT_target, the FR is satisfied. If p95 > CT_target, investigate whether the failure is due to (a) inadequate DP (design does not enable the speed/efficiency needed) or (b) operational/environmental factors outside the DP scope.",
+    "sub_frs": [
+      "FR-NGHE-002.1: The NGHE solution shall enable load acquisition at the designated load point.",
+      "FR-NGHE-002.2: The NGHE solution shall enable travel from load point to dump point.",
+      "FR-NGHE-002.3: The NGHE solution shall enable material discharge at the designated dump point.",
+      "FR-NGHE-002.4: The NGHE solution shall minimize idle/transition time between load, travel, and dump phases."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Decompose the load→travel→dump cycle into sequential sub-operations (load, travel, dump) with independent timing budgets that sum to CT_target, and allocate execution control to a supervisory coordinator that sequences and monitors each phase.",
+      "DP2: Implement a state-machine-based cycle controller that transitions through discrete operational states (idle, loading, traveling, dumping, returning) with deterministic timing constraints per state, ensuring p95 cycle time compliance through worst-case path analysis.",
+      "DP3: Design a parallel-execution architecture where load, travel, and dump operations execute concurrently where physically feasible (e.g., travel begins before load completion), with synchronization barriers and timeout mechanisms to enforce CT_target.",
+      "DP4: Establish a real-time task scheduler with priority-based execution of cycle sub-tasks, dynamic load balancing, and adaptive timing adjustments based on measured site conditions (terrain, payload variance) to maintain p95 ≤ CT_target.",
+      "DP5: Implement a hybrid approach combining deterministic sequencing for safety-critical phases (load, dump) with opportunistic parallelism for non-blocking phases (travel), coordinated by a central cycle orchestrator with built-in margin buffers."
+    ],
+    "selected_dp": "DP5: Implement a hybrid approach combining deterministic sequencing for safety-critical phases (load, dump) with opportunistic parallelism for non-blocking phases (travel), coordinated by a central cycle orchestrator with built-in margin buffers.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Tight coupling between load-completion detection and travel-initiation logic if not cleanly abstracted via state handoff interfaces.",
+        "Dependency on accurate site-condition sensing (terrain, payload mass) to validate timing assumptions; poor sensor fidelity could invalidate p95 guarantees.",
+        "Coupling between safety-critical sequencing (load/dump) and performance optimization (parallelism) requires clear separation of concerns via distinct control layers.",
+        "Margin buffer sizing depends on variability characterization; insufficient characterization of duty-cycle variance could lead to inadequate buffers."
+      ],
+      "notes": "DP5 is selected because it balances determinism (required for safety and predictability) with optimization (required for cycle-time efficiency). The hybrid structure allows load and dump to remain strictly sequential (safer, simpler) while travel exploits parallelism. Coupling risks are manageable via explicit state-transition contracts and sensor-fusion validation. DP1 is too simplistic (no parallelism opportunity); DP2 is overly rigid (no adaptation); DP3 risks safety if load/dump are forced concurrent; DP4 introduces unnecessary complexity for a deterministic duty cycle."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Load and dump operations cannot be safely parallelized; they must remain strictly sequential. RISK: If operational policy changes or equipment design permits concurrent load/dump, DP5 may be suboptimal.",
+      "ASSUMPTION: Travel phase is non-blocking and can begin before load completion (e.g., load arm retracts while vehicle moves). RISK: If terrain or payload dynamics create coupling (e.g., load shift during travel), parallelism window shrinks, reducing cycle-time benefit.",
+      "ASSUMPTION: Site conditions (terrain roughness, payload variance, distance) are characterized and bounded within the duty cycle. RISK: Unmeasured variability (e.g., unexpected obstacles, extreme payload outliers) could violate p95 guarantee; margin buffers may be insufficient.",
+      "ASSUMPTION: Supervisory coordinator and state-machine logic can be implemented with deterministic timing (no unbounded latencies). RISK: Software scheduling jitter, sensor delays, or communication latency could accumulate and breach CT_target; real-time OS or hardware-level guarantees may be required.",
+      "ASSUMPTION: Acceptance criteria (p95 ≤ CT_target under agreed duty cycle) is measurable and repeatable on-site. RISK: If site conditions vary significantly between acceptance test and production operation, p95 may drift; continuous monitoring and adaptive margin adjustment may be needed.",
+      "ASSUMPTION: Safety plan and operational policies do not impose additional sequential constraints beyond load/dump ordering. RISK: Undocumented safety rules (e.g., mandatory idle periods, operator confirmation delays) could invalidate timing model."
+    ],
+    "recommended_revision": "Refine DP5 to explicitly define: (1) State-transition contract: load-complete → travel-start handoff with latency budget; (2) Margin allocation: reserve X% of CT_target as buffer for variability, with sensitivity analysis on duty-cycle parameters (payload range, distance, terrain); (3) Monitoring and adaptation: define feedback loop to measure actual p95 on-site and trigger margin adjustment or operational policy review if p95 approaches CT_target; (4) Safety-critical sequencing: document which phases must remain strictly sequential and which can overlap, with justification from worksite safety plan; (5) Sensor/actuator timing assumptions: specify acceptable latencies for load-complete detection, travel-start command, and dump-complete confirmation. Proceed to DP→IM mapping only after these refinements are validated against duty-cycle data and safety requirements."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "Encapsulates the hybrid cycle orchestrator logic, deterministic sequencing state machine for safety-critical phases (load, dump), opportunistic parallelism scheduler for non-blocking phases (travel), margin buffer management, and coordination of all vehicle subsystem timing."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives mission/cycle commands and phase directives from higher-level planning; Vehicle interprets these into deterministic load/dump sequences and travel parallelism windows."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Emits cycle state, phase progress, margin buffer utilization, and timing metrics to enable external monitoring and adaptive mission planning."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "Receives safety constraints and anomaly notifications; Vehicle responds by tightening margin buffers or reverting to fully deterministic sequencing if safety margins are breached."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Communicates with Teleoperation for manual override of cycle phases and with NGHE Solution for distributed coordination if multi-vehicle synchronization is required."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent containment. The hybrid orchestrator, deterministic sequencing, opportunistic parallelism, and margin buffer logic are all intrinsic to vehicle cycle control. Minimal diffusion: only Tasking input and Telemetry output cross boundaries; SafetyAlert and Network Link are well-defined exception/coordination paths. The DP is fundamentally a vehicle-level control concern."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.45,
+        "diffusion_score": 0.55,
+        "notes": "Poor containment. Safety Services would own margin buffer enforcement and safety-critical sequencing, but the opportunistic parallelism scheduler and cycle orchestrator logic belong in Vehicle. This creates high diffusion: Vehicle would need to call Safety Services for every phase transition and buffer check, violating cohesion. Safety Services should validate constraints, not orchestrate cycles."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Very poor containment. Teleoperation is a user interface and manual control layer, not a cycle orchestrator. The deterministic sequencing, parallelism scheduling, and margin buffer logic have no place here. Teleoperation would only interact with Vehicle via override commands, not own the orchestration."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor containment. NGHE Solution is a higher-level mission planning and multi-vehicle coordination layer. Placing cycle-level orchestration here creates tight coupling between mission planning and real-time vehicle control, violates separation of concerns, and forces Vehicle to be a passive executor rather than an autonomous agent. Diffusion is high because Vehicle still needs local cycle logic."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module is the natural owner of DP5 because cycle orchestration—deterministic sequencing, opportunistic parallelism, and margin buffer management—is fundamentally a vehicle-level real-time control concern. The Vehicle module already owns the subsystems (drive, load, dump) being coordinated; the orchestrator is the control logic that binds them. Tasking provides mission directives; Safety Services provides constraint validation; Teleoperation provides manual override; but Vehicle owns the execution strategy and timing.",
+    "containment_risks": [
+      "Risk: If margin buffer thresholds are not clearly specified in the DP, Vehicle may need to query Safety Services too frequently, creating latency in real-time scheduling. Mitigation: Define margin buffer policies as configuration parameters passed to Vehicle at initialization, not as dynamic queries.",
+      "Risk: If multi-vehicle synchronization is required (e.g., coordinated load/dump across a fleet), Vehicle's local orchestrator may conflict with NGHE Solution's global coordination. Mitigation: Define a clear handoff: Vehicle owns local cycle timing; NGHE Solution owns inter-vehicle phase alignment via Tasking directives.",
+      "Risk: Opportunistic parallelism logic may become complex if travel conditions are highly variable. Mitigation: Ensure the DP specifies clear decision rules (e.g., 'parallelize travel if margin buffer > X%') rather than heuristic optimization, keeping logic deterministic and testable within Vehicle.",
+      "Risk: Teleoperation override of cycle phases could bypass margin buffer checks if not carefully integrated. Mitigation: Ensure SafetyAlert interface is always consulted before accepting override commands, even from Teleoperation."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "HIGH. The Vehicle IM boundary owns the hybrid orchestrator logic and can directly measure cycle time (load→travel→dump) against CT_target. Telemetry interface emits cycle state and timing metrics, enabling p95 cycle time validation under agreed duty cycle and site conditions. Margin buffer utilization is observable, supporting acceptance criterion verification.",
+      "allocation_clarity": "CLEAR. Vehicle module is the natural owner of DP5 (hybrid cycle orchestration). The FR requirement maps unambiguously to Vehicle's core responsibility: execute the load→travel→dump cycle within target time. Tasking provides mission directives; Safety Services validates constraints; Vehicle executes with built-in margin buffers. Ownership boundary is well-defined."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP5 directly addresses FR requirement. The hybrid approach (deterministic sequencing for safety-critical phases + opportunistic parallelism for non-blocking phases) is a sound design strategy to meet cycle time targets while maintaining safety margins. The central cycle orchestrator with margin buffers is a coherent solution concept. DP is specific, actionable, and traceable to FR."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "MEDIUM: Margin buffer threshold enforcement. If thresholds are not pre-configured as initialization parameters but instead queried dynamically from Safety Services at runtime, Vehicle will incur latency in real-time scheduling decisions. Mitigation: Specify margin buffer policies as static configuration passed to Vehicle at startup; Safety Services validates policies, not enforces them per-cycle.",
+        "MEDIUM: Multi-vehicle synchronization boundary. If NGHE Solution later requires coordinated load/dump across a fleet, Vehicle's local opportunistic parallelism logic may conflict with global phase alignment directives. Mitigation: Define clear handoff—Vehicle owns local cycle timing autonomy; NGHE Solution owns inter-vehicle phase alignment via Tasking interface. Vehicle must be able to accept phase delay directives without re-orchestrating internal sequencing.",
+        "LOW: Teleoperation override bypass risk. Manual override of cycle phases could circumvent margin buffer checks if SafetyAlert interface is not always consulted. Mitigation: Enforce that SafetyAlert validation is mandatory before accepting any Tasking or Teleoperation override command, even in manual mode.",
+        "LOW: Opportunistic parallelism complexity. If travel conditions are highly variable (e.g., terrain, load mass), the decision logic for when to parallelize may become heuristic rather than deterministic. Mitigation: Ensure DP specifies clear decision rules (e.g., 'parallelize travel if margin buffer > X% AND travel duration estimate < Y seconds') rather than adaptive optimization. Keep logic deterministic and testable."
+      ],
+      "containment_notes": "EXCELLENT containment (0.92 score). The Vehicle module is the correct owner of DP5. Hybrid orchestrator, deterministic sequencing, opportunistic parallelism scheduler, and margin buffer management are all intrinsic to vehicle-level real-time cycle control. Vehicle already owns the subsystems being coordinated (drive, load, dump); the orchestrator is the control logic binding them. Minimal diffusion: Tasking and Telemetry cross boundaries as expected; SafetyAlert and Network Link are well-defined exception/coordination paths. Alternative allocations (Safety Services, Teleoperation, NGHE Solution) all show poor containment (0.2–0.55) and high diffusion (0.55–0.8), violating cohesion and separation of concerns. Vehicle is the natural, justified owner."
+    },
+    "recommended_revisions": [
+      "REVISION 1: Formalize margin buffer policy specification. Add to DP5 detail: 'Margin buffer thresholds (e.g., minimum safe margin %, maximum buffer depletion rate) shall be defined as configuration parameters initialized at Vehicle startup, validated by Safety Services, and not subject to runtime queries. This ensures Vehicle can make real-time scheduling decisions without latency penalties.'",
+      "REVISION 2: Clarify multi-vehicle synchronization handoff. Add to DP5 detail: 'Vehicle owns local cycle timing and opportunistic parallelism within its assigned mission window. If multi-vehicle coordination is required, NGHE Solution shall issue phase delay or hold directives via Tasking interface; Vehicle shall respect these directives without re-orchestrating internal load/dump sequencing. Coordination is achieved via Tasking, not via Vehicle querying NGHE Solution.'",
+      "REVISION 3: Specify opportunistic parallelism decision rules. Add to DP5 detail: 'Opportunistic parallelism for travel shall be triggered by deterministic rules (e.g., IF margin_buffer_utilization > threshold AND travel_duration_estimate < max_parallel_window THEN parallelize_travel). Rules shall be pre-configured and not subject to runtime heuristic optimization. This ensures determinism, testability, and predictable cycle time.'",
+      "REVISION 4: Enforce SafetyAlert validation for all overrides. Add to DP5 detail: 'All cycle phase overrides (from Teleoperation or NGHE Solution) shall be validated against SafetyAlert constraints before execution. Vehicle shall reject overrides that would breach safety margins, even if issued by authorized users. SafetyAlert is a mandatory gate, not optional.'",
+      "REVISION 5: Define Telemetry reporting cadence. Add to DP5 detail: 'Vehicle shall emit Telemetry (cycle state, phase progress, margin buffer utilization, timing metrics) at a frequency sufficient to enable external monitoring and adaptive mission planning (e.g., every 100 ms or at phase transitions). This supports acceptance criterion verification (p95 cycle time measurement) and enables early detection of margin buffer depletion trends.'"
+    ]
+  },
+  "decision": {
+    "decision": "REVISE_CURRENT_LEVEL",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass with high confidence and excellent containment (0.92). However, the gate results surface five actionable revisions that strengthen DP5 specificity, reduce diffusion risks, and improve testability—critical for a high-safety-criticality system. These revisions do not invalidate the current level; they refine it. Revising DP5 now prevents downstream ambiguity and rework. Once revisions are incorporated and re-validated, the FR-DP-IM chain will be sufficiently mature to support sub-FR decomposition with clear, unambiguous parent requirements.",
+    "next_level_sub_frs": [],
+    "revise": {
+      "target": "DP",
+      "why": "DP5 (Hybrid Cycle Orchestrator with Margin Buffers) is sound in concept but requires explicit formalization of five critical details: (1) margin buffer policy initialization and validation flow, (2) multi-vehicle synchronization handoff boundaries, (3) deterministic decision rules for opportunistic parallelism (not heuristic), (4) mandatory SafetyAlert validation for all overrides, and (5) Telemetry reporting cadence for external monitoring. These revisions eliminate ambiguity in real-time scheduling logic, clarify interface responsibilities, and ensure the DP is testable and verifiable. High safety criticality demands this precision before decomposing into sub-FRs."
+    },
+    "record": {
+      "assumptions": [
+        "Margin buffer thresholds are static configuration parameters, not runtime queries, to avoid latency in real-time scheduling.",
+        "Vehicle owns local cycle timing autonomy; NGHE Solution owns inter-vehicle phase alignment via Tasking interface.",
+        "SafetyAlert validation is mandatory for all cycle phase overrides, even in manual/teleoperation mode.",
+        "Opportunistic parallelism is triggered by deterministic pre-configured rules, not adaptive heuristics.",
+        "Telemetry is emitted at sufficient cadence (e.g., 100 ms or phase transitions) to enable external monitoring and p95 cycle time measurement.",
+        "Vehicle subsystems (drive, load, dump) are already owned by Vehicle module; orchestrator is control logic binding them."
+      ],
+      "open_risks": [
+        "MEDIUM: Margin buffer threshold enforcement—if policies are queried dynamically at runtime, Vehicle incurs latency. Mitigation: static configuration at startup.",
+        "MEDIUM: Multi-vehicle synchronization—if NGHE Solution later requires coordinated load/dump, Vehicle's local opportunistic parallelism may conflict. Mitigation: clear handoff via Tasking interface.",
+        "LOW: Teleoperation override bypass—manual override could circumvent margin buffer checks if SafetyAlert is not always consulted. Mitigation: enforce mandatory SafetyAlert validation.",
+        "LOW: Opportunistic parallelism complexity—if travel conditions are highly variable, decision logic may become heuristic. Mitigation: specify deterministic rules, not adaptive optimization."
+      ],
+      "evidence_needed": [
+        "Formalized margin buffer policy specification document (thresholds, depletion rates, initialization protocol).",
+        "Multi-vehicle synchronization interface specification (Tasking directives for phase delay/hold, Vehicle response protocol).",
+        "Deterministic decision rules for opportunistic parallelism (IF-THEN logic, pre-configured parameters, no runtime heuristics).",
+        "SafetyAlert validation enforcement specification (mandatory gate for all overrides, rejection criteria).",
+        "Telemetry reporting cadence specification (frequency, metrics, external monitoring interface).",
+        "Test plan for cycle time p95 measurement under agreed duty cycle and site conditions.",
+        "Verification protocol for margin buffer utilization observability and acceptance criterion validation."
+      ]
+    }
+  }
+}

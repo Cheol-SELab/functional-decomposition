@@ -1,0 +1,176 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current operational state within the customer-defined latency target.",
+    "rationale": "The original FR conflates two concerns: (1) the obligation to update the model itself, and (2) the timeliness constraint on that update. The refined FR isolates the functional requirement (what must be updated and why) from the acceptance criterion (the latency bound). This separation allows the FR to remain solution-neutral and problem-focused, while the latency constraint is properly captured as a non-functional requirement or acceptance criterion. The phrase 'current operational state' clarifies the scope of what must be reflected without prescribing how or where updates originate.",
+    "verification_idea": "Measure end-to-end latency from the moment a worksite condition changes (e.g., equipment position, obstacle detection, safety zone breach) to the moment that change is reflected in the worksite model accessible to all stakeholders. Compare measured latency against the customer-defined target (e.g., p95 ≤ 1.0 s). Verify across supported update scenarios (e.g., equipment movement, sensor input, manual annotation).",
+    "sub_frs": [
+      "The NGHE solution shall capture worksite state changes from all relevant sources (equipment sensors, external sensors, manual input).",
+      "The NGHE solution shall propagate captured state changes to the worksite model.",
+      "The NGHE solution shall make the updated worksite model accessible to authorized stakeholders in real time."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Synchronous state-push architecture – operational updates are captured at source, validated against safety policies, and immediately propagated to a centralized worksite model with blocking confirmation before source operation completes.",
+      "DP2: Asynchronous event-stream architecture – operational state changes are emitted as immutable events, validated and enriched in a processing pipeline, and applied to the worksite model with eventual consistency guarantees and latency SLO enforcement.",
+      "DP3: Hybrid pull-push architecture – operational state is polled at configurable intervals from authoritative sources (safety-critical subsystems), combined with event-driven push updates from high-frequency sensors, merged into a unified model with conflict resolution.",
+      "DP4: Distributed state-replica architecture – worksite model is replicated across edge nodes near operational sources, updates are applied locally with eventual synchronization to a central authority, supporting offline operation and reducing network latency.",
+      "DP5: Query-driven lazy-load architecture – worksite model maintains only essential state in memory; detailed operational state is fetched on-demand from persistent stores or live sources, with caching and prefetch heuristics to meet latency targets."
+    ],
+    "selected_dp": "DP2: Asynchronous event-stream architecture with latency SLO enforcement and safety-policy validation gates.",
+    "rationale_for_selection": "DP2 decouples operational sources from model consumers, enabling independent scaling and resilience. Event immutability provides auditability for safety compliance. Explicit latency SLO enforcement (p95 ≤ 1.0 s) is a first-class concern, not a side effect. Validation gates ensure safety policies are enforced before state diffusion. This supports the customer-defined latency target as a measurable, monitorable constraint rather than an emergent property.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Event schema coupling: if event producers and consumers tightly couple on message format, schema evolution becomes a bottleneck. Mitigation: versioned event contracts and schema registry.",
+        "Latency SLO coupling: if enforcement logic is embedded in multiple processing stages, changes to SLO thresholds require coordinated updates. Mitigation: centralized SLO policy service.",
+        "Safety-policy validation coupling: if validation rules are hardcoded in the event pipeline, policy changes require redeployment. Mitigation: externalized policy engine with dynamic rule loading.",
+        "Ordering dependency: if certain operational updates must be applied in strict order (e.g., safety interlocks), event-stream ordering guarantees must be explicit. Mitigation: partition events by safety-critical subsystem identity."
+      ],
+      "notes": "DP2 is inherently lower-coupling than DP1 (synchronous) because sources do not block on model updates. However, the asynchronous nature introduces eventual-consistency risks if not carefully bounded by SLO enforcement. DP3 and DP4 introduce geographic/temporal coupling (polling intervals, replication lag). DP5 introduces query-latency unpredictability. DP2 is the best balance for the stated FR."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Event producers can emit state changes reliably and in near-real-time. RISK: If sources are intermittent or batched, latency SLO may be violated. Mitigation: define event emission SLA as a prerequisite.",
+      "ASSUMPTION: Safety-policy validation can be performed in-stream without blocking. RISK: If validation is computationally expensive or requires external service calls, p95 latency target may be unachievable. Mitigation: profile validation latency; consider pre-computed policy indexes.",
+      "ASSUMPTION: Worksite model can tolerate eventual consistency for non-safety-critical state. RISK: If all state is safety-critical, synchronous DP1 may be required instead. Mitigation: classify state by criticality; apply DP2 only to non-blocking updates.",
+      "ASSUMPTION: Customer-defined latency target (1.0 s p95) is achievable with available infrastructure. RISK: If network, storage, or processing latency is inherently > 1.0 s, target is infeasible. Mitigation: conduct latency baseline study early.",
+      "ASSUMPTION: Event-stream infrastructure (broker, processing framework) is operationally mature and available. RISK: If infrastructure is new or unstable, SLO enforcement becomes unreliable. Mitigation: select battle-tested, production-grade event platform.",
+      "ASSUMPTION: Worksite model schema is stable or versioned. RISK: If model schema changes frequently, event-to-model mapping becomes fragile. Mitigation: adopt schema versioning and migration strategy."
+    ],
+    "recommended_revision": "Refine FR to explicitly state: 'The NGHE solution shall update the worksite model to reflect current operational state within the customer-defined latency target (p95 ≤ 1.0 s), while enforcing worksite safety policies as a validation gate before state diffusion, and maintaining an immutable audit trail of all state transitions for compliance and debugging.' This clarifies that latency is a hard constraint, safety is a prerequisite, and auditability is a non-functional requirement. Additionally, partition the FR into two sub-FRs: (FR-A) 'Capture and validate operational state changes against safety policies' and (FR-B) 'Propagate validated state to worksite model within latency SLO,' each with its own DP, to enable independent analysis of safety-critical vs. performance-critical concerns."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Safety Services",
+      "scope": "Centralized module responsible for asynchronous event-stream processing, latency SLO enforcement, and safety-policy validation gates. Owns the event pipeline, policy evaluation logic, and SLO monitoring for all safety-critical decisions."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Receives sensor and state telemetry streams from Vehicle and Teleoperation to feed event-stream processing and policy validation context."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Outputs validated task directives and control commands after safety-policy gates have cleared asynchronous events."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Emits safety alerts and policy violation notifications when SLO thresholds are breached or safety gates reject events."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Communicates with remote teleoperation and NGHE Solution for distributed event coordination and policy synchronization under latency constraints."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Safety Services",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit. Safety Services is the natural owner of policy validation gates and SLO enforcement. Event-stream architecture and latency monitoring are core safety responsibilities. Minor diffusion: Telemetry ingestion and Tasking output are external dependencies, but these are well-defined interfaces. No algorithmic diffusion expected."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.65,
+        "diffusion_score": 0.35,
+        "notes": "Moderate fit. Teleoperation handles remote control and operator commands, but asynchronous event-stream processing and safety-policy validation are cross-cutting concerns that should not be owned by a single operator interface. SLO enforcement would diffuse across Vehicle and NGHE Solution. High coupling risk."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.58,
+        "diffusion_score": 0.42,
+        "notes": "Weak fit. Vehicle owns physical actuation and state, but safety-policy validation and latency SLO enforcement are system-level concerns that transcend a single vehicle instance. Event-stream architecture would require Vehicle to coordinate with Teleoperation and NGHE Solution, creating tight coupling. Policy logic would diffuse across multiple modules."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.7,
+        "diffusion_score": 0.3,
+        "notes": "Moderate fit. NGHE Solution is a top-level system orchestrator and could host event-stream infrastructure, but safety-policy validation is a specialized concern that should be delegated to Safety Services. Placing SLO enforcement at the solution level would create unnecessary coupling to non-safety components. Moderate diffusion of safety logic."
+      }
+    ],
+    "ownership_candidate": "Safety Services",
+    "containment_hypothesis": "Safety Services is the most cohesive and least diffuse boundary for DP2. It owns the safety-policy validation gates and is the natural locus for SLO enforcement. The asynchronous event-stream architecture is a mechanism to decouple safety decisions from real-time constraints while maintaining deterministic policy evaluation. Telemetry, Tasking, SafetyAlert, and Network Link interfaces provide clean separation of concerns: Safety Services consumes state (Telemetry), produces directives (Tasking), emits alerts (SafetyAlert), and coordinates with remote systems (Network Link). No safety-critical logic diffuses into Vehicle, Teleoperation, or NGHE Solution.",
+    "containment_risks": [
+      "Event-stream buffering and ordering: If Telemetry events arrive out-of-order or with variable latency, Safety Services must implement robust sequencing logic. Risk: complexity in event correlation and state consistency.",
+      "SLO enforcement across distributed systems: If Teleoperation or Vehicle introduce additional latency, Safety Services may not be able to enforce end-to-end SLOs without visibility into remote processing times. Risk: SLO violations attributed to Safety Services when root cause is external.",
+      "Policy synchronization: If safety policies are updated dynamically, Safety Services must coordinate policy changes with Vehicle and Teleoperation to avoid inconsistent validation. Risk: transient safety gaps during policy rollout.",
+      "Backpressure handling: If event-stream ingestion rate exceeds processing capacity, Safety Services must decide whether to queue, drop, or throttle events. Risk: safety-critical events may be lost if backpressure strategy is incorrect."
+    ],
+    "recommended_revision": "DP2 is well-chosen and containment is strong. No revision recommended. Ensure that Safety Services is explicitly tasked with: (1) event-stream ordering and deduplication, (2) SLO monitoring with clear attribution of latency sources, (3) policy versioning and atomic rollout, and (4) backpressure strategy that prioritizes safety-critical events. Consider adding a 'PolicySync' interface to coordinate policy updates with Vehicle and Teleoperation if policies are mutable."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP2 (Asynchronous event-stream architecture with latency SLO enforcement and safety-policy validation gates) directly addresses the FR requirement to update the worksite model within customer-defined latency targets. The asynchronous event-stream pattern is a sound design choice for decoupling safety-critical policy validation from real-time constraints while maintaining deterministic evaluation. SLO enforcement is explicitly named as a DP mechanism, directly traceable to the latency acceptance criterion (p95 ≤ 1.0 s). No logical gap between FR and DP."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Event-stream ordering and deduplication logic: If Telemetry events arrive out-of-order or with duplicates, Safety Services must implement robust sequencing. Risk of state inconsistency if ordering is incorrect.",
+        "SLO attribution across distributed boundaries: Safety Services owns SLO enforcement but depends on Telemetry ingestion latency from Vehicle and Teleoperation. If remote systems introduce latency, Safety Services may be blamed for SLO violations originating upstream. Recommend explicit latency instrumentation at each interface boundary.",
+        "Policy synchronization during mutable updates: If safety policies change dynamically, Safety Services must coordinate atomic rollout with Vehicle and Teleoperation. Risk of transient safety gaps or inconsistent validation if synchronization is asynchronous.",
+        "Backpressure strategy for event-stream overflow: Safety Services must decide whether to queue, drop, or throttle events under high ingestion rates. Risk of losing safety-critical events if backpressure logic prioritizes incorrectly.",
+        "Network Link latency under distributed coordination: The Network Link interface (inout) for remote teleoperation and NGHE Solution coordination may introduce additional latency not fully owned by Safety Services. Risk of end-to-end SLO violations if remote coordination is synchronous."
+      ],
+      "containment_notes": "Safety Services achieves 0.92 containment score with 0.08 diffusion. This is excellent fit. The module owns the core DP mechanisms: event-stream processing, policy validation gates, and SLO monitoring. All four external interfaces (Telemetry in, Tasking out, SafetyAlert out, Network Link inout) are well-defined and provide clean separation of concerns. No safety-critical logic diffuses into Vehicle, Teleoperation, or NGHE Solution. However, Safety Services is not fully autonomous: it depends on upstream latency from Telemetry sources and downstream latency from Tasking execution. These dependencies must be explicitly modeled in SLO budgeting to avoid false attribution of latency violations."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The acceptance criterion (p95 ≤ 1.0 s worksite model update latency) is measurable and can be instrumented at Safety Services boundaries. Recommend adding latency probes at: (1) Telemetry ingestion entry point, (2) policy validation gate exit point, (3) Tasking output dispatch point, and (4) Network Link round-trip for distributed coordination. End-to-end latency can be traced through event correlation IDs. SLO enforcement logic itself can be unit-tested with synthetic event streams and clock injection.",
+      "allocation_clarity": "Clear. Safety Services is the single owner of DP2 realization. Responsibilities are explicitly allocated: event-stream processing (owned), policy validation gates (owned), SLO enforcement (owned), latency monitoring (owned). External dependencies are named: Telemetry (input), Tasking (output), SafetyAlert (output), Network Link (coordination). No ambiguity about which module is accountable for SLO violations. However, latency attribution requires clear instrumentation: Safety Services must distinguish between (a) latency introduced by Safety Services logic, (b) latency introduced by upstream Telemetry sources, and (c) latency introduced by downstream Tasking execution or Network Link coordination. Recommend adding a 'LatencyAttribution' interface or internal metric to track these sources separately."
+    },
+    "recommended_revisions": [
+      "Add explicit latency instrumentation at Safety Services boundaries: Telemetry ingestion, policy validation gate, Tasking dispatch, and Network Link round-trip. Instrument each stage to enable root-cause analysis of SLO violations and distinguish between Safety Services latency and external dependency latency.",
+      "Define backpressure strategy for event-stream overflow: Specify whether Safety Services will queue, drop, or throttle events under high ingestion rates. Prioritize safety-critical events (e.g., emergency stops) over routine telemetry. Document the strategy in Safety Services design specification.",
+      "Add PolicySync interface (or extend Network Link) for mutable policy updates: If safety policies are updated dynamically, define a protocol for atomic policy rollout across Safety Services, Vehicle, and Teleoperation. Specify versioning scheme and rollback mechanism to avoid transient safety gaps.",
+      "Define event-stream ordering and deduplication logic: Specify how Safety Services handles out-of-order or duplicate Telemetry events. Document the sequencing algorithm and any assumptions about event timestamps or sequence numbers.",
+      "Clarify SLO budget allocation across distributed system: Break down the p95 ≤ 1.0 s latency target into sub-budgets for Telemetry ingestion, Safety Services processing, Tasking execution, and Network Link coordination. Ensure sum of sub-budgets ≤ 1.0 s with margin for jitter.",
+      "Consider adding a 'LatencyAttribution' metric or interface: Enable Safety Services to report latency breakdown (e.g., 'Safety Services processing: 50 ms, Telemetry ingestion: 200 ms, Tasking execution: 300 ms, Network Link: 400 ms'). This supports SLO attribution and root-cause analysis."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass with high confidence. The DP (asynchronous event-stream architecture with latency SLO enforcement and safety-policy validation gates) is logically sound and well-allocated to Safety Services with 0.92 containment. However, the recommended_revisions and diffusion_risks reveal critical implementation dependencies and architectural decisions that are not yet decomposed into sub-FRs. Specifically: (1) event-stream ordering and deduplication logic is a non-trivial safety-critical concern that requires explicit functional decomposition; (2) SLO budget allocation across distributed boundaries (Telemetry → Safety Services → Tasking → Network Link) is a cross-cutting concern that demands sub-level FR articulation; (3) backpressure strategy for event-stream overflow is a functional requirement in its own right, not merely a DP detail; (4) latency attribution and instrumentation is a functional requirement for observability and SLO verification. These are not minor implementation details—they are functional requirements that must be decomposed to ensure safety criticality is properly addressed at the next level. Proceeding to ZIGZAG_DOWN allows explicit modeling of these concerns as sub-FRs, enabling clearer DP selection and IM allocation at the next level.",
+    "next_level_sub_frs": [
+      "FR2.1: Ensure event-stream ordering and deduplication consistency. Telemetry events arriving out-of-order or with duplicates must be sequenced deterministically to prevent state inconsistency in the worksite model. Acceptance criterion: 100% of duplicate events are detected and deduplicated; out-of-order events are resequenced using timestamp or sequence-number logic with zero loss of safety-critical events.",
+      "FR2.2: Allocate and enforce latency budget across distributed system boundaries. The p95 ≤ 1.0 s end-to-end latency target must be decomposed into sub-budgets for Telemetry ingestion, Safety Services processing, Tasking execution, and Network Link coordination, with explicit margin for jitter and clock skew. Acceptance criterion: Sub-budget sum ≤ 0.9 s (10% margin); each sub-budget is monitored and reported independently.",
+      "FR2.3: Implement backpressure strategy for event-stream overflow. Under high ingestion rates, Safety Services must decide whether to queue, drop, or throttle events while prioritizing safety-critical events (e.g., emergency stops) over routine telemetry. Acceptance criterion: Safety-critical events are never dropped; routine events are dropped or throttled with explicit logging; queue depth does not exceed 10,000 events.",
+      "FR2.4: Enable latency attribution and root-cause analysis. Safety Services must distinguish latency introduced by its own processing from latency introduced by upstream Telemetry sources or downstream Tasking execution. Acceptance criterion: Latency breakdown is reported at each stage (Telemetry ingestion, policy validation gate, Tasking dispatch, Network Link round-trip) with ±50 ms accuracy; SLO violations can be attributed to specific stage within 5 minutes of occurrence.",
+      "FR2.5: Coordinate atomic policy updates across distributed system. If safety policies are updated dynamically, Safety Services must coordinate rollout with Vehicle and Teleoperation to avoid transient safety gaps or inconsistent validation. Acceptance criterion: Policy version is atomically incremented; all validation gates use consistent policy version; rollback mechanism is available within 30 seconds of policy update initiation."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "The current DP2 statement ('Asynchronous event-stream architecture with latency SLO enforcement and safety-policy validation gates') is correct at the top level but lacks specificity on how ordering, deduplication, backpressure, and latency attribution are achieved. Recommend refining DP2 to explicitly name these sub-mechanisms: 'Asynchronous event-stream architecture with (a) deterministic event sequencing and deduplication using timestamp-based ordering, (b) latency SLO enforcement via distributed budget allocation and per-stage instrumentation, (c) safety-policy validation gates with atomic policy versioning, and (d) backpressure strategy prioritizing safety-critical events.' This refinement makes the DP more concrete and traceable to the sub-FRs being decomposed."
+    },
+    "record": {
+      "assumptions": [
+        "Telemetry events carry timestamps or sequence numbers that enable deterministic reordering.",
+        "Safety Services has access to synchronized clocks (or can tolerate clock skew within ±100 ms) for latency measurement and event sequencing.",
+        "Backpressure strategy prioritizes safety-critical events (e.g., emergency stops, collision warnings) over routine telemetry; routine events can be dropped without safety impact.",
+        "Policy updates are infrequent (< 1 per minute) and can tolerate atomic rollout latency of up to 30 seconds.",
+        "Network Link latency for remote teleoperation and NGHE Solution coordination is measurable and can be budgeted separately from Safety Services processing latency.",
+        "Tasking execution latency (Vehicle actuation) is outside Safety Services control but can be measured and attributed via instrumentation."
+      ],
+      "open_risks": [
+        "Event-stream ordering under high-frequency telemetry (> 1000 events/sec): Timestamp-based ordering may introduce latency if events are significantly out-of-order. Risk of SLO violation if reordering buffer is too large. Mitigation: Define maximum acceptable reordering latency (e.g., 50 ms) and drop events older than this threshold.",
+        "Latency attribution under distributed clock skew: If Vehicle, Teleoperation, and Safety Services have unsynchronized clocks, latency measurement may be inaccurate. Risk of false SLO attribution. Mitigation: Implement NTP or PTP synchronization with ±10 ms accuracy; add clock-skew correction to latency calculation.",
+        "Backpressure strategy under sustained high ingestion: If Telemetry sources continuously exceed Safety Services processing capacity, queue depth may grow unbounded. Risk of memory exhaustion or event loss. Mitigation: Define queue depth limit (e.g., 10,000 events) and explicit drop policy; monitor queue depth and alert if sustained high ingestion is detected.",
+        "Policy update atomicity across distributed system: If Vehicle or Teleoperation do not acknowledge policy update within 30 seconds, Safety Services may proceed with inconsistent policy version. Risk of transient safety gap. Mitigation: Implement policy versioning with explicit acknowledgment protocol; define timeout and rollback mechanism.",
+        "Network Link latency for remote teleoperation: If Network Link introduces > 400 ms latency (40% of 1.0 s budget), end-to-end SLO may be violated despite Safety Services meeting its sub-budget. Risk of SLO violation attributed to Safety Services when root cause is Network Link. Mitigation: Explicitly budget Network Link latency; monitor and alert if Network Link latency exceeds budget."
+      ],
+      "evidence_needed": [
+        "Telemetry event schema: Confirm that events carry timestamps or sequence numbers suitable for deterministic reordering. Measure typical out-of-order arrival rate and maximum reordering latency under normal and peak load.",
+        "Clock synchronization specification: Confirm NTP/PTP synchronization accuracy across Vehicle, Teleoperation, and Safety Services. Measure clock skew and validate that latency measurement accuracy is ±50 ms or better.",
+        "Backpressure strategy specification: Define queue depth limit, drop policy, and safety-critical event prioritization. Validate that safety-critical events (e.g., emergency stops) are never dropped under any load condition.",
+        "Latency instrumentation design: Specify latency probes at Telemetry ingestion, policy validation gate, Tasking dispatch, and Network Link round-trip. Validate that latency breakdown can be reported with ±50 ms accuracy and correlated to specific events via event IDs.",
+        "Policy update protocol: Define atomic policy rollout mechanism, versioning scheme, and rollback procedure. Validate that all validation gates use consistent policy version and that policy updates complete within 30 seconds.",
+        "Distributed latency budget allocation: Break down p95 ≤ 1.0 s target into sub-budgets for Telemetry ingestion, Safety Services processing, Tasking execution, and Network Link coordination. Validate that sub-budget sum ≤ 0.9 s and that each sub-budget is achievable under peak load."
+      ]
+    }
+  }
+}

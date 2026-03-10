@@ -1,0 +1,166 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall enable execution of the load→travel→dump cycle within the customer-defined cycle time target.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting/enabling the capability to achieve cycle time, and (2) actually achieving the measured KPI. The refined FR is atomic and solution-neutral by focusing on the functional obligation—enabling the cycle to execute within the time envelope—without prescribing how (e.g., via speed optimization, path planning, operator training, or equipment design). The actual achievement of p95 ≤ CT_target is a verification criterion tied to duty cycle and site conditions, not a functional requirement of the system itself. This separation allows DPs to address enablement (e.g., responsive controls, efficient hydraulics, predictable motion) independently of operational performance measurement.",
+    "verification_idea": "Demonstrate that under nominal duty cycle and representative site conditions, the NGHE solution's subsystems (propulsion, actuation, control response, load handling) do not introduce artificial delays or constraints that prevent the cycle from completing within CT_target. Measure end-to-end cycle time in controlled trials; confirm that any shortfall vs. CT_target is attributable to operator technique, site conditions, or load variability—not to system design limitations.",
+    "sub_frs": [
+      "FR-NGHE-002.1: The NGHE solution shall enable load acquisition within the load phase time budget.",
+      "FR-NGHE-002.2: The NGHE solution shall enable travel to the dump location within the travel phase time budget.",
+      "FR-NGHE-002.3: The NGHE solution shall enable load release at the dump location within the dump phase time budget.",
+      "FR-NGHE-002.4: The NGHE solution shall minimize unplanned delays (e.g., system faults, control latency, hydraulic response lag) during the load→travel→dump cycle."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Decompose the load→travel→dump cycle into sequential sub-operations (load, travel, dump) with independent timing budgets that sum to CT_target, and allocate execution control to a supervisory coordinator that sequences and monitors each phase.",
+      "DP2: Implement a state-machine-based cycle controller that transitions through discrete operational states (idle, loading, traveling, dumping, returning) with deterministic timing constraints per state, ensuring p95 compliance through worst-case path analysis.",
+      "DP3: Design a parallel-capable execution architecture where load, travel, and dump operations are modeled as independent concurrent tasks with synchronization barriers, allowing overlap where physically feasible (e.g., travel during partial load) to reduce total cycle time.",
+      "DP4: Establish a real-time task scheduler with priority-based preemption and deadline enforcement, allocating each cycle phase as a time-bounded task with jitter budgets, and monitor actual execution against p95 thresholds via telemetry.",
+      "DP5: Decompose cycle execution into a hierarchical control model: high-level cycle sequencer (what order), mid-level phase executors (how each phase runs), and low-level actuator drivers (direct control), with explicit handoff protocols and timeout guards."
+    ],
+    "selected_dp": "DP5: Decompose cycle execution into a hierarchical control model: high-level cycle sequencer (what order), mid-level phase executors (how each phase runs), and low-level actuator drivers (direct control), with explicit handoff protocols and timeout guards.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between cycle sequencer and phase executors if handoff protocol is implicit or state-dependent rather than explicit message-based.",
+        "Coupling between phase executors and actuator drivers if timing assumptions leak upward (e.g., sequencer assumes fixed load time instead of monitoring completion).",
+        "Coupling to site conditions if timeout guards are not parameterizable (e.g., hardcoded dump time assumes specific soil type).",
+        "Coupling to duty cycle if phase executors do not isolate wear/thermal effects that vary with load intensity or ambient conditions."
+      ],
+      "notes": "DP5 is selected because it provides clear separation of concerns (sequencing logic, phase execution, actuation) and explicit boundaries (handoff protocols, timeouts) that enable independent testing, tuning, and adaptation. The hierarchical structure supports both deterministic worst-case analysis (DP2-like) and concurrent optimization (DP3-like) without forcing a single architectural pattern. Coupling risks are manageable through protocol design and parameterization."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Cycle phases (load, travel, dump) can be modeled as sequential with well-defined start/end conditions. RISK: If phases overlap or have variable boundaries (e.g., load continues during early travel), the sequencer model may not capture actual behavior; mitigation: validate phase independence via site trials.",
+      "ASSUMPTION: Handoff protocols (e.g., 'load complete' signal) are reliable and low-latency. RISK: If communication delays or signal ambiguity occur, sequencer may mistime phase transitions; mitigation: design explicit acknowledgment and timeout guards.",
+      "ASSUMPTION: Timeout guards can be set conservatively without excessive cycle time penalty. RISK: If timeouts are too loose, p95 compliance is lost; if too tight, false failures occur; mitigation: calibrate timeouts via duty-cycle testing under worst-case site conditions.",
+      "ASSUMPTION: Actuator drivers can be controlled independently (e.g., bucket hydraulics separate from travel drive). RISK: If actuators share a common resource (e.g., single pump), contention may violate timing; mitigation: model resource contention in phase executor design.",
+      "ASSUMPTION: p95 measurement is feasible and repeatable under agreed duty cycle. RISK: If site conditions vary significantly (e.g., soil type, ambient temperature), p95 may shift; mitigation: establish acceptance criteria with site-specific duty cycle definition and measurement protocol.",
+      "ASSUMPTION: Supervisory coordinator and phase executors can be implemented with sufficient determinism (e.g., real-time OS or hard-coded logic). RISK: If implementation platform introduces jitter, p95 target may be unachievable; mitigation: specify platform requirements (e.g., real-time kernel, interrupt latency bounds) early."
+    ],
+    "recommended_revision": "Refine DP5 to explicitly address: (1) Handoff protocol specification: define message format, acknowledgment mechanism, and timeout semantics for each phase transition. (2) Parameterizable timeout budgets: express phase timeouts as functions of duty-cycle inputs (e.g., load mass, travel distance, soil type) rather than constants. (3) Telemetry and monitoring: specify what cycle-time data is collected (per-phase and end-to-end), how p95 is computed, and what triggers adaptive adjustment. (4) Failure modes: define what happens if a phase exceeds its timeout (e.g., abort cycle, retry, escalate to operator). This will enable IM-level design to allocate responsibilities (e.g., sequencer module, load-phase executor module, travel-phase executor module) with clear interfaces and testability criteria."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "Encapsulates the hierarchical control model for cycle execution, including the high-level cycle sequencer, mid-level phase executors, and low-level actuator drivers, along with their handoff protocols and timeout guards."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives high-level cycle commands and task specifications from the NGHE Solution or Teleoperation layer."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Emits safety violations, timeout events, and phase execution failures detected during cycle execution."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Reports cycle state, phase progress, actuator status, and execution timing metrics for monitoring and diagnostics."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Supports remote teleoperation commands and real-time feedback if Vehicle operates in teleoperated mode."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent containment. The hierarchical control model (sequencer, phase executors, actuator drivers) is the core responsibility of Vehicle. Handoff protocols and timeout guards are internal state machines. Minor diffusion: SafetyAlert and Telemetry interfaces cross the boundary, but this is expected and manageable via well-defined contracts."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor containment. Safety Services should validate and monitor safety constraints, not own the control hierarchy itself. The sequencer, phase executors, and actuator drivers are Vehicle-specific operational logic. Placing them here would scatter control logic across modules and violate separation of concerns."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.25,
+        "diffusion_score": 0.75,
+        "notes": "Very poor containment. Teleoperation is a command interface layer, not a control execution engine. The hierarchical control model is autonomous Vehicle behavior; teleoperation should only inject commands via Tasking. Placing the DP here would conflate command input with execution control."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.15,
+        "diffusion_score": 0.85,
+        "notes": "Very poor containment. NGHE Solution is a high-level orchestration and planning layer. It should delegate cycle execution to Vehicle, not own the control hierarchy. Placing the DP here would create a monolithic, non-modular architecture and prevent Vehicle reuse."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module is the natural owner of the hierarchical control model because: (1) it directly owns the actuators and sensors that the drivers control; (2) cycle execution is Vehicle-specific operational behavior; (3) phase sequencing and handoff protocols are internal to Vehicle state management; (4) timeout guards protect Vehicle-level safety invariants. External interfaces (Tasking, SafetyAlert, Telemetry, Network Link) provide clean boundaries for command injection, safety monitoring, and diagnostics without diffusing control logic.",
+    "containment_risks": [
+      "Risk: If Safety Services is expected to own timeout guards and phase validation, there may be architectural tension. Mitigation: Safety Services should validate constraints and emit SafetyAlert; Vehicle should enforce timeouts and handoff protocols internally.",
+      "Risk: If Teleoperation requires direct phase-level control (e.g., pause/resume mid-phase), the Tasking interface may need extension. Mitigation: Define Tasking to support granular control commands (e.g., 'pause_phase', 'resume_phase') rather than embedding teleoperation logic in Vehicle.",
+      "Risk: If multiple Vehicle instances exist (e.g., multi-robot systems), the sequencer and phase executors must be instance-local, not shared. Mitigation: Ensure each Vehicle instance has its own control hierarchy; use NGHE Solution for cross-vehicle coordination."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The FR specifies a measurable acceptance criterion (p95 cycle time ≤ CT_target). The Vehicle IM boundary owns the hierarchical control model (sequencer, phase executors, actuator drivers) that directly realizes this requirement. Cycle time can be instrumented via Telemetry interface and validated against duty cycle and site conditions. Timeout guards and handoff protocols are internal state machines within Vehicle, making them auditable and testable.",
+      "allocation_clarity": "Clear. The FR is allocated entirely to the Vehicle IM. The Tasking interface provides command injection (load→travel→dump sequence), SafetyAlert and Telemetry provide observability, and Network Link supports teleoperation if needed. No ambiguity about which module owns cycle execution responsibility."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "The DP (hierarchical control model with sequencer, phase executors, actuator drivers, handoff protocols, and timeout guards) directly addresses the FR requirement to execute the cycle within target time. The decomposition into three control levels (high-level sequencing, mid-level phase execution, low-level actuation) is a sound logical solution that enables deterministic cycle timing, phase synchronization, and timeout enforcement. The explicit handoff protocols and timeout guards are necessary mechanisms to guarantee cycle time predictability under the agreed duty cycle and site conditions."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Risk: SafetyAlert and Telemetry interfaces cross the Vehicle boundary. Mitigation: These are output-only contracts for safety monitoring and diagnostics; they do not diffuse control logic. Ensure Safety Services consumes SafetyAlert (does not own timeout guards) and monitoring systems consume Telemetry (do not own phase sequencing).",
+        "Risk: If Safety Services is expected to validate phase transitions or enforce timeouts, control logic may scatter between Vehicle and Safety Services. Mitigation: Clarify that Safety Services validates safety constraints (e.g., load weight, terrain hazards) before Tasking is issued; Vehicle enforces timeouts and phase handoffs internally. Safety Services monitors SafetyAlert for violations but does not own the sequencer.",
+        "Risk: If Teleoperation requires mid-phase pause/resume or phase-level override, the Tasking interface may need extension beyond simple cycle commands. Mitigation: Define Tasking to support granular control commands (e.g., 'pause_phase', 'resume_phase', 'abort_cycle') with clear semantics for timeout and state recovery. Keep these commands in Tasking; do not embed teleoperation logic in Vehicle's sequencer.",
+        "Risk: In multi-vehicle deployments, the sequencer and phase executors must be instance-local. Mitigation: Ensure each Vehicle instance has its own control hierarchy; NGHE Solution coordinates across instances via Tasking but does not own individual Vehicle sequencers."
+      ],
+      "containment_notes": "Excellent containment (0.92 score). The Vehicle module is the natural owner of the hierarchical control model because: (1) it directly owns actuators and sensors; (2) cycle execution is Vehicle-specific operational behavior; (3) phase sequencing and handoff protocols are internal state management; (4) timeout guards protect Vehicle-level safety invariants. The four external interfaces (Tasking, SafetyAlert, Telemetry, Network Link) provide clean boundaries without diffusing control logic. Safety Services (0.35 containment) and Teleoperation (0.25 containment) are correctly excluded from owning the control hierarchy; they interact with Vehicle via well-defined contracts. NGHE Solution (0.15 containment) correctly delegates cycle execution to Vehicle rather than embedding it."
+    },
+    "recommended_revisions": [
+      "Explicitly document the Tasking interface contract to specify which cycle commands are supported (e.g., 'execute_cycle(load_spec, travel_spec, dump_spec)', 'pause_phase()', 'resume_phase()', 'abort_cycle()') and their semantics under timeout conditions. This prevents ambiguity about teleoperation control granularity.",
+      "Define the SafetyAlert contract to specify which events Vehicle emits (e.g., 'timeout_phase_X', 'handoff_protocol_failure', 'actuator_fault') and which are consumed by Safety Services vs. external monitoring. This clarifies the boundary between Vehicle-internal safety enforcement and Safety Services validation.",
+      "Document timeout guard configuration: specify whether timeouts are Vehicle-local parameters (set at initialization) or dynamically adjustable via Tasking. If dynamic, define the update protocol to avoid race conditions during phase execution.",
+      "For multi-vehicle scenarios, explicitly state that each Vehicle instance maintains its own sequencer and phase executors. Define NGHE Solution's role in cross-vehicle coordination (e.g., sequencing multiple vehicles' cycles) without owning individual Vehicle control hierarchies.",
+      "Add a verification plan that instruments Telemetry to measure p95 cycle time under the agreed duty cycle and site conditions. Specify acceptance test procedures for timeout guards and handoff protocol correctness (e.g., phase transition latency, timeout accuracy)."
+    ]
+  },
+  "decision": {
+    "decision": "REVISE_CURRENT_LEVEL",
+    "justification": "All three gates (FR-IM, FR-DP, DP-IM) pass with high confidence, and the hierarchical control model is sound. However, the recommended_revisions identify critical specification gaps that must be resolved before proceeding to sub-level decomposition. Given high safety criticality, ambiguities in the Tasking interface contract, SafetyAlert semantics, timeout guard configurability, and multi-vehicle coordination must be clarified at the current level. These are not decomposition issues but rather precision issues in the DP and IM specifications that will propagate downstream if left unresolved. Revising now prevents rework at lower levels.",
+    "next_level_sub_frs": [],
+    "revise": {
+      "target": "DP",
+      "why": "The DP (hierarchical control model with sequencer, phase executors, actuator drivers, handoff protocols, timeout guards) is logically sound but insufficiently specified for safe implementation. Five critical revisions are needed: (1) Tasking interface contract must explicitly enumerate supported cycle commands ('execute_cycle', 'pause_phase', 'resume_phase', 'abort_cycle') and their semantics under timeout conditions to prevent teleoperation ambiguity. (2) SafetyAlert contract must specify which timeout and handoff events Vehicle emits and which are consumed by Safety Services vs. external monitoring, clarifying the boundary between Vehicle-internal enforcement and Safety Services validation. (3) Timeout guard configuration must be documented: are timeouts Vehicle-local parameters set at initialization, or dynamically adjustable via Tasking? If dynamic, the update protocol must avoid race conditions during phase execution. (4) Multi-vehicle coordination must be explicitly stated: each Vehicle instance maintains its own sequencer; NGHE Solution coordinates across instances via Tasking without owning individual Vehicle control hierarchies. (5) Verification plan must be added: instrument Telemetry to measure p95 cycle time under agreed duty cycle and site conditions; specify acceptance test procedures for timeout guards and handoff protocol correctness (phase transition latency, timeout accuracy). These revisions strengthen the DP specification and reduce diffusion risks identified in the DP-IM gate."
+    },
+    "record": {
+      "assumptions": [
+        "Tasking interface supports granular control commands (pause_phase, resume_phase, abort_cycle) with well-defined semantics under timeout conditions.",
+        "SafetyAlert is output-only; Safety Services validates safety constraints before Tasking is issued and monitors SafetyAlert for violations but does not own the sequencer.",
+        "Timeout guards are Vehicle-local state machines; timeouts are either fixed at initialization or dynamically adjustable via a race-condition-safe protocol.",
+        "Each Vehicle instance in multi-vehicle deployments maintains its own sequencer and phase executors; NGHE Solution coordinates across instances without owning individual Vehicle control hierarchies.",
+        "Telemetry interface is instrumented to measure p95 cycle time and validate timeout guard and handoff protocol correctness under agreed duty cycle and site conditions."
+      ],
+      "open_risks": [
+        "Risk: Tasking interface granularity unclear. If teleoperation requires mid-phase pause/resume or phase-level override, the interface may need extension. Mitigation: Define Tasking contract explicitly; keep teleoperation commands in Tasking, not in Vehicle's sequencer.",
+        "Risk: SafetyAlert semantics ambiguous. If Safety Services is expected to validate phase transitions or enforce timeouts, control logic may scatter between Vehicle and Safety Services. Mitigation: Clarify that Safety Services validates safety constraints before Tasking is issued; Vehicle enforces timeouts and phase handoffs internally.",
+        "Risk: Timeout guard configurability unclear. If timeouts are dynamically adjustable via Tasking, race conditions may occur during phase execution. Mitigation: Define update protocol to ensure atomic timeout updates or defer updates to phase boundaries.",
+        "Risk: Multi-vehicle coordination not explicitly specified. If NGHE Solution is expected to own cross-vehicle sequencing, control logic may diffuse across Vehicle instances. Mitigation: Explicitly state that each Vehicle instance owns its own sequencer; NGHE Solution coordinates via Tasking without owning individual Vehicle control hierarchies.",
+        "Risk: Verification plan incomplete. Acceptance criteria for timeout guards and handoff protocol correctness not specified. Mitigation: Add instrumentation plan for Telemetry; specify acceptance test procedures for phase transition latency and timeout accuracy."
+      ],
+      "evidence_needed": [
+        "Tasking interface specification document: enumerate supported cycle commands and their semantics under timeout conditions.",
+        "SafetyAlert contract specification: list timeout and handoff events emitted by Vehicle; specify which are consumed by Safety Services vs. external monitoring.",
+        "Timeout guard configuration specification: document whether timeouts are fixed or dynamic; if dynamic, provide race-condition-safe update protocol.",
+        "Multi-vehicle coordination specification: explicitly state that each Vehicle instance owns its own sequencer; define NGHE Solution's role in cross-vehicle coordination.",
+        "Verification and acceptance test plan: specify Telemetry instrumentation for p95 cycle time measurement; define acceptance test procedures for timeout guards and handoff protocol correctness (phase transition latency, timeout accuracy).",
+        "Safety analysis: confirm that timeout guards and handoff protocols satisfy high safety criticality requirements; document failure modes and mitigation strategies."
+      ]
+    }
+  }
+}

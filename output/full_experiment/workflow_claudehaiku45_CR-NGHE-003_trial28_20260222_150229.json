@@ -1,0 +1,174 @@
+{
+  "refined_fr": {
+    "refined_fr": "Enable measurement and reporting of energy consumption per unit of work output (energy_per_ton) to support evaluation against customer-defined energy efficiency targets.",
+    "rationale": "The original FR conflates two distinct obligations: (1) the system's capability to measure/report energy efficiency metrics, and (2) the achievement of a performance target. The refined FR is atomic and solution-neutral by focusing on the enablement of measurement and visibility—what the system must provide—rather than the outcome (achieving the target), which depends on operational decisions, equipment tuning, and worksite conditions beyond the system's direct control. This separation clarifies that the system's responsibility is instrumentation and data provision; target achievement is a stakeholder responsibility informed by that data.",
+    "verification_idea": "Verify that the NGHE solution provides real-time and post-operation reporting of (a) total energy consumed (kWh or equivalent), (b) total work output (tons moved), and (c) calculated energy_per_ton metric. Confirm data is accessible to Site Manager and System Engineer for evaluation against E_target acceptance criterion.",
+    "sub_frs": [
+      "FR-NGHE-003.1: Measure and record total energy consumed by the NGHE solution during operation.",
+      "FR-NGHE-003.2: Measure and record total work output (mass moved) during operation.",
+      "FR-NGHE-003.3: Calculate and display energy_per_ton metric (energy_used / ton_moved) in real-time and post-operation reports.",
+      "FR-NGHE-003.4: Provide energy efficiency data to authorized stakeholders (Site Manager, System Engineer) for performance evaluation."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Decompose energy consumption measurement into two independent measurement streams (energy input and work output), each with dedicated acquisition and validation logic, combined via a calculation module that computes the ratio and compares against target threshold.",
+      "DP2: Implement a unified telemetry pipeline that captures raw sensor data (power, load, distance, time) into a centralized data buffer, applies calibration and filtering uniformly, then derives energy_per_ton through a single calculation engine with built-in target comparison.",
+      "DP3: Establish a hierarchical measurement architecture where field-level modules (energy meter, load cell, odometer) each report normalized metrics independently to a supervisory aggregation layer, which performs ratio calculation and threshold evaluation with explicit handoff contracts.",
+      "DP4: Deploy a real-time event-driven measurement system where energy consumption and work output events are captured asynchronously, timestamped, and streamed to a correlation engine that buffers and reconciles events before computing energy_per_ton and emitting compliance status."
+    ],
+    "selected_dp": "DP3: Establish a hierarchical measurement architecture where field-level modules (energy meter, load cell, odometer) each report normalized metrics independently to a supervisory aggregation layer, which performs ratio calculation and threshold evaluation with explicit handoff contracts.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "DP1 risk: Tight coupling between energy and work-output streams if validation logic is shared; mitigation via separate validation modules.",
+        "DP2 risk: Unified pipeline creates single point of failure and tight coupling between sensor types; changes to one measurement domain ripple through entire system.",
+        "DP4 risk: Event correlation logic can become complex and fragile if event ordering or timing assumptions are implicit; requires explicit buffering and reconciliation contracts.",
+        "DP3 strength: Clear separation of concerns—each field module owns its measurement domain; aggregation layer is decoupled from sensor specifics via normalized metric contracts."
+      ],
+      "notes": "DP3 selected because it minimizes coupling by enforcing explicit interfaces (normalized metrics) between measurement domains and aggregation logic. Each field module can be independently validated, replaced, or scaled without affecting others. The supervisory layer has a single, well-defined responsibility: ratio calculation and threshold comparison. This supports testability, maintainability, and operational independence required by worksite safety and operational policies."
+    },
+    "assumptions_risks": [
+      "Assumption: Energy input and work output can be measured independently with acceptable accuracy and latency. Risk: If measurement domains have fundamentally different timescales (e.g., energy sampled at 1 kHz, load sampled at 10 Hz), synchronization logic in aggregation layer may introduce systematic bias. Mitigation: Define explicit time-alignment and buffering strategy in IM design.",
+      "Assumption: Normalized metric contracts (e.g., 'energy in kWh', 'load in tons', 'distance in km') are stable and well-defined. Risk: Ambiguity in units, precision, or update frequency can cause silent calculation errors. Mitigation: Formalize metric schema and validation rules in aggregation module interface specification.",
+      "Assumption: Evaluation period is well-defined and synchronized across all measurement streams. Risk: Clock drift or asynchronous resets in field modules can cause misalignment. Mitigation: Implement explicit period-boundary handshake and timestamp validation in aggregation layer.",
+      "Assumption: Target threshold E_target is static and known at design time. Risk: If target is dynamic or context-dependent (e.g., varies by load type or terrain), DP3 may require extension to support parameterized comparison. Mitigation: Design aggregation module to accept E_target as a configurable input.",
+      "Assumption: Worksite safety plan does not impose real-time hard constraints on measurement latency. Risk: If safety interlocks depend on energy_per_ton feedback, hierarchical aggregation may introduce unacceptable delay. Mitigation: Clarify safety-critical vs. reporting-only measurement paths; consider dual-path architecture if needed."
+    ],
+    "recommended_revision": "Refine FR to explicitly state: (1) Required measurement accuracy and latency for energy_per_ton calculation; (2) Evaluation period definition and synchronization requirements; (3) Whether energy_per_ton is used for real-time control, post-hoc reporting, or both; (4) Acceptable failure modes if a measurement stream becomes unavailable. These clarifications will enable IM design to specify concrete module boundaries, interface contracts (normalized metrics, update rates, precision), and error-handling strategies. Additionally, confirm whether E_target is static or dynamic, and whether worksite safety interlocks depend on energy_per_ton feedback, as these will influence aggregation module design and testing strategy."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "Hierarchical measurement architecture encompassing field-level metric normalization (energy meter, load cell, odometer) and supervisory aggregation layer with ratio calculation and threshold evaluation"
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Normalized metrics and aggregated ratios from field-level modules to supervisory layer; threshold evaluation results to external consumers"
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Configuration and threshold parameters for aggregation logic and ratio calculation rules"
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Threshold violation signals and safety-critical ratio anomalies from supervisory aggregation layer"
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Communication backbone for field-level module data collection and supervisory layer distribution of aggregated results"
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit: NGHE Solution is explicitly a measurement and aggregation platform. Field-level modules (energy meter, load cell, odometer) are natural sub-components. Supervisory aggregation, ratio calculation, and threshold evaluation are core NGHE responsibilities. Minimal diffusion: only Telemetry (output), Tasking (input config), SafetyAlert (output), and Network Link (transport) cross boundary."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor fit: Vehicle is a physical platform, not a measurement/aggregation system. Field-level sensors (energy meter, load cell, odometer) are mounted on Vehicle but logically belong to NGHE. Supervisory aggregation logic would be orphaned from its data sources. High diffusion: ratio calculation and threshold evaluation would leak into Vehicle domain, violating separation of concerns."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.15,
+        "diffusion_score": 0.85,
+        "notes": "Very poor fit: Teleoperation is a command/control interface, not a measurement architecture. Field-level metric normalization and supervisory aggregation have no logical home in Teleoperation. Ratio calculation and threshold evaluation are orthogonal to remote operation. Severe diffusion: all core DP elements would be misplaced."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Weak fit: Safety Services consumes threshold evaluation outputs (SafetyAlert) but does not own the measurement architecture. Field-level metric normalization and supervisory aggregation are upstream concerns. Ratio calculation is a measurement concern, not a safety service. Moderate diffusion: Safety Services would depend on external measurement logic rather than containing it."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "The NGHE Solution module is the natural and optimal boundary for DP3 because it is explicitly designed as a hierarchical measurement and aggregation platform. Field-level modules (energy meter, load cell, odometer) report normalized metrics to a supervisory layer within NGHE, which performs ratio calculation and threshold evaluation. The handoff contracts between field-level and supervisory layers are internal to NGHE. External interfaces (Telemetry for output, Tasking for configuration, SafetyAlert for critical thresholds, Network Link for transport) are clean and minimal, indicating strong cohesion and low coupling.",
+    "containment_risks": [
+      "Risk: If field-level sensor drivers (energy meter, load cell, odometer) are physically implemented in Vehicle module, a dependency bridge must be established from NGHE to Vehicle to retrieve raw sensor data. Mitigation: Ensure sensor abstraction layer is owned by NGHE or a shared utility, not Vehicle.",
+      "Risk: If Safety Services independently implements threshold evaluation logic (e.g., for emergency braking), duplication and inconsistency may arise. Mitigation: Safety Services must consume threshold results from NGHE via SafetyAlert interface; do not replicate ratio/threshold logic.",
+      "Risk: If Teleoperation requires real-time access to intermediate aggregation state (not just final ratios), additional inout interfaces may be needed, increasing coupling. Mitigation: Define Telemetry interface to include all necessary intermediate metrics; avoid ad-hoc data access patterns.",
+      "Risk: Network Link transport may introduce latency or ordering issues in hierarchical metric propagation. Mitigation: Establish explicit handoff contracts (as stated in DP3) with defined timing and sequencing guarantees."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP3 directly addresses the FR by establishing a hierarchical measurement architecture that enables calculation of energy_per_ton through normalized field-level metrics (energy, load, distance) aggregated at a supervisory layer with explicit ratio calculation and threshold evaluation. The DP is solution-agnostic and logically sound: it specifies the measurement strategy (hierarchical decomposition with handoff contracts) without prescribing implementation details. The acceptance criterion (energy_per_ton ≤ E_target) is directly derivable from the DP's ratio calculation and threshold evaluation components."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "DIFFUSION RISK (DP<->IM bridge): Field-level sensor drivers (energy meter, load cell, odometer) are physically mounted on Vehicle but logically owned by NGHE Solution. If sensor abstraction is not cleanly separated, NGHE will depend on Vehicle internals, creating tight coupling. Mitigation: Establish a sensor abstraction layer (e.g., SensorInterface) owned by NGHE or a shared utility module; Vehicle exposes only normalized sensor readings, not raw hardware drivers.",
+        "DIFFUSION RISK (DP<->IM bridge): Threshold evaluation logic (ratio calculation and comparison against E_target) must be centralized in NGHE supervisory layer. If Safety Services independently implements threshold checks for emergency braking or other safety actions, logic duplication and inconsistency will arise. Mitigation: Safety Services must consume SafetyAlert output from NGHE; do not replicate ratio/threshold computation in Safety Services.",
+        "DIFFUSION RISK (DP<->IM bridge): Network Link transport introduces a potential ordering and latency hazard in hierarchical metric propagation. If field-level modules report asynchronously without explicit sequencing guarantees, supervisory aggregation may compute ratios from stale or out-of-order data. Mitigation: Define explicit handoff contracts (as stated in DP3) with timestamping, sequence numbers, and synchronization semantics; document acceptable latency bounds.",
+        "DIFFUSION RISK (DP<->IM bridge): Teleoperation may require real-time access to intermediate aggregation state (e.g., instantaneous energy rate, current load) beyond final energy_per_ton ratios. If such access is ad-hoc rather than through the defined Telemetry interface, coupling will increase and DP coherence will degrade. Mitigation: Explicitly define which intermediate metrics are exposed via Telemetry; document Teleoperation's dependency on these metrics; avoid direct data access from Teleoperation to NGHE internal state."
+      ],
+      "containment_notes": "NGHE Solution achieves excellent containment (0.92 score) for DP3. The hierarchical measurement architecture is logically cohesive: field-level modules (energy meter, load cell, odometer) are natural sub-components; supervisory aggregation, ratio calculation, and threshold evaluation are core NGHE responsibilities. External interfaces are clean and minimal: Telemetry (output), Tasking (input config), SafetyAlert (output), Network Link (transport). The IM boundary aligns well with the DP's logical structure. However, the four diffusion risks above must be actively mitigated through explicit interface contracts and ownership clarity to prevent DP logic from leaking into Vehicle, Safety Services, or Teleoperation modules."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "HIGH. The acceptance criterion (energy_per_ton ≤ E_target over agreed evaluation period) is directly measurable from NGHE outputs. The Telemetry interface exposes aggregated ratios and threshold evaluation results; these can be logged, audited, and compared against customer-defined E_target. The hierarchical architecture enables traceability: raw sensor data (energy, load, distance) flows from field-level modules through supervisory aggregation to final ratio computation, allowing root-cause analysis if thresholds are violated. Worksite safety plan and operational policies are external constraints that do not directly affect measurement feasibility but must be respected in threshold configuration (Tasking interface).",
+      "allocation_clarity": "GOOD with caveats. The FR is clearly allocated to NGHE Solution as the primary owner of measurement and aggregation. However, allocation clarity depends on resolving the four diffusion risks: (1) Sensor abstraction ownership must be explicit (NGHE or shared utility, not Vehicle); (2) Threshold evaluation must be centralized in NGHE, not duplicated in Safety Services; (3) Network Link contracts must define sequencing and latency guarantees; (4) Telemetry interface must enumerate all metrics accessible to Teleoperation. Once these boundaries are formalized, allocation is unambiguous. Recommend documenting a 'Measurement Architecture Ownership Matrix' that assigns each sub-component (energy meter driver, load cell driver, odometer driver, supervisory aggregation, ratio calculation, threshold evaluation) to a specific module and interface."
+    },
+    "recommended_revisions": [
+      "REVISION 1 (Sensor Abstraction): Create an explicit 'SensorAbstraction' sub-module or interface owned by NGHE (or a shared utility). Vehicle shall expose only normalized sensor readings (energy_joules, load_kg, distance_m) through a well-defined contract; NGHE owns the drivers and calibration logic. This prevents Vehicle from becoming a dumping ground for sensor implementation details.",
+      "REVISION 2 (Threshold Evaluation Ownership): Document in the Safety Services module specification that threshold evaluation for energy efficiency is owned by NGHE. Safety Services consumes SafetyAlert signals from NGHE and translates them into safety actions (e.g., operator alerts, emergency procedures). Do not implement independent ratio calculation or threshold checks in Safety Services.",
+      "REVISION 3 (Network Link Handoff Contract): Formalize the handoff contract between field-level modules and supervisory aggregation layer. Specify: (a) data format and schema for each metric; (b) timestamp or sequence number for ordering; (c) maximum acceptable latency for metric propagation; (d) handling of missing or out-of-order data; (e) synchronization semantics (e.g., all three metrics must arrive within a time window for valid ratio computation). Document this contract in the NGHE module specification.",
+      "REVISION 4 (Telemetry Interface Enumeration): Explicitly list all metrics exposed via the Telemetry interface: (a) raw field-level metrics (energy_joules, load_kg, distance_m) with timestamps; (b) normalized metrics (energy_per_joule, load_per_kg, distance_per_m); (c) aggregated ratios (energy_per_ton); (d) threshold evaluation results (pass/fail, margin to E_target); (e) any intermediate state needed by Teleoperation (e.g., instantaneous power, current load). Document which metrics are real-time vs. periodic; define update frequencies and latency bounds.",
+      "REVISION 5 (Tasking Interface Specification): Formalize the Tasking interface to specify: (a) configuration parameters for aggregation logic (e.g., averaging window, outlier rejection thresholds); (b) threshold parameters (E_target value, evaluation period, margin for warnings); (c) sensor calibration data (energy meter offset, load cell gain, odometer scale factor); (d) network and timing parameters (metric propagation timeout, synchronization window). Document who is authorized to modify each parameter and what validation rules apply.",
+      "REVISION 6 (Measurement Architecture Ownership Matrix): Create a table mapping each sub-component of DP3 to its owning module and external dependencies: (1) Energy meter driver -> NGHE (depends on Vehicle hardware); (2) Load cell driver -> NGHE (depends on Vehicle hardware); (3) Odometer driver -> NGHE (depends on Vehicle hardware); (4) Supervisory aggregation -> NGHE (depends on Network Link); (5) Ratio calculation -> NGHE (internal); (6) Threshold evaluation -> NGHE (internal); (7) SafetyAlert generation -> NGHE (output to Safety Services); (8) Telemetry output -> NGHE (output to external consumers). This matrix clarifies ownership and prevents diffusion."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass with high confidence. The hierarchical measurement architecture is logically sound and well-contained within NGHE Solution. However, the DP-IM gate identifies four critical diffusion risks that require explicit sub-level decomposition to formalize interface contracts, ownership boundaries, and synchronization semantics. Given the high safety criticality of energy efficiency measurement (which feeds into safety alert generation), decomposing DP3 into sub-FRs for sensor abstraction, aggregation handoff, threshold evaluation, and telemetry exposure will harden the architecture against coupling and logic duplication. This is not a revision of the current level but a necessary deepening to operationalize the DP's hierarchical structure and mitigate diffusion hazards.",
+    "next_level_sub_frs": [
+      "FR3.1: Provide normalized sensor readings (energy, load, distance) from Vehicle to NGHE through a clean abstraction layer that decouples NGHE from Vehicle hardware internals.",
+      "FR3.2: Aggregate field-level metrics (energy_joules, load_kg, distance_m) from Vehicle sensors into supervisory state with explicit handoff contracts defining data format, sequencing, timestamping, and synchronization semantics.",
+      "FR3.3: Calculate energy_per_ton ratio from aggregated metrics and evaluate against E_target threshold, centralizing all threshold logic in NGHE to prevent duplication in Safety Services.",
+      "FR3.4: Expose aggregated metrics and threshold evaluation results (energy_per_ton, pass/fail status, margin to target) via Telemetry interface with defined update frequencies and latency bounds, enabling external monitoring and Teleoperation access without direct coupling."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "DP3 is logically correct but under-specified for implementation. The recommended revisions (Sensor Abstraction, Threshold Evaluation Ownership, Network Link Handoff Contract, Telemetry Interface Enumeration, Tasking Interface Specification, Measurement Architecture Ownership Matrix) should be incorporated into DP3 as explicit sub-design parameters or detailed in accompanying interface specifications. This will transform DP3 from a high-level architectural concept into an implementable design with clear ownership, interface contracts, and diffusion mitigation strategies. Recommend creating a 'DP3 Detailed Design Specification' document that formalizes these six revisions before proceeding to implementation module selection."
+    },
+    "record": {
+      "assumptions": [
+        "Vehicle hardware (energy meter, load cell, odometer) is available and can be abstracted through a normalized sensor interface.",
+        "Network Link provides reliable transport with acceptable latency for hierarchical metric propagation (latency bounds to be defined in FR3.2 decomposition).",
+        "Safety Services will consume SafetyAlert signals from NGHE and will not independently implement threshold evaluation logic.",
+        "Teleoperation requirements for intermediate metrics (e.g., instantaneous power, current load) are known and can be enumerated in FR3.4 decomposition.",
+        "E_target threshold is externally defined (via Tasking interface) and may vary by worksite or operational context.",
+        "Measurement evaluation period and aggregation window are configurable and will be specified in FR3.2 and FR3.4 decompositions."
+      ],
+      "open_risks": [
+        "SENSOR ABSTRACTION OWNERSHIP: If Vehicle module retains control of sensor drivers and NGHE accesses them directly, tight coupling will result. Mitigation: Formalize SensorAbstraction ownership in FR3.1 decomposition; establish clear handoff contract.",
+        "THRESHOLD LOGIC DUPLICATION: Safety Services may independently implement ratio calculation or threshold checks for emergency braking, creating inconsistency. Mitigation: Document in Safety Services module spec that threshold evaluation is owned by NGHE; Safety Services consumes SafetyAlert output only.",
+        "NETWORK LATENCY AND ORDERING: Asynchronous metric propagation without explicit sequencing guarantees may cause supervisory aggregation to compute ratios from stale or out-of-order data, leading to incorrect energy_per_ton values. Mitigation: Define handoff contract in FR3.2 with timestamping, sequence numbers, and synchronization semantics; specify maximum acceptable latency.",
+        "TELEMETRY COUPLING: Ad-hoc access by Teleoperation to NGHE internal state (e.g., intermediate aggregation buffers) will degrade DP coherence and increase maintenance burden. Mitigation: Explicitly enumerate all metrics exposed via Telemetry in FR3.4; document Teleoperation's dependencies; enforce access through defined interface only.",
+        "SAFETY-CRITICAL MEASUREMENT: Energy efficiency measurement feeds into safety alert generation. If measurement logic is incorrect or inconsistent, safety actions may be triggered inappropriately or fail to trigger when needed. Mitigation: Implement rigorous verification and validation of measurement architecture (FR3.1-FR3.4); define acceptance criteria for each sub-FR; conduct traceability analysis from raw sensor data to final SafetyAlert output."
+      ],
+      "evidence_needed": [
+        "Sensor abstraction interface specification (data types, units, calibration parameters, error handling) for FR3.1 verification.",
+        "Network Link handoff contract (data schema, timestamp/sequence format, latency bounds, synchronization semantics, missing data handling) for FR3.2 verification.",
+        "Threshold evaluation algorithm specification (ratio calculation formula, E_target comparison logic, margin computation, alert generation rules) for FR3.3 verification.",
+        "Telemetry interface specification (metric enumeration, update frequencies, latency bounds, access control) for FR3.4 verification.",
+        "Measurement Architecture Ownership Matrix (component-to-module mapping, external dependencies, interface contracts) for overall DP3 verification.",
+        "Safety Services module specification confirming that threshold evaluation is owned by NGHE and Safety Services consumes SafetyAlert signals only.",
+        "Traceability matrix linking raw sensor data through aggregation, ratio calculation, and threshold evaluation to final SafetyAlert output, enabling root-cause analysis.",
+        "Acceptance test plan for energy_per_ton measurement accuracy, latency, and consistency under nominal and fault conditions (e.g., sensor failures, network delays, out-of-order metrics)."
+      ]
+    }
+  }
+}

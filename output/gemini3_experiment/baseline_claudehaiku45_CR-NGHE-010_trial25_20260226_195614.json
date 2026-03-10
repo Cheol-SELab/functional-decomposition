@@ -1,0 +1,165 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation link availability ≥ 0.999 (99.9%) over the agreed evaluation period, measured as the ratio of time the bidirectional command-and-telemetry link is operational to total evaluation time.",
+    "rationale": "CR-NGHE-010 addresses a critical operational requirement: remote operators must reliably command and receive feedback from equipment. The 0.999 threshold (approximately 43 minutes downtime per month) is a standard for safety-critical teleoperation. Refinement clarifies measurement scope (bidirectional link), evaluation period (customer-defined), and the quantitative target.",
+    "verification_idea": "Continuous monitoring of link state transitions (up/down) during the evaluation period; automated logging of outage duration and root cause; statistical analysis of availability = (total_time - total_downtime) / total_time.",
+    "sub_frs": [
+      "FR-NGHE-010.1: The teleoperation system shall establish and maintain a bidirectional command link from tele-operator to vehicle.",
+      "FR-NGHE-010.2: The teleoperation system shall establish and maintain a bidirectional telemetry link from vehicle to tele-operator.",
+      "FR-NGHE-010.3: The teleoperation system shall detect link failures and initiate failover or safe shutdown within defined time bounds.",
+      "FR-NGHE-010.4: The teleoperation system shall log and report link availability metrics to support measurement against the 0.999 target."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Redundant network paths (primary + backup) with automatic failover; dual-modem architecture; geographic diversity of network providers.",
+      "DP-B: Single high-reliability network link with enhanced error correction and retransmission; no redundancy; focus on link robustness.",
+      "DP-C: Hybrid approach: primary link with secondary backup; local edge caching to mask transient outages; graceful degradation of command/telemetry fidelity during link stress.",
+      "DP-D: Software-defined networking (SDN) with dynamic path selection; multi-carrier aggregation; real-time link quality monitoring and rerouting."
+    ],
+    "selected_dp": "DP-C: Hybrid redundancy with edge caching and graceful degradation. Primary network link (primary carrier/modem) with secondary backup link (alternate carrier/modem); local edge cache on vehicle to buffer telemetry and queue commands during transient outages (< 5 seconds); automatic failover to backup link on primary link loss; graceful reduction of telemetry update frequency and command responsiveness if both links are degraded but not fully severed.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "DP-C couples to vehicle power budget (dual modems increase power draw); mitigation: power management and load shedding policies.",
+        "DP-C couples to tele-operator UI (must display link state and degradation mode); mitigation: standardized SafetyAlert interface.",
+        "DP-C couples to Safety Services (failover and graceful degradation must respect safety interlocks); mitigation: safety-critical state machine in Teleoperation module."
+      ],
+      "notes": "DP-C is decoupled from specific network provider choice (primary/backup can be any carrier), allowing flexibility. Coupling to vehicle architecture and safety logic is manageable via well-defined interfaces (Tasking, Telemetry, SafetyAlert)."
+    },
+    "assumptions_risks": [
+      "Assumption: Secondary network link (backup carrier) is available and contractually guaranteed at the worksite.",
+      "Assumption: Vehicle has sufficient power budget for dual modems and edge compute (caching logic).",
+      "Assumption: Tele-operator and Safety Manager accept graceful degradation (reduced telemetry frequency) as acceptable during link stress.",
+      "Risk: Edge cache coherency—if primary link recovers while cache is being flushed, command ordering could be violated; mitigation: timestamp-based ordering and idempotency checks.",
+      "Risk: Backup link activation latency could exceed safety-critical response time; mitigation: pre-establish backup link in standby mode (low-power monitoring).",
+      "Risk: Graceful degradation thresholds (when to reduce telemetry frequency) must be tuned per worksite; one-size-fits-all may not meet all customer targets."
+    ],
+    "recommended_revision": "Refine DP-C to explicitly define: (1) failover detection time (e.g., 2 seconds), (2) edge cache capacity and eviction policy, (3) telemetry degradation levels (e.g., 10 Hz → 5 Hz → 1 Hz), (4) backup link pre-establishment protocol, and (5) safety-critical command priority queue (high-priority safety commands bypass cache and use best-effort transmission)."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "The Teleoperation module owns the end-to-end teleoperation link availability logic: dual-modem management, primary/backup link switching, edge caching, graceful degradation state machine, link quality monitoring, and failover orchestration. Includes firmware/software for modem control, link state machine, cache management, and telemetry/command prioritization. Does NOT own the physical modems themselves (owned by Vehicle) or the network carrier contracts (owned by Site Manager/customer)."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Tele-operator sends commands (movement, tool control, mode changes) via Tasking interface; Teleoperation module queues and prioritizes commands, applies failover logic, and forwards to Vehicle."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Teleoperation module receives raw telemetry from Vehicle (sensor data, state, diagnostics) and forwards to tele-operator; during link stress, module applies graceful degradation (reduced frequency, lossy compression) before transmission."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "Teleoperation module sends link-state alerts (link down, failover triggered, degradation mode active) to Safety Services; receives safety interlocks (e.g., 'halt all commands if link unavailable for > 10 seconds') from Safety Services."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Teleoperation module manages two physical network links (primary and backup modems on Vehicle); monitors link quality, triggers failover, and reports link availability metrics."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.95,
+        "diffusion_score": 0.05,
+        "notes": "Teleoperation is the natural owner of link availability logic, failover state machine, and edge caching. High containment: all link management, redundancy switching, and graceful degradation logic resides here. Minimal diffusion: only external interface definitions (Tasking, Telemetry, SafetyAlert, Network Link) cross boundaries."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.6,
+        "diffusion_score": 0.4,
+        "notes": "Vehicle owns the physical modems and network hardware. If link availability logic were placed in Vehicle, it would couple vehicle firmware to teleoperation policy, reducing modularity. Vehicle should expose Network Link interface; Teleoperation consumes it. Partial containment acceptable for modem hardware control, but logic ownership belongs to Teleoperation."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Safety Services owns safety interlocks and hazard mitigation. Link availability is a safety input (loss of link is a hazard), but the mechanism to achieve 0.999 availability (redundancy, failover, caching) is not a safety function per se—it is a reliability/availability function. High diffusion if link logic is split between Teleoperation and Safety Services."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "NGHE Solution is the top-level system integrator. Link availability is a system-level requirement, but the implementation (dual modems, failover, caching) must be localized to Teleoperation module to avoid diffusion across Vehicle, Safety Services, and Teleoperation."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the optimal owner because: (1) it is the logical locus of command/telemetry flow, (2) failover and caching logic are intrinsic to teleoperation protocol, (3) it minimizes coupling to Vehicle hardware details and Safety Services policy, and (4) it allows Vehicle and Safety Services to remain independent and reusable.",
+    "containment_risks": [
+      "Risk: Teleoperation module may become complex if edge caching and graceful degradation logic are not well-abstracted; mitigation: use state machine pattern and clear separation of concerns (link management, cache management, degradation policy).",
+      "Risk: Vehicle module must expose Network Link interface with sufficient fidelity (link state, quality metrics, modem control) for Teleoperation to implement failover; if Vehicle interface is incomplete, Teleoperation cannot achieve 0.999 target; mitigation: define Network Link interface contract early and validate with Vehicle team.",
+      "Risk: Safety Services must respect Teleoperation's graceful degradation decisions (e.g., reduced telemetry frequency); if Safety Services enforces hard real-time requirements incompatible with degradation, conflict arises; mitigation: negotiate safety-critical command priority queue and define acceptable degradation modes in safety plan."
+    ],
+    "recommended_revision": "Explicitly define the Network Link interface contract: (1) modem state (up/down/degraded), (2) link quality metrics (signal strength, latency, packet loss), (3) failover trigger mechanism (automatic vs. manual), (4) backup link pre-establishment protocol, and (5) telemetry/command queue depth limits. Validate this contract with Vehicle and Safety Services teams before detailed design."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid redundancy with edge caching and graceful degradation) directly addresses FR-NGHE-010 (achieve 0.999 link availability). The DP provides two independent mechanisms: (1) redundant network paths (primary + backup) to handle single-link failures, and (2) edge caching + graceful degradation to mask transient outages and link stress. Together, these mechanisms are sufficient to achieve the 0.999 target under typical worksite conditions (assuming backup link availability and acceptable graceful degradation modes). No decoupling or independence violations detected."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Diffusion Risk 1: If failover logic is split between Teleoperation and Vehicle modules (e.g., Vehicle detects link loss, Teleoperation decides failover), coordination overhead and latency increase; mitigation: Teleoperation owns failover decision logic, Vehicle exposes link state via Network Link interface.",
+        "Diffusion Risk 2: If edge caching is implemented in both Teleoperation and Vehicle (e.g., Vehicle buffers commands, Teleoperation buffers telemetry), cache coherency becomes complex; mitigation: Teleoperation owns all caching logic; Vehicle is a passive provider of link state.",
+        "Diffusion Risk 3: If graceful degradation thresholds are hardcoded in Teleoperation, they cannot be tuned per worksite; mitigation: parameterize degradation thresholds and expose via configuration interface."
+      ],
+      "containment_notes": "Teleoperation module achieves high containment (0.95) of link availability logic. External dependencies are well-defined: Network Link (from Vehicle), Tasking (from tele-operator), Telemetry (to tele-operator), SafetyAlert (to/from Safety Services). No hidden dependencies or implicit assumptions detected. Ownership boundary is clear and defensible."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification of FR-NGHE-010 is feasible via Teleoperation module instrumentation: (1) continuous logging of link state transitions (up/down/degraded) with timestamps, (2) automated calculation of availability = (total_time - total_downtime) / total_time, (3) root cause analysis of outages (primary link failure, backup link failure, transient loss, etc.), (4) comparison against 0.999 target. Teleoperation module can expose availability metrics via Telemetry interface or dedicated monitoring interface.",
+      "allocation_clarity": "Allocation is clear: Teleoperation module is responsible for achieving 0.999 availability through DP-C mechanisms. Vehicle module is responsible for providing reliable Network Link interface (dual modems, link state reporting). Safety Services is responsible for enforcing safety interlocks during link failures. Site Manager is responsible for ensuring backup network link availability at worksite. No ambiguity in responsibility allocation."
+    },
+    "recommended_revisions": [
+      "Refine DP-C to specify failover detection time, edge cache capacity, graceful degradation levels, and backup link pre-establishment protocol (see selected_dp.recommended_revision).",
+      "Define Network Link interface contract between Teleoperation and Vehicle (see assigned_im.recommended_revision).",
+      "Establish acceptance criteria for graceful degradation: what telemetry frequency and command latency are acceptable during link stress? Coordinate with Safety Manager and tele-operator.",
+      "Plan verification strategy: define evaluation period duration, worksite conditions (network coverage, interference), and success criteria (0.999 availability achieved, no safety incidents during link failures)."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-NGHE-010 is not atomic; it decomposes into four sub-FRs (command link, telemetry link, failure detection/failover, and metrics logging). DP-C is sound and well-justified, but requires detailed design of failover state machine, edge cache management, and graceful degradation policy. Teleoperation module is the correct owner, but its interfaces (especially Network Link) must be refined with Vehicle team. Proceeding to next decomposition level is necessary to allocate sub-FRs to design elements and validate feasibility.",
+    "next_level_sub_frs": [
+      "FR-NGHE-010.1: The teleoperation system shall establish and maintain a bidirectional command link from tele-operator to vehicle with latency ≤ 500 ms under nominal conditions.",
+      "FR-NGHE-010.2: The teleoperation system shall establish and maintain a bidirectional telemetry link from vehicle to tele-operator with update frequency ≥ 10 Hz under nominal conditions.",
+      "FR-NGHE-010.3: The teleoperation system shall detect primary link failure and initiate failover to backup link within 2 seconds; if backup link is unavailable, initiate safe shutdown sequence.",
+      "FR-NGHE-010.4: The teleoperation system shall log link state transitions, outage duration, and root cause; compute and report availability metrics (uptime %, downtime minutes, MTBF, MTTR) to support measurement against 0.999 target."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Assumption 1: Secondary network link (backup carrier) is available and contractually guaranteed at the worksite with ≥ 99% availability.",
+        "Assumption 2: Vehicle has sufficient power budget (< 50 W) for dual modems and edge compute (caching, failover logic).",
+        "Assumption 3: Tele-operator and Safety Manager accept graceful degradation (reduced telemetry frequency to 1 Hz, increased command latency to 2 seconds) as acceptable during link stress lasting < 30 seconds.",
+        "Assumption 4: Network Link interface can be implemented by Vehicle team with link state reporting latency < 100 ms.",
+        "Assumption 5: Evaluation period is ≥ 30 days to achieve statistical confidence in 0.999 availability measurement.",
+        "Assumption 6: Worksite network conditions are typical (no extreme interference, coverage ≥ 95% in operational area)."
+      ],
+      "open_risks": [
+        "Risk 1: Backup link activation latency could exceed 2-second failover target if backup modem requires warm-up or re-authentication; mitigation: pre-establish backup link in low-power standby mode.",
+        "Risk 2: Edge cache coherency during failover could cause command duplication or loss if primary link recovers while cache is being flushed; mitigation: implement idempotency checks and timestamp-based ordering.",
+        "Risk 3: Graceful degradation thresholds (when to reduce telemetry frequency) are not yet defined; one-size-fits-all may not meet all customer targets; mitigation: parameterize thresholds and conduct worksite-specific tuning.",
+        "Risk 4: Safety Services may reject graceful degradation if it violates safety-critical response time requirements; mitigation: negotiate safety-critical command priority queue and define acceptable degradation modes in safety plan.",
+        "Risk 5: Dual-modem power draw could exceed vehicle power budget if not carefully managed; mitigation: implement power management policies (e.g., disable backup modem during high-load operations, enable only when primary link quality degrades)."
+      ],
+      "evidence_needed": [
+        "Evidence 1: Network Link interface specification (link state, quality metrics, modem control) agreed with Vehicle team.",
+        "Evidence 2: Power budget analysis confirming dual modems + edge compute fit within vehicle power envelope.",
+        "Evidence 3: Safety plan defining acceptable graceful degradation modes and safety-critical command priority queue.",
+        "Evidence 4: Failover state machine design and simulation results showing 2-second failover detection time achievable.",
+        "Evidence 5: Edge cache design (capacity, eviction policy, coherency protocol) validated against command/telemetry throughput.",
+        "Evidence 6: Worksite evaluation plan (duration, network conditions, success criteria) agreed with customer and Safety Manager."
+      ]
+    }
+  }
+}

@@ -1,0 +1,167 @@
+{
+  "refined_fr": {
+    "refined_fr": "Capture and represent worksite spatial features in a machine-readable model.",
+    "rationale": "The original FR conflates three distinct functional obligations: (1) terrain analysis, (2) obstacle identification, and (3) work-zone representation. Each is a separate concern with different data sources, processing logic, and stakeholder needs. The refined FR is solution-neutral (avoids 'mapping/modeling' terminology which implies implementation choice) and focuses on the core problem: making spatial features available in a structured, queryable form. Atomicity is achieved by deferring the specific feature types to sub-FRs.",
+    "verification_idea": "Verify that a worksite model exists in a defined schema/format, contains spatial coordinates and feature classifications, and can be queried by planning and execution functions to retrieve feature data within specified accuracy and latency bounds.",
+    "sub_frs": [
+      "FR-NGHE-006.1: Acquire terrain elevation and surface properties across the worksite.",
+      "FR-NGHE-006.2: Identify and locate static obstacles (structures, vegetation, utilities) within the worksite boundary.",
+      "FR-NGHE-006.3: Define and represent work-zone boundaries and restricted areas.",
+      "FR-NGHE-006.4: Maintain worksite model currency and consistency across planning and execution functions."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Acquire spatial feature data through multi-modal sensing (vision, range, inertial) and fuse into a unified coordinate frame; store as a structured spatial graph with feature attributes (geometry, classification, safety constraints); expose via query interface for downstream planning/execution consumers.",
+      "DP2: Decompose worksite into discrete zones; assign zone-level feature inventories (obstacles, hazards, access points) via manual annotation or semi-automated detection; maintain zone-feature mappings in a relational schema; provide zone-based query and update APIs.",
+      "DP3: Capture worksite features as a voxel-grid occupancy model with semantic labels; support incremental updates and spatial queries; export standardized representations (point clouds, meshes, occupancy maps) on demand for planning/execution modules.",
+      "DP4: Integrate real-time feature acquisition with a declarative constraint store (safety rules, operational policies); maintain a live model that enforces policy compliance during feature registration; expose both raw features and policy-validated subsets to consumers.",
+      "DP5: Establish a feature acquisition pipeline with explicit separation: raw sensor data → feature extraction → model assembly → versioned artifact storage; each stage produces immutable snapshots; consumers query specific model versions tied to planning/execution epochs."
+    ],
+    "selected_dp": "DP5: Establish a feature acquisition pipeline with explicit separation: raw sensor data → feature extraction → model assembly → versioned artifact storage; each stage produces immutable snapshots; consumers query specific model versions tied to planning/execution epochs.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "DP5 introduces temporal coupling if planning/execution modules assume real-time model updates; mitigation: define explicit versioning contract and snapshot publication intervals.",
+        "Feature extraction stage (DP5) may couple to specific sensor modalities if extraction logic is sensor-specific; mitigation: abstract extraction as pluggable transformers with common input/output schemas.",
+        "Model assembly stage assumes a canonical spatial reference frame; coupling risk if worksite coordinate system changes; mitigation: store frame metadata with each snapshot and provide transformation utilities.",
+        "Versioning and storage introduce dependency on artifact persistence layer; mitigation: define storage interface abstractly (not tied to specific database or file system)."
+      ],
+      "notes": "DP5 decouples acquisition timing from consumption timing via versioning, reducing real-time coupling. Explicit pipeline stages allow independent evolution of sensing, extraction, and assembly logic. Immutable snapshots support reproducibility and enable planning/execution to operate on consistent model states."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Worksite features are stable enough between snapshot intervals to support planning/execution; RISK: Rapid environmental changes (moving equipment, debris) may invalidate model before execution; MITIGATION: Define snapshot cadence based on operational dynamics; support incremental updates for high-priority features.",
+      "ASSUMPTION: A canonical spatial reference frame exists and is maintained throughout acquisition; RISK: Frame drift or miscalibration propagates through all downstream features; MITIGATION: Implement frame validation and drift detection; version frame metadata with model snapshots.",
+      "ASSUMPTION: Feature extraction produces consistent, machine-readable representations; RISK: Extraction errors (missed obstacles, misclassified hazards) degrade planning/execution safety; MITIGATION: Define extraction quality metrics; implement confidence scores; require human validation for safety-critical features.",
+      "ASSUMPTION: Planning/execution modules can consume versioned model snapshots; RISK: If consumers expect real-time updates, versioning introduces latency; MITIGATION: Define acceptable model age thresholds; support both snapshot and incremental update modes.",
+      "ASSUMPTION: Worksite safety plan and operational policies are stable inputs to feature acquisition; RISK: Policy changes mid-execution may invalidate previously captured features; MITIGATION: Tag features with policy version; support policy-aware model queries.",
+      "ASSUMPTION: Storage and versioning infrastructure is available and reliable; RISK: Artifact loss or corruption breaks reproducibility; MITIGATION: Implement redundancy and integrity checks; define retention policies aligned with operational requirements."
+    ],
+    "recommended_revision": "Refine DP5 to explicitly address policy integration: 'Establish a feature acquisition pipeline with explicit separation: raw sensor data → feature extraction → model assembly → policy-aware validation → versioned artifact storage. Each stage produces immutable snapshots tagged with acquisition timestamp, spatial reference frame version, and applicable safety/operational policy version. Consumers query specific model versions tied to planning/execution epochs; support incremental feature updates for high-priority changes within a snapshot epoch. Expose both raw features and policy-validated subsets via separate query interfaces to support different consumer risk profiles.' This revision strengthens the FR<->DP mapping by making policy compliance and traceability explicit, reducing ambiguity about which features are safety-critical and when they were validated."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "Centralized feature acquisition pipeline encompassing raw sensor data ingestion, feature extraction logic, model assembly orchestration, versioned artifact storage, and version-aware query interface for planning/execution consumers."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Raw sensor data streams from Vehicle; NGHE Solution consumes telemetry to populate the feature acquisition pipeline's input stage."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "NGHE Solution exposes versioned model artifacts and feature snapshots to planning/execution layers; Tasking interface carries model version identifiers and epoch-tied feature sets."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "NGHE Solution may distribute feature extraction or model assembly across compute nodes; Network Link supports inter-node communication for pipeline stages and artifact replication."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit. NGHE Solution is the natural home for ML/AI feature engineering, model versioning, and artifact management. Raw data ingestion (Telemetry in) and versioned model delivery (Tasking out) align with its domain. Minor diffusion: Vehicle must supply raw telemetry; Teleoperation/Safety may query specific model versions, but queries are mediated through Tasking interface."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.15,
+        "diffusion_score": 0.85,
+        "notes": "Poor fit. Vehicle is a data source, not a processing/storage hub. Feature extraction, model assembly, and versioned artifact storage are not Vehicle responsibilities. Placing DP5 here would scatter pipeline logic across vehicle firmware and create tight coupling to vehicle hardware. Heavy diffusion: feature extraction logic would leak into teleoperation and safety services."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Poor fit. Teleoperation is a consumer of models and features, not a producer/curator. Placing the pipeline here conflates control logic with feature engineering. Diffusion: model versioning and artifact storage would need to be replicated or shared with Safety Services; raw telemetry handling would require bidirectional coupling to Vehicle."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.18,
+        "diffusion_score": 0.82,
+        "notes": "Poor fit. Safety Services is a consumer of safety-critical features and models, not the authoritative source. Placing DP5 here would make Safety Services responsible for all feature engineering and versioning, creating inappropriate coupling. Diffusion: Teleoperation and planning layers would need independent access to models, forcing duplication or complex inter-service queries."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "NGHE Solution is the single authoritative owner of the feature acquisition pipeline. It encapsulates all four stages (raw data ingestion, feature extraction, model assembly, versioned storage) and exposes immutable snapshots via versioned queries. Vehicle supplies raw telemetry; Teleoperation and Safety Services query specific model versions through the Tasking interface, binding queries to planning/execution epochs. This design minimizes diffusion by centralizing pipeline logic and artifact governance.",
+    "containment_risks": [
+      "Risk: If feature extraction or model assembly requires real-time, low-latency processing tightly coupled to vehicle control loops, latency introduced by NGHE Solution's centralized pipeline may violate safety or performance constraints. Mitigation: Validate end-to-end latency; if unacceptable, consider edge feature extraction on Vehicle with NGHE Solution handling only model assembly and versioning.",
+      "Risk: If multiple independent planning/execution epochs require simultaneous access to different model versions, version query load on NGHE Solution could become a bottleneck. Mitigation: Design Tasking interface to support efficient version lookup and caching; consider read-only replicas of versioned artifacts.",
+      "Risk: If Safety Services requires deterministic, offline-validated feature sets independent of NGHE Solution's pipeline, tight coupling to NGHE Solution's versioning scheme may complicate safety certification. Mitigation: Define a safety-critical feature subset with explicit version pinning and immutability guarantees in the DP."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP5 directly addresses FR by establishing a machine-readable feature acquisition pipeline with explicit stages (raw data → extraction → assembly → versioned storage). The pipeline produces immutable snapshots tied to planning/execution epochs, satisfying the requirement to capture and represent worksite spatial features in a queryable, version-aware model. The separation of concerns and immutability guarantee are sound design choices for reproducibility and traceability."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Minor diffusion: Vehicle must supply raw telemetry but is not responsible for pipeline orchestration; this is a data source role, not a processing role. Boundary is clear.",
+        "Minor diffusion: Teleoperation and Safety Services query versioned models through Tasking interface, but do not own versioning logic. Queries are mediated, not scattered. Containment score 0.92 confirms tight coupling to NGHE Solution.",
+        "Latency risk: If feature extraction or model assembly requires real-time, low-latency coupling to vehicle control loops, centralized NGHE Solution pipeline may introduce unacceptable delays. Mitigation required if safety/performance constraints are violated.",
+        "Bottleneck risk: Simultaneous access to multiple model versions by independent planning/execution epochs could overload Tasking interface query performance. Caching and read-only replicas recommended.",
+        "Safety certification risk: If Safety Services requires offline-validated, deterministically pinned feature sets independent of NGHE Solution's versioning, tight coupling may complicate safety certification. Explicit version pinning and immutability guarantees needed for safety-critical subsets."
+      ],
+      "containment_notes": "NGHE Solution is the clear, single authoritative owner of the feature acquisition pipeline (containment_score 0.92, diffusion_score 0.08). All four pipeline stages (ingestion, extraction, assembly, versioning) are logically and architecturally contained within NGHE Solution. Vehicle, Teleoperation, and Safety Services are appropriately positioned as data sources or consumers, not pipeline owners. The IM boundary is well-defined: Telemetry in (raw data), Tasking out (versioned models), Network Link for inter-node distribution. No scattered responsibilities detected at the IM level."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. Acceptance criteria require that 'a worksite model/map is generated and available to planning/execution functions for an agreed set of site features.' NGHE Solution's versioned artifact storage and Tasking interface directly satisfy this: versioned models can be queried by planning/execution layers, and immutable snapshots ensure reproducibility. Verification can be performed by: (1) confirming model generation from raw telemetry, (2) validating version query responses, (3) confirming epoch-tied feature sets are available to consumers, (4) auditing immutability of stored artifacts.",
+      "allocation_clarity": "Clear. NGHE Solution owns the entire pipeline; Vehicle supplies telemetry; Teleoperation and Safety Services consume versioned models via Tasking. Ownership boundaries are unambiguous. However, allocation clarity depends on resolving three open questions: (1) Does NGHE Solution handle real-time feature extraction, or is edge extraction on Vehicle required? (2) What is the latency budget for model availability relative to planning/execution epochs? (3) Are safety-critical features subject to offline validation and version pinning independent of NGHE Solution's versioning scheme? These must be clarified in the worksite safety plan and operational policies constraint."
+    },
+    "recommended_revisions": [
+      "Clarify latency requirements: Define end-to-end latency budget from raw telemetry ingestion to versioned model availability. If <100ms required, validate NGHE Solution's centralized pipeline meets this; if not, specify edge feature extraction on Vehicle with NGHE Solution handling model assembly and versioning only.",
+      "Define safety-critical feature subset: Identify which features are safety-critical and require offline validation and deterministic version pinning. Specify immutability guarantees and version lock mechanisms in DP5 to support safety certification.",
+      "Specify version query performance SLA: Define acceptable query latency and throughput for Tasking interface (e.g., <50ms for version lookup, support N concurrent queries). If bottleneck risk is high, design read-only replicas or caching strategy.",
+      "Formalize epoch-to-version binding: Specify how planning/execution epochs are mapped to model versions (e.g., epoch timestamp → nearest model version, or explicit version pinning per epoch). This binding must be documented in the Tasking interface contract.",
+      "Add network resilience for distributed pipeline: If Network Link supports inter-node distribution of feature extraction or model assembly, specify failure modes, replication strategy, and consistency guarantees (e.g., eventual consistency for replicated artifacts)."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass with high confidence. The feature acquisition pipeline is logically sound, architecturally contained, and verifiable. However, the gate results expose five critical open questions that must be resolved through next-level decomposition before implementation can proceed safely. The high safety criticality of the system and the identified latency, bottleneck, and safety-certification risks require explicit sub-FR derivation to address: (1) real-time vs. batch feature extraction trade-offs, (2) latency budgets and epoch-to-version binding semantics, (3) safety-critical feature validation and version pinning, (4) query performance SLAs, and (5) network resilience for distributed pipeline stages. These are not revisions to the current level; they are legitimate sub-problems that emerge from the DP5 design and must be decomposed to ensure feasibility and safety compliance.",
+    "next_level_sub_frs": [
+      "FR5.1: Establish latency budget and real-time vs. batch feature extraction strategy. Determine whether feature extraction must occur on Vehicle (edge) with sub-100ms latency, or whether centralized NGHE Solution extraction is acceptable for planning/execution epochs. Define end-to-end latency from raw telemetry ingestion to versioned model availability.",
+      "FR5.2: Define safety-critical feature subset and offline validation protocol. Identify which worksite features are safety-critical (e.g., obstacle boundaries, hazard zones) and require deterministic, offline-validated version pinning independent of NGHE Solution's real-time versioning. Specify immutability guarantees and version lock mechanisms.",
+      "FR5.3: Formalize epoch-to-version binding and query semantics. Specify how planning/execution epochs are mapped to model versions (e.g., timestamp-based nearest-version lookup, explicit version pinning per epoch, or version-locked snapshots). Define Tasking interface query contract and version resolution rules.",
+      "FR5.4: Specify version query performance SLA and caching strategy. Define acceptable query latency (<50ms target), throughput (N concurrent queries), and consistency guarantees. If bottleneck risk is high, design read-only replicas, caching layers, or query optimization to prevent simultaneous access overload.",
+      "FR5.5: Design network resilience and distributed pipeline consistency. If Network Link supports inter-node distribution of feature extraction or model assembly stages, specify failure modes, replication strategy, consistency guarantees (eventual vs. strong), and recovery protocols for distributed artifact storage."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "NGHE Solution is the single authoritative owner of the feature acquisition pipeline (containment_score 0.92 confirmed).",
+        "Vehicle supplies raw telemetry as a data source; Teleoperation and Safety Services consume versioned models as data consumers.",
+        "Immutability and versioning are achievable within NGHE Solution's design scope.",
+        "Tasking interface is the primary query mechanism for versioned models.",
+        "Planning/execution epochs can be bound to model versions through explicit mapping or timestamp-based lookup.",
+        "Safety-critical features can be identified and separated from general worksite features for offline validation."
+      ],
+      "open_risks": [
+        "Latency risk: Centralized NGHE Solution pipeline may introduce unacceptable delays if real-time feature extraction (<100ms) is required for vehicle control loops or safety-critical planning. Mitigation: Clarify latency budget and consider edge extraction on Vehicle if needed.",
+        "Bottleneck risk: Simultaneous access to multiple model versions by independent planning/execution epochs could overload Tasking interface query performance. Mitigation: Design caching, read-only replicas, or query optimization.",
+        "Safety certification risk: If Safety Services requires offline-validated, deterministically pinned feature sets independent of NGHE Solution's versioning, tight coupling may complicate safety certification. Mitigation: Specify version pinning and immutability guarantees for safety-critical subsets.",
+        "Epoch-to-version binding ambiguity: Unclear how planning/execution epochs map to model versions. If binding is loose or non-deterministic, reproducibility and traceability may be compromised. Mitigation: Formalize binding semantics in Tasking interface contract.",
+        "Network resilience gap: If feature extraction or model assembly is distributed across Network Link, consistency and failure recovery are undefined. Mitigation: Specify replication strategy and consistency guarantees for distributed pipeline stages."
+      ],
+      "evidence_needed": [
+        "Latency measurements: End-to-end latency from raw telemetry ingestion to versioned model availability under nominal and peak load conditions.",
+        "Safety-critical feature inventory: Explicit list of features requiring offline validation and version pinning, with justification for each.",
+        "Epoch-to-version binding specification: Formal definition of how planning/execution epochs are mapped to model versions (e.g., timestamp-based, explicit pinning, snapshot locking).",
+        "Query performance baseline: Tasking interface query latency and throughput under concurrent access (e.g., 10, 50, 100 simultaneous queries).",
+        "Network resilience design: Failure mode analysis and recovery protocols for distributed pipeline stages (if applicable).",
+        "Worksite safety plan: Operational policies and constraints that define latency budgets, safety-critical feature subsets, and version management rules.",
+        "Acceptance test plan: Verification procedures for model generation, version query responses, epoch-tied feature availability, and immutability guarantees."
+      ]
+    }
+  }
+}

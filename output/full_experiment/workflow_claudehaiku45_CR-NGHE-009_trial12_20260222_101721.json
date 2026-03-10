@@ -1,0 +1,174 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation communication integrity within customer-defined packet loss limits during agreed network conditions.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting teleoperation as a capability, and (2) meeting packet loss quality criteria. The refined FR isolates the quality/performance obligation (communication integrity) as the core functional requirement, removing the implicit 'support teleoperation' clause which is a higher-level system capability. The phrase 'communication quality meeting the customer-defined packet loss limit' is replaced with 'maintain teleoperation communication integrity within customer-defined packet loss limits' to emphasize the functional outcome (integrity preservation) rather than a design parameter (packet loss metric). This keeps the FR in the problem domain while remaining solution-neutral regarding network architecture, protocols, or redundancy mechanisms.",
+    "verification_idea": "Conduct teleoperation trials under agreed network conditions (latency, bandwidth, interference profiles) and measure end-to-end packet loss across representative operational scenarios. Verify that measured packet loss does not exceed the customer-defined threshold (e.g., ≤1%). Log packet loss statistics and correlate with operator control responsiveness and safety-critical command delivery.",
+    "sub_frs": [
+      "FR-NGHE-009.1: The NGHE solution shall enable bidirectional command and telemetry transmission between tele-operator and remote equipment during teleoperation sessions.",
+      "FR-NGHE-009.2: The NGHE solution shall detect and report communication link degradation (packet loss, latency anomalies) to the tele-operator and safety manager in real-time.",
+      "FR-NGHE-009.3: The NGHE solution shall preserve safety-critical command delivery fidelity during teleoperation under agreed network conditions."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Implement adaptive packet redundancy and selective retransmission based on real-time network quality metrics (loss rate, latency variance) to maintain command/feedback integrity within customer-defined thresholds.",
+      "DP2: Establish a dual-channel communication architecture with independent network paths and automatic failover logic to ensure continuous teleoperation control availability.",
+      "DP3: Deploy application-level forward error correction (FEC) encoding with configurable redundancy levels, tuned to customer network conditions, to recover lost packets without retransmission.",
+      "DP4: Implement a quality-of-service (QoS) negotiation and traffic prioritization layer that reserves bandwidth for critical control signals and adapts payload compression dynamically.",
+      "DP5: Use a hybrid approach combining lightweight heartbeat monitoring, selective acknowledgment (SACK) of critical frames, and adaptive timeout-driven retransmission to balance latency and reliability."
+    ],
+    "selected_dp": "DP5: Use a hybrid approach combining lightweight heartbeat monitoring, selective acknowledgment (SACK) of critical frames, and adaptive timeout-driven retransmission to balance latency and reliability.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Heartbeat monitoring is loosely coupled to retransmission logic via shared network state (loss rate estimation)—acceptable if state is read-only to heartbeat module.",
+        "SACK mechanism depends on frame classification (critical vs. non-critical), which must be defined consistently across command/feedback layers—requires clear interface contract.",
+        "Adaptive timeout calculation couples to network latency measurement; mitigation: encapsulate timeout logic in a dedicated utility module with well-defined input/output.",
+        "DP5 assumes bidirectional communication channel; if unidirectional constraints exist, coupling increases significantly—must be validated against actual network topology."
+      ],
+      "notes": "DP5 avoids hard dependencies on specific network protocols or vendor implementations. Heartbeat, SACK, and retransmission are logically separable concerns that can be composed via a state machine or event-driven architecture. Coupling is manageable if frame criticality and network state are treated as shared read-only abstractions."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Customer network conditions are measurable and stable enough to support adaptive timeout calibration. RISK: Highly variable or bursty loss patterns may cause timeout thrashing; mitigation: implement exponential backoff and loss-rate smoothing filters.",
+      "ASSUMPTION: Bidirectional communication is available for acknowledgments and heartbeats. RISK: If network is asymmetric (high downlink, poor uplink), SACK overhead may degrade uplink capacity; mitigation: make SACK optional and configurable per customer.",
+      "ASSUMPTION: Operator can tolerate bounded latency increase due to retransmission. RISK: If safety-critical commands require sub-100ms round-trip, retransmission may violate timing; mitigation: define latency budget in acceptance criteria and reserve fast-path for time-critical frames.",
+      "ASSUMPTION: Frame loss is random or bursty but not correlated with specific command types. RISK: If loss is systematic (e.g., always affects video frames), selective SACK may not recover critical state; mitigation: monitor loss patterns and escalate to operator if loss becomes non-random.",
+      "ASSUMPTION: Customer network conditions are agreed and documented before deployment. RISK: Undocumented network changes (e.g., interference, congestion) may violate ≤1% loss target; mitigation: implement runtime monitoring dashboard and alert thresholds.",
+      "ASSUMPTION: Retransmission buffer capacity is sufficient for agreed latency bounds. RISK: If latency is very high (>1s), buffer bloat may cause memory exhaustion; mitigation: define maximum buffer size and implement graceful degradation (drop oldest unacknowledged frames)."
+    ],
+    "recommended_revision": "FR (refined): The NGHE solution shall maintain teleoperation communication integrity by ensuring that critical control commands and feedback frames are delivered to the operator with ≤1% packet loss under agreed network conditions (specified by customer: loss rate, latency, jitter, topology), while maintaining operator-perceived latency within [X] ms and supporting graceful degradation if network conditions degrade beyond agreed thresholds. DP5 should be further decomposed into three sub-DPs: (1) Heartbeat & Network State Monitoring (measures loss rate, latency, jitter in real-time), (2) Frame Criticality Classification & SACK (marks control vs. feedback frames and acknowledges critical ones), (3) Adaptive Retransmission Engine (calculates timeouts, manages buffers, triggers retransmits). Each sub-DP should map to a distinct IM (implementation module) to enable independent testing and customer-specific tuning. Add explicit acceptance criteria: (a) Measured packet loss ≤1% under agreed conditions, (b) Operator latency perception ≤[X] ms (p95), (c) System gracefully alerts operator if network degrades beyond thresholds."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Encapsulates all remote control communication protocols, including heartbeat monitoring, selective acknowledgment of critical frames, adaptive timeout-driven retransmission, and latency/reliability trade-off logic for teleoperated vehicle commands and feedback."
+    },
+    "external_interfaces": [
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Transmits heartbeat packets, SACK frames, and retransmitted critical commands; receives acknowledgments and network status feedback."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives operator commands and task directives that require reliable delivery with adaptive timeout tuning."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Exports heartbeat health status, retransmission statistics, and adaptive timeout metrics for monitoring."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "Receives safety-critical frame prioritization signals; exports communication reliability status for safety decision-making."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit: heartbeat monitoring, SACK, and adaptive retransmission are core teleoperation protocol concerns. Latency/reliability trade-off is intrinsic to remote control. Minor diffusion: SafetyAlert integration for critical frame prioritization requires outbound coupling."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.45,
+        "diffusion_score": 0.55,
+        "notes": "Poor fit: DP is a communication protocol optimization, not a safety logic service. Safety Services would need to invoke Teleoperation for protocol details, creating inverted dependency. High diffusion of heartbeat/SACK/timeout logic across multiple safety modules."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Weak fit: Vehicle module typically owns actuators and sensors, not communication protocols. Heartbeat and retransmission logic would diffuse across vehicle control loops and network handlers. Creates tight coupling between vehicle dynamics and network reliability."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.25,
+        "diffusion_score": 0.75,
+        "notes": "Very poor fit: NGHE Solution is a top-level system container, not a functional module. Placing protocol-level DP here violates separation of concerns and creates diffusion across all subsystems. No clear ownership or interface contract."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the natural owner of DP5 because it is responsible for managing the communication contract between remote operator and vehicle. Heartbeat monitoring, selective acknowledgment, and adaptive timeout-driven retransmission are all protocol-level mechanisms that directly serve the latency/reliability trade-off required in teleoperated control. The module's external interfaces (Network Link, Tasking, Telemetry, SafetyAlert) provide sufficient abstraction to isolate protocol logic from vehicle dynamics and safety decision-making.",
+    "containment_risks": [
+      "SafetyAlert coupling: If safety-critical frame prioritization requires real-time feedback from Safety Services, bidirectional coupling may create latency spikes. Mitigation: define SafetyAlert as a priority hint, not a blocking signal.",
+      "Timeout tuning diffusion: Adaptive timeout parameters may need to be tuned per vehicle type or network condition. Risk of parameter leakage into Vehicle or NGHE Solution. Mitigation: encapsulate all timeout logic and expose only a single 'network_quality' input parameter.",
+      "Heartbeat overhead: Lightweight heartbeat design must be validated against actual network bandwidth constraints. If heartbeat becomes too heavy, it may diffuse into Network Link optimization. Mitigation: define heartbeat payload size as a fixed contract."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The Teleoperation module's external interfaces (Network Link, Tasking, Telemetry, SafetyAlert) provide clear observability points for validating packet loss ≤ 1% acceptance criterion. Telemetry export of retransmission statistics and adaptive timeout metrics enables direct measurement against customer-defined packet loss limits under agreed network conditions.",
+      "allocation_clarity": "Clear. Teleoperation module owns the complete DP5 implementation (heartbeat monitoring, SACK, adaptive timeout-driven retransmission). Ownership boundary is well-defined with explicit responsibility for latency/reliability trade-off logic. Interface contracts with Network Link (inout), Tasking (in), Telemetry (out), and SafetyAlert (inout) establish unambiguous allocation of concerns."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP5 directly addresses FR requirement to maintain teleoperation communication integrity within customer-defined packet loss limits. The hybrid approach (heartbeat + SACK + adaptive timeout-driven retransmission) is a sound technical solution for balancing latency and reliability in lossy network conditions. DP is sufficiently specific to enable implementation and verification against the ≤ 1% packet loss criterion."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "SafetyAlert bidirectional coupling: Real-time critical frame prioritization feedback from Safety Services may introduce latency spikes if implemented as blocking signals. Risk of timeout logic diffusing into safety decision-making loops. Mitigation: enforce SafetyAlert as a priority hint (non-blocking), with Teleoperation retaining autonomous timeout control.",
+        "Adaptive timeout parameter tuning: Timeout values may require per-vehicle-type or per-network-condition calibration. Risk of parameters leaking into Vehicle module (for vehicle-specific tuning) or NGHE Solution (for global configuration). Mitigation: encapsulate all timeout adaptation logic within Teleoperation; expose only a single 'network_quality' input parameter (e.g., 0–100 scale) to external modules.",
+        "Heartbeat payload size creep: If heartbeat monitoring expands to include additional diagnostic data, payload may grow and diffuse into Network Link optimization concerns. Mitigation: define heartbeat payload size as a fixed architectural contract (e.g., ≤ 64 bytes); any diagnostic expansion must use separate telemetry channels via Telemetry interface.",
+        "SACK frame prioritization logic: Determining which frames are 'critical' may require coupling with Tasking and SafetyAlert modules. Risk of prioritization rules diffusing across multiple modules. Mitigation: define a clear criticality classification scheme within Teleoperation (e.g., safety-critical, command-critical, status-only); expose as a configuration input from Tasking and SafetyAlert, not as runtime logic diffusion."
+      ],
+      "containment_notes": "Excellent containment (0.92 score). Teleoperation module is the natural owner of DP5 because heartbeat monitoring, SACK, and adaptive timeout-driven retransmission are intrinsic to remote control protocol design. The module's scope explicitly includes 'latency/reliability trade-off logic,' which is the core of DP5. External interfaces provide sufficient abstraction to isolate protocol mechanics from vehicle dynamics (Vehicle module) and safety decision-making (Safety Services). Minor diffusion risk exists only at SafetyAlert coupling boundary; this is manageable through interface design (priority hints vs. blocking signals). No evidence of DP5 logic scattered across Vehicle, Safety Services, or NGHE Solution modules."
+    },
+    "recommended_revisions": [
+      "Formalize SafetyAlert interface contract: Define SafetyAlert as a unidirectional priority hint input (not a blocking signal). Teleoperation retains autonomous control of timeout and retransmission logic. Safety Services may request frame prioritization, but Teleoperation decides final timeout values based on network conditions.",
+      "Encapsulate adaptive timeout logic: Create an internal sub-module within Teleoperation (e.g., 'AdaptiveTimeoutController') that owns all timeout calculation, tuning, and adaptation. Expose a single 'network_quality' input parameter (0–100 scale) to external modules; hide all timeout state and algorithm details.",
+      "Define heartbeat payload contract: Document heartbeat packet structure and maximum payload size (e.g., ≤ 64 bytes) as an architectural constraint. Any future diagnostic expansion must use separate Telemetry channels, not heartbeat payload growth.",
+      "Specify SACK criticality classification: Define a clear, enumerated criticality scheme (e.g., SAFETY_CRITICAL, COMMAND_CRITICAL, STATUS_ONLY) within Teleoperation. Tasking and SafetyAlert modules provide criticality hints via configuration; Teleoperation applies SACK selectively based on this classification and network conditions.",
+      "Add verification interface: Extend Telemetry interface to export packet loss rate, retransmission count, timeout adaptation history, and SACK effectiveness metrics. Enable direct validation against the ≤ 1% packet loss acceptance criterion under agreed network conditions.",
+      "Document network condition assumptions: Specify the 'agreed network conditions' (e.g., latency range, packet loss distribution, bandwidth constraints) as part of the DP5 design contract. This clarifies the operating envelope for adaptive timeout tuning and enables reproducible testing."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-DP, DP-IM, FR-IM) pass with high confidence. However, the recommended_revisions identify critical architectural refinements—particularly SafetyAlert interface formalization, adaptive timeout encapsulation, and heartbeat payload contracts—that must be resolved before implementation. These are not blocking failures but represent design debt that will propagate into lower-level decomposition if left unaddressed. Given high safety criticality, a controlled zigzag down (with concurrent revision of DP5 and IM boundaries) is warranted to lock in interface contracts and containment strategies before deriving sub-FRs for heartbeat monitoring, SACK logic, and adaptive timeout control. This approach prevents diffusion risks from cascading into lower-level modules.",
+    "next_level_sub_frs": [
+      "FR5.1: Maintain heartbeat signal transmission at fixed interval (≤ 64-byte payload) to detect link loss within timeout window.",
+      "FR5.2: Classify outbound frames by criticality (SAFETY_CRITICAL, COMMAND_CRITICAL, STATUS_ONLY) and apply selective acknowledgment (SACK) based on network conditions and safety priority hints.",
+      "FR5.3: Adapt retransmission timeout dynamically based on observed network quality (latency, loss rate) while respecting safety-critical frame deadlines.",
+      "FR5.4: Enforce SafetyAlert priority hints as non-blocking configuration inputs; retain autonomous timeout control within Teleoperation module.",
+      "FR5.5: Export packet loss rate, retransmission count, timeout adaptation history, and SACK effectiveness metrics via Telemetry interface for verification against ≤ 1% acceptance criterion."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "DP5 is technically sound but requires explicit architectural refinements to prevent diffusion and ensure safety-critical interface contracts are locked before implementation. Specifically: (1) Formalize SafetyAlert as a unidirectional priority hint (not blocking signal); (2) Encapsulate adaptive timeout logic in an internal sub-module with single 'network_quality' input parameter; (3) Define heartbeat payload size contract (≤ 64 bytes) as architectural constraint; (4) Specify SACK criticality classification scheme (enumerated, not runtime-diffused); (5) Extend Telemetry interface to export verification metrics. These revisions strengthen DP5's isolation and reduce coupling risk to SafetyAlert and Vehicle modules."
+    },
+    "record": {
+      "assumptions": [
+        "SafetyAlert interface can be redesigned as unidirectional priority hint without compromising safety decision-making latency.",
+        "Adaptive timeout tuning can be fully encapsulated within Teleoperation module using a single 'network_quality' input parameter (0–100 scale) without requiring per-vehicle-type or per-network-condition calibration from external modules.",
+        "Heartbeat payload size can be fixed at ≤ 64 bytes without future diagnostic expansion needs; any new diagnostics will use separate Telemetry channels.",
+        "SACK criticality classification (SAFETY_CRITICAL, COMMAND_CRITICAL, STATUS_ONLY) is sufficient to capture all frame prioritization requirements without runtime logic diffusion.",
+        "Agreed network conditions (latency range, packet loss distribution, bandwidth constraints) can be formally specified and remain stable across vehicle types and deployment scenarios.",
+        "Telemetry interface can export packet loss rate, retransmission count, and timeout adaptation history with sufficient granularity to validate ≤ 1% acceptance criterion under agreed network conditions."
+      ],
+      "open_risks": [
+        "SafetyAlert coupling: If safety decision-making requires real-time feedback on frame prioritization status, non-blocking hint model may introduce unacceptable latency. Mitigation: conduct latency analysis with Safety Services to confirm hint-based model is acceptable.",
+        "Adaptive timeout tuning stability: Single 'network_quality' parameter may oversimplify timeout adaptation in heterogeneous network conditions (e.g., WiFi vs. cellular vs. satellite). Risk of timeout thrashing or excessive retransmissions in edge cases. Mitigation: define network_quality mapping function with explicit bounds and hysteresis; validate against diverse network profiles.",
+        "Heartbeat payload creep: Future diagnostic requirements (e.g., link quality metrics, jitter estimates) may pressure heartbeat expansion. Risk of architectural contract violation. Mitigation: establish change control process for heartbeat payload; require separate Telemetry channel approval for any new diagnostic data.",
+        "SACK criticality classification completeness: Enumerated scheme may not capture all frame types or future command types. Risk of classification gaps requiring runtime logic diffusion. Mitigation: conduct comprehensive frame inventory with Tasking and SafetyAlert; validate classification scheme covers all current and planned frame types.",
+        "Verification under agreed network conditions: Reproducibility of ≤ 1% packet loss criterion depends on stable network simulation or test environment. Risk of acceptance criterion ambiguity if 'agreed network conditions' are not formally specified. Mitigation: document network condition assumptions (latency range, loss distribution, bandwidth) as part of DP5 design contract; establish test harness with configurable network emulation."
+      ],
+      "evidence_needed": [
+        "Formal SafetyAlert interface specification: Define priority hint schema (e.g., enumeration or numeric priority level), confirm non-blocking semantics, and validate latency impact with Safety Services.",
+        "Adaptive timeout algorithm specification: Document timeout calculation formula, network_quality mapping function, hysteresis logic, and bounds. Include validation results against diverse network profiles (WiFi, cellular, satellite, lossy LAN).",
+        "Heartbeat payload contract: Specify fixed packet structure, maximum size (≤ 64 bytes), and change control process. Document rationale for payload size limit and alternative channels for future diagnostics.",
+        "SACK criticality classification inventory: Enumerate all frame types (safety-critical, command-critical, status-only) with examples. Validate coverage with Tasking and SafetyAlert modules; document process for adding new frame types.",
+        "Telemetry export specification: Define metrics (packet loss rate, retransmission count, timeout adaptation history, SACK effectiveness), sampling frequency, and export format. Confirm metrics enable direct validation against ≤ 1% acceptance criterion.",
+        "Network condition specification: Document agreed network conditions (latency range, packet loss distribution, bandwidth constraints, jitter bounds) as part of DP5 design contract. Establish test harness with configurable network emulation to reproduce conditions.",
+        "Latency analysis report: Measure end-to-end latency impact of adaptive timeout logic, SACK processing, and SafetyAlert hint handling under agreed network conditions. Confirm latency remains within safety-critical frame deadlines."
+      ]
+    }
+  }
+}

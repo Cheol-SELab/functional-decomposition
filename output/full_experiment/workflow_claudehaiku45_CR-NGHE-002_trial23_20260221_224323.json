@@ -1,0 +1,173 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall enable execution of the load→travel→dump cycle within the customer-defined cycle time target.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting the capability to achieve the target, and (2) actually achieving measurable performance under duty cycle conditions. The refined FR is atomic and solution-neutral—it states the functional obligation (enable execution within target) without prescribing how (e.g., via speed optimization, path planning, operator training, or equipment design). The acceptance criterion (p95 ≤ CT_target under agreed duty cycle) remains a verification gate, not part of the FR itself. This separation preserves the FR as a problem statement while keeping acceptance criteria as measurable evidence of satisfaction.",
+    "verification_idea": "Conduct instrumented cycle time trials under the agreed duty cycle and site conditions. Measure p95 cycle time across a statistically significant sample (e.g., ≥30 cycles). Confirm p95 ≤ CT_target. Verify that no design or operational constraint prevents the operator from executing the cycle within target under normal conditions.",
+    "sub_frs": [
+      "FR-NGHE-002.1: The NGHE solution shall enable the load phase to be executed within the customer-defined load time budget.",
+      "FR-NGHE-002.2: The NGHE solution shall enable the travel phase (loaded and unloaded) to be executed within the customer-defined travel time budget.",
+      "FR-NGHE-002.3: The NGHE solution shall enable the dump phase to be executed within the customer-defined dump time budget.",
+      "FR-NGHE-002.4: The NGHE solution shall minimize idle time and transition delays between load, travel, and dump phases."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Decompose the load→travel→dump cycle into sequential sub-operations (load, travel, dump) with independent timing budgets that sum to CT_target, and allocate execution control to a supervisory coordinator that sequences these operations based on state transitions and sensor feedback.",
+      "DP2: Implement a parallel execution model where load, travel, and dump operations overlap where physically feasible (e.g., travel begins while final load elements are being positioned), with a real-time scheduler that enforces hard timing constraints and detects conflicts.",
+      "DP3: Design a fixed-sequence state machine with pre-calculated operation durations calibrated to site conditions (terrain, load mass, distance), with adaptive timing adjustments triggered by measured deviations from baseline cycle time.",
+      "DP4: Establish a demand-driven pull model where each operation (load, travel, dump) is triggered only when the downstream operation signals readiness, with buffering and queue management to prevent bottlenecks and ensure p95 compliance."
+    ],
+    "selected_dp": "DP1: Decompose the load→travel→dump cycle into sequential sub-operations (load, travel, dump) with independent timing budgets that sum to CT_target, and allocate execution control to a supervisory coordinator that sequences these operations based on state transitions and sensor feedback.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Timing budget allocation across sub-operations creates implicit coupling if one operation consistently exceeds its budget; mitigation requires clear ownership of timing margins and contingency buffers.",
+        "Sensor feedback dependencies: if load-sensing or position-sensing fails, the coordinator cannot reliably transition between states; decoupling requires explicit fault detection and safe fallback modes.",
+        "Site condition variability (terrain, load mass, distance) may cause systematic drift in sub-operation durations; DP1 assumes these are measurable and can be accommodated within allocated budgets without redesign.",
+        "Sequential execution model is inherently less flexible than DP2 (parallel) but avoids complex conflict detection; acceptable if site constraints (e.g., single-pass loading zones) enforce sequential behavior anyway."
+      ],
+      "notes": "DP1 exhibits low coupling within the functional decomposition (load, travel, dump are logically independent) but introduces coordination coupling at the supervisory level. This is acceptable because the coordinator is a thin orchestration layer, not a monolithic control logic. Coupling is further reduced if each sub-operation has its own timing budget and the coordinator only enforces state transitions, not detailed operation timing."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Site conditions (terrain roughness, load mass distribution, travel distance) are known or measurable at the start of each cycle, enabling accurate timing budget allocation.",
+      "RISK: If site conditions vary significantly within a shift (e.g., load mass increases, terrain degrades), pre-allocated timing budgets may become invalid; mitigation requires adaptive re-budgeting or real-time monitoring.",
+      "ASSUMPTION: Sensor feedback (load position, vehicle position, dump gate status) is reliable and has latency ≤ 5% of CT_target (typical for industrial systems).",
+      "RISK: Sensor failures or high-latency feedback could cause state transition delays, pushing p95 beyond CT_target; mitigation requires redundant sensing or predictive timing fallbacks.",
+      "ASSUMPTION: The supervisory coordinator can be implemented with deterministic timing guarantees (e.g., real-time OS, PLC, or hard real-time embedded system).",
+      "RISK: If the coordinator is implemented on a non-deterministic platform (e.g., standard Linux, cloud-based), timing variance may exceed acceptable bounds; mitigation requires explicit real-time scheduling or edge computing.",
+      "ASSUMPTION: The load→travel→dump sequence is the only critical path; no other operations (e.g., positioning, calibration) block the cycle.",
+      "RISK: If hidden dependencies exist (e.g., dump gate must be verified closed before next load), the cycle time model is incomplete; mitigation requires detailed process mapping with all stakeholders."
+    ],
+    "recommended_revision": "DP1 is well-suited for this FR under the stated constraints. To strengthen the mapping and reduce risks, recommend: (1) Explicitly define timing budgets for each sub-operation (load_time, travel_time, dump_time) as derived requirements, with contingency margins (e.g., 10–15% buffer) to account for site variability. (2) Specify the supervisory coordinator as a separate DP-level design element with its own FR (e.g., 'FR_Coord: Coordinate state transitions between load, travel, and dump operations with latency ≤ 50 ms'). (3) Add a monitoring and adaptation DP (DP1b) to detect systematic timing drift and trigger re-budgeting or operational adjustments. (4) Validate that sensor feedback latencies and reliability meet the timing model assumptions; if not, escalate to a risk mitigation review. (5) Consider DP2 (parallel execution) as a secondary option if site analysis reveals opportunities for overlap (e.g., travel can begin before final load positioning is complete), which could reduce CT_target further."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "Autonomous cycle execution engine including load→travel→dump sequencing, state machine, timing budget allocation, sensor feedback integration, and supervisory coordination logic"
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives cycle initiation commands and target cycle time (CT_target) from supervisory layer"
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Reports cycle state transitions, sub-operation completion, timing metrics, and sensor feedback status"
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "Receives safety constraints; reports safety-critical state violations or emergency stops"
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Communicates with remote teleoperation or NGHE Solution for fallback control if autonomous sequencing fails"
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent containment: load, travel, dump sub-operations are inherently vehicle-resident (actuators, sensors, propulsion). State machine and timing budgets are localized to vehicle control logic. Minimal diffusion: only Tasking input and Telemetry output cross boundary; SafetyAlert and Network Link are necessary fallback interfaces."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.45,
+        "diffusion_score": 0.55,
+        "notes": "Poor containment: NGHE Solution is a supervisory/orchestration layer, not an execution engine. Placing cycle sequencing here would require Vehicle to expose low-level actuator control and sensor state, creating tight coupling and distributed state management. Timing budgets and state transitions belong at the execution point (Vehicle), not at orchestration."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Very poor containment: Teleoperation is a human-in-the-loop interface layer, not an autonomous execution engine. Placing cycle sequencing here would require real-time control of remote vehicle actuators with high latency sensitivity, violating the independence of timing budgets and creating network-dependent state management."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor containment: Safety Services is a constraint-checking and alert layer, not an execution coordinator. Placing cycle sequencing here would blur the separation of concerns between safety validation and operational control, and would require Safety Services to manage actuator timing and state transitions."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The DP (cycle decomposition with supervisory coordination) is fundamentally an autonomous execution pattern that belongs at the point of actuation and sensing. The Vehicle module naturally owns the load, travel, and dump sub-operations because it controls the physical mechanisms (bucket, drivetrain, sensors). The state machine and timing budget allocation are control logic that must reside where the operations execute, not in a remote orchestration or safety layer. External interfaces (Tasking, Telemetry, SafetyAlert, Network Link) provide necessary coordination and fallback without diffusing the core sequencing logic.",
+    "containment_risks": [
+      "Risk: If Vehicle module lacks sufficient computational capacity or real-time OS support, timing budget enforcement may become unreliable. Mitigation: Validate Vehicle's control architecture supports deterministic scheduling.",
+      "Risk: If sensor feedback latency is high or unreliable, state transitions may be delayed or incorrect. Mitigation: Define sensor polling rates and timeout thresholds in the state machine design.",
+      "Risk: If SafetyAlert interface is not properly integrated, safety constraints may not be enforced during cycle execution. Mitigation: Ensure SafetyAlert can interrupt state transitions and trigger emergency dump/stop.",
+      "Risk: If Network Link fails during autonomous operation, fallback to Teleoperation may introduce manual timing inconsistencies. Mitigation: Design graceful degradation: autonomous mode with safety constraints, then manual override only if autonomous fails."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "HIGH. Acceptance criterion 'p95 ≤ CT_target under agreed duty cycle and site conditions' is directly measurable at the Vehicle module boundary via Telemetry interface (cycle state transitions, sub-operation completion, timing metrics). Vehicle module owns the actuators and sensors that execute load→travel→dump, making cycle time observable and attributable. Worksite safety plan integration is verifiable through SafetyAlert interface and state machine interrupt logic.",
+      "allocation_clarity": "CLEAR. FR allocation to Vehicle IM is unambiguous: Vehicle module is responsible for executing the three sequential sub-operations within their allocated timing budgets and meeting p95 ≤ CT_target. External interfaces (Tasking, Telemetry, SafetyAlert, Network Link) establish clear responsibility boundaries: Tasking initiates, Telemetry reports, SafetyAlert constrains, Network Link provides fallback. No ambiguity about which module owns cycle execution."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP correctly decomposes FR into actionable design logic. DP1 specifies: (1) functional decomposition into load, travel, dump sub-operations with independent timing budgets summing to CT_target—directly addresses cycle time requirement; (2) supervisory coordinator with state machine and sensor feedback—provides the control mechanism to enforce sequencing and timing. DP is solution-neutral (does not prescribe specific actuator types or algorithms) and is testable against acceptance criteria. No logical gaps or contradictions detected."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "MINIMAL DIFFUSION DETECTED. Core DP (cycle decomposition, state machine, timing budget allocation, supervisory coordination) is highly localized to Vehicle module (containment_score 0.92). No evidence of scattered responsibilities across multiple modules.",
+        "INTERFACE DIFFUSION (ACCEPTABLE): Tasking and Telemetry cross the Vehicle boundary by design—these are necessary coordination interfaces, not diffusion of core logic. SafetyAlert and Network Link are fallback/constraint interfaces, not execution logic.",
+        "LATENT RISK—Sensor Feedback Integration: DP specifies 'sensor feedback integration' as part of supervisory coordination. If sensor polling, filtering, or fusion logic is not clearly owned by Vehicle module (e.g., if delegated to Safety Services or NGHE Solution), state transition reliability will degrade. MITIGATION: Explicitly assign sensor feedback processing to Vehicle module; define sensor polling rates and timeout thresholds in state machine design.",
+        "LATENT RISK—Timing Budget Enforcement: DP allocates independent timing budgets to sub-operations. If Vehicle module lacks deterministic real-time scheduling (e.g., runs on non-RTOS, has unpredictable interrupt latency), timing budget enforcement will fail. MITIGATION: Validate Vehicle control architecture supports hard real-time constraints; document scheduling guarantees.",
+        "LATENT RISK—SafetyAlert Integration: DP assumes supervisory coordinator can be interrupted by SafetyAlert to enforce safety constraints. If SafetyAlert interface is asynchronous or has high latency, safety-critical state transitions may not be blocked in time. MITIGATION: Define SafetyAlert as synchronous constraint check before state transition; specify maximum latency tolerance."
+      ],
+      "containment_notes": "EXCELLENT CONTAINMENT. Vehicle module is the natural owner of load→travel→dump execution because it controls the physical mechanisms (bucket actuators, drivetrain, sensors). State machine and timing budget allocation are control logic that must reside at the point of actuation and sensing to ensure deterministic behavior. Placing this logic in NGHE Solution (orchestration layer), Teleoperation (human interface), or Safety Services (constraint validation) would create distributed state management, tight coupling, and network/latency dependencies that violate the independence of timing budgets. The four external interfaces (Tasking, Telemetry, SafetyAlert, Network Link) are minimal and necessary: they provide coordination and fallback without diffusing core sequencing logic. No alternative module assignment is recommended."
+    },
+    "recommended_revisions": [
+      "REVISION 1—Explicit Sensor Feedback Ownership: Add to DP1 specification: 'Vehicle module owns sensor polling, filtering, and state transition validation. Define sensor polling rates (e.g., 10 Hz for load sensor, 50 Hz for position sensor) and timeout thresholds (e.g., 500 ms for load confirmation before travel initiation). Sensor failures trigger SafetyAlert and fallback to manual mode.'",
+      "REVISION 2—Real-Time Scheduling Guarantee: Add to Vehicle IM specification: 'Vehicle control architecture shall support deterministic real-time scheduling with documented latency bounds for state machine execution (e.g., ≤50 ms jitter for state transitions). Validate against timing budget allocations to ensure p95 ≤ CT_target is achievable.'",
+      "REVISION 3—SafetyAlert Synchronization: Add to SafetyAlert interface specification: 'SafetyAlert constraints are evaluated synchronously before each state transition. If a safety constraint is violated, the state machine blocks transition and triggers emergency dump/stop. Maximum SafetyAlert evaluation latency: 100 ms.'",
+      "REVISION 4—Graceful Degradation Mode: Add to Network Link interface specification: 'If Network Link fails during autonomous operation, Vehicle module continues autonomous cycle execution with safety constraints enforced. Teleoperation fallback is available only if autonomous mode fails (e.g., sensor timeout, safety violation). Document mode transition logic and operator notification.'",
+      "REVISION 5—Acceptance Criteria Mapping: Explicitly link acceptance criterion 'p95 ≤ CT_target' to Vehicle module Telemetry output. Define telemetry schema to include: cycle_start_time, load_complete_time, travel_complete_time, dump_complete_time, cycle_end_time. Specify measurement conditions (duty cycle, site conditions, safety constraints active)."
+    ]
+  },
+  "decision": {
+    "decision": "REVISE_CURRENT_LEVEL",
+    "justification": "All three gates (FR-IM, FR-DP, DP-IM) pass with high confidence, indicating the functional decomposition is sound and the Vehicle module is the correct owner. However, the DP-IM gate has identified five latent risks that are safety-critical and must be resolved before proceeding to next-level decomposition. These risks concern: (1) sensor feedback ownership and polling determinism, (2) real-time scheduling guarantees for timing budget enforcement, (3) SafetyAlert synchronization latency, (4) graceful degradation under network failure, and (5) explicit telemetry schema for acceptance criterion verification. Given the high safety criticality of this system (autonomous load-haul-dump cycle with human workers on site), these risks must be mitigated at the current level through explicit design revisions before decomposing further. Proceeding to sub-FR derivation without resolving these would propagate ambiguity and latent failure modes into lower-level designs.",
+    "next_level_sub_frs": [],
+    "revise": {
+      "target": "DP",
+      "why": "DP1 (Supervisory Coordinator with State Machine and Timing Budget Allocation) is logically sound but lacks explicit specification of critical implementation constraints that directly affect safety and timing determinism. The five recommended revisions from the DP-IM gate must be incorporated into DP1 to clarify: (1) sensor feedback processing ownership and polling rates, (2) real-time scheduling requirements and latency bounds, (3) SafetyAlert synchronization semantics, (4) network failure graceful degradation, and (5) telemetry schema for acceptance criterion measurement. These are not new design concepts but rather explicit constraints and interface specifications that must be part of DP1 before lower-level sub-FRs can be derived with confidence. Revising DP now prevents rework at lower levels and ensures all sub-FRs inherit these safety-critical constraints."
+    },
+    "record": {
+      "assumptions": [
+        "Vehicle module has access to deterministic real-time scheduling (RTOS or equivalent) capable of supporting ≤50 ms jitter for state machine execution.",
+        "Sensor polling and filtering logic can be localized to Vehicle module without external dependencies on Safety Services or NGHE Solution.",
+        "SafetyAlert interface can be implemented as a synchronous constraint check (blocking state transition) with ≤100 ms evaluation latency.",
+        "Network Link failure does not cascade to loss of sensor feedback or actuator control within Vehicle module (i.e., Vehicle retains local autonomy).",
+        "Telemetry interface can capture cycle timing events (load_complete_time, travel_complete_time, dump_complete_time) with sufficient granularity (≤100 ms resolution) to compute p95 cycle time accurately.",
+        "Duty cycle and site conditions for acceptance criterion measurement are well-defined and repeatable (e.g., standard load mass, terrain type, safety constraint activation patterns)."
+      ],
+      "open_risks": [
+        "SENSOR FEEDBACK DETERMINISM: If sensor polling rates are not enforced or if sensor fusion logic is delegated to external modules, state transition timing will become non-deterministic, violating timing budget allocations. Mitigation: Explicitly assign sensor polling and filtering to Vehicle module; document polling rates and timeout thresholds in DP1 revision.",
+        "REAL-TIME SCHEDULING GUARANTEE: If Vehicle control architecture does not support hard real-time constraints (e.g., runs on non-RTOS, has unpredictable interrupt latency), timing budget enforcement will fail under load. Mitigation: Validate Vehicle control platform (hardware + OS) against documented latency bounds before implementation; include scheduling analysis in design review.",
+        "SAFEALERT LATENCY: If SafetyAlert evaluation is asynchronous or has high latency (>100 ms), safety-critical state transitions (e.g., dump initiation near workers) may not be blocked in time. Mitigation: Implement SafetyAlert as synchronous constraint check; measure and document actual latency in integration testing.",
+        "NETWORK LINK FAILURE CASCADES: If Network Link failure causes loss of sensor feedback or actuator control (e.g., if sensors are polled remotely), Vehicle module will lose autonomy and cycle execution will fail. Mitigation: Ensure all sensors and actuators are directly connected to Vehicle module; Network Link is for telemetry and coordination only, not for real-time control.",
+        "TELEMETRY MEASUREMENT ACCURACY: If telemetry timestamps are not synchronized with actual cycle events or have coarse granularity, p95 cycle time measurement will be inaccurate, making acceptance criterion verification unreliable. Mitigation: Define telemetry schema with event-driven timestamps (not polled); validate timestamp accuracy against independent timing reference.",
+        "GRACEFUL DEGRADATION AMBIGUITY: If mode transition logic (autonomous → teleoperation fallback) is not explicitly specified, operators may not know when to intervene or system may enter undefined state. Mitigation: Document mode transition triggers and operator notification in DP1 revision; include in acceptance testing."
+      ],
+      "evidence_needed": [
+        "Vehicle control architecture specification: document RTOS/scheduling platform, interrupt latency bounds, and real-time guarantees.",
+        "Sensor polling and filtering design: specify polling rates (Hz), timeout thresholds (ms), and failure handling for each sensor type (load, position, orientation).",
+        "SafetyAlert interface specification: define synchronous constraint check logic, maximum evaluation latency (ms), and state transition blocking semantics.",
+        "Network Link failure mode analysis: document which functions remain autonomous if Network Link fails; specify fallback behavior and operator notification.",
+        "Telemetry schema and timestamp accuracy: define event-driven telemetry format, timestamp resolution (ms), and synchronization method; validate against independent timing reference.",
+        "Duty cycle and site conditions definition: specify standard load mass, terrain type, safety constraint activation patterns, and measurement repeatability for acceptance criterion verification.",
+        "Real-time scheduling analysis: perform worst-case latency analysis for state machine execution under nominal and degraded conditions; validate against timing budget allocations.",
+        "Integration test plan: include tests for sensor feedback determinism, SafetyAlert latency, network failure graceful degradation, and telemetry accuracy under realistic duty cycles."
+      ]
+    }
+  }
+}

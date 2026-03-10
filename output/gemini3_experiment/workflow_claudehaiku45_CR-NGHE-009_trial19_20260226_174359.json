@@ -1,0 +1,171 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation communication reliability within the customer-defined packet loss threshold during agreed network conditions.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting teleoperation capability and (2) meeting a specific quality metric (packet loss limit). The refined FR isolates the quality/reliability obligation as a single atomic requirement in the problem domain. It removes implementation bias ('communication quality') in favor of the measurable outcome ('packet loss threshold'). The phrase 'during agreed network conditions' acknowledges the boundary condition without prescribing how it is achieved. This formulation is solution-neutral: it does not mandate redundancy, error correction, protocol selection, or network architecture—only the observable outcome.",
+    "verification_idea": "Conduct teleoperation trials under agreed network conditions (latency, bandwidth, interference profile) and measure end-to-end packet loss rate. Confirm that measured packet loss does not exceed the customer-defined threshold (e.g., ≤1%). Log packet statistics at the application layer to distinguish transport-level loss from application-level loss if needed.",
+    "sub_frs": [
+      "FR-NGHE-009.1: The NGHE solution shall enable remote operation of heavy equipment from a tele-operator station.",
+      "FR-NGHE-009.2: The NGHE solution shall maintain teleoperation command and feedback data integrity within the customer-defined packet loss threshold during agreed network conditions."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Implement adaptive packet redundancy and selective retransmission based on real-time network quality metrics (latency, jitter, loss rate) to maintain effective throughput within acceptable operator response time.",
+      "DP2: Establish a dual-path communication architecture with independent network routes and automatic failover logic to ensure continuous command/telemetry flow during transient network degradation.",
+      "DP3: Deploy a buffering and prioritization layer that queues critical control commands (e.g., emergency stop, motion commands) separately from non-critical telemetry, ensuring critical packets are transmitted with higher reliability guarantees.",
+      "DP4: Implement forward error correction (FEC) encoding on the communication payload to allow reconstruction of lost packets without requiring retransmission, trading bandwidth for reduced latency sensitivity.",
+      "DP5: Establish a network condition monitoring and operator notification system that dynamically adjusts teleoperation mode (e.g., reduced autonomy, simplified command set) when packet loss exceeds safe thresholds, preventing unsafe operations under poor conditions."
+    ],
+    "selected_dp": "DP3 + DP5 (Composite): Implement a dual-layer strategy combining (1) a buffering and prioritization layer that segregates critical control commands from telemetry with differentiated reliability mechanisms, and (2) a network condition monitor that enforces operational mode constraints when packet loss exceeds the customer-defined threshold. This ensures both proactive reliability (critical packets protected) and reactive safety (operator awareness and mode restriction).",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "DP3 and DP5 are loosely coupled: DP3 (prioritization logic) is independent of DP5 (monitoring/notification), but both feed into a shared network quality assessment. Risk: if network metrics are computed inconsistently, mode restrictions may not align with actual packet loss. Mitigation: single authoritative network quality module.",
+        "DP3 assumes operator latency tolerance is known; if not specified, buffering strategy may introduce unacceptable delays. Mitigation: require explicit latency budget from customer.",
+        "DP5 assumes operator can safely transition to degraded mode; if not all commands are safe under packet loss, mode restriction logic must be granular. Mitigation: safety plan must enumerate safe vs. unsafe operations per network condition."
+      ],
+      "notes": "Composite DP avoids over-coupling to a single mechanism (e.g., FEC alone or redundancy alone). Separation of concerns: DP3 handles packet-level reliability; DP5 handles system-level safety policy. Both are independently testable and can be refined without redesigning the other."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Customer-defined packet loss threshold (≤1%) is achievable under agreed network conditions. RISK: If network conditions are worse than agreed, threshold may be unattainable. MITIGATION: Baseline network testing and SLA definition required before deployment.",
+      "ASSUMPTION: Operator latency tolerance (round-trip time for command-response) is compatible with buffering delays introduced by DP3. RISK: Excessive buffering may degrade operator control responsiveness. MITIGATION: Specify maximum acceptable latency budget; validate with operator in field trials.",
+      "ASSUMPTION: Critical vs. non-critical command classification is stable and well-defined. RISK: Misclassification (e.g., marking a safety-critical command as non-critical) could compromise safety. MITIGATION: Safety plan must enumerate all critical commands; code review and testing required.",
+      "ASSUMPTION: Network quality metrics (latency, jitter, loss rate) can be measured reliably in real-time. RISK: Measurement noise or lag may cause false mode transitions. MITIGATION: Implement hysteresis and smoothing in DP5 threshold logic.",
+      "ASSUMPTION: Operator is trained and willing to accept mode restrictions when network degrades. RISK: Operator may override or ignore notifications, attempting unsafe operations. MITIGATION: Worksite safety plan must include operator training and enforcement procedures.",
+      "ASSUMPTION: Dual-path or redundancy infrastructure is available or can be provisioned at the worksite. RISK: If only single network path exists, DP2 (failover) is not applicable. MITIGATION: Confirm network topology during site survey; adjust DP selection if needed."
+    ],
+    "recommended_revision": "FR (refined): The NGHE solution shall maintain teleoperation communication reliability by ensuring that critical control commands are delivered with ≤1% packet loss under agreed network conditions, and shall restrict operator commands to safe subsets when network quality degrades below the threshold, as defined in the worksite safety plan. RATIONALE: This revision explicitly ties reliability to command criticality (DP3) and safety policy (DP5), making the FR testable and traceable to implementation. It also clarifies that the 1% threshold applies to critical packets, not all traffic, which is more realistic and aligns with DP3's prioritization strategy."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Safety Services",
+      "scope": "Centralized module responsible for implementing dual-layer reliability strategy: (1) buffering, prioritization, and differentiated reliability mechanisms for critical control commands vs. telemetry streams, and (2) network condition monitoring with operational mode constraint enforcement based on packet loss thresholds."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives control commands from Teleoperation; Safety Services applies prioritization, buffering, and reliability wrapping before forwarding to Vehicle."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Receives telemetry from Vehicle; Safety Services buffers, monitors network conditions, and forwards to Teleoperation with quality-of-service metadata."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Safety Services monitors packet loss, latency, and link quality; enforces operational mode constraints and triggers SafetyAlert when thresholds exceeded."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Safety Services emits alerts to operator and system when network conditions degrade or operational mode restrictions are activated."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Safety Services",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit. Safety Services is the natural owner of reliability mechanisms, network monitoring, and mode constraint enforcement. Both buffering/prioritization (critical command protection) and network condition monitoring (reactive safety) align with safety-critical responsibilities. Minimal diffusion: only exports SafetyAlert and mode-constrained Tasking/Telemetry."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.45,
+        "diffusion_score": 0.55,
+        "notes": "Poor fit. Teleoperation is the consumer/initiator of commands and telemetry, not the arbiter of reliability or network safety. Placing dual-layer strategy here conflates operator interface logic with safety-critical infrastructure. High diffusion: network monitoring and mode constraints would leak into Vehicle and Safety Services."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor fit. Vehicle is the controlled system, not the communication safety layer. Placing buffering, prioritization, and network monitoring in Vehicle inverts the control hierarchy and couples vehicle logic to network conditions. High diffusion: requires Vehicle to enforce operator-level mode constraints and manage telemetry reliability."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.5,
+        "diffusion_score": 0.5,
+        "notes": "Moderate fit but overly broad. NGHE Solution is the system-level container; placing the DP here avoids clear ownership and accountability. Diffusion risk: responsibility for reliability and network monitoring would be ambiguous across sub-modules."
+      }
+    ],
+    "ownership_candidate": "Safety Services",
+    "containment_hypothesis": "Safety Services is the most specific and cohesive boundary for the dual-layer DP. It owns safety-critical reliability mechanisms (buffering, prioritization, differentiated QoS) and network condition monitoring with mode constraint enforcement. The module sits logically between Teleoperation (command source) and Vehicle (command sink), and between Vehicle (telemetry source) and Teleoperation (telemetry consumer), making it the natural enforcement point for both proactive (command protection) and reactive (network awareness) safety strategies. External interfaces (Tasking, Telemetry, Network Link, SafetyAlert) are all well-established and align with Safety Services' responsibilities.",
+    "containment_risks": [
+      "Risk: If Safety Services lacks direct access to real-time network metrics (packet loss, latency), the network condition monitor may rely on indirect signals from Vehicle or Teleoperation, introducing latency in mode constraint enforcement.",
+      "Risk: Buffering and prioritization logic may require coordination with Teleoperation's command scheduling; if Teleoperation does not respect Safety Services' mode constraints, safety guarantees degrade.",
+      "Risk: Telemetry buffering in Safety Services may conflict with Teleoperation's expectation of real-time data; clear SLA and buffering policy must be defined at the Telemetry interface.",
+      "Risk: If Vehicle does not implement the mode constraints enforced by Safety Services (e.g., ignores restricted operational modes), the reactive safety mechanism is bypassed."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "HIGH. The FR specifies a measurable acceptance criterion (packet loss ≤ 1% or customer-defined target under agreed network conditions). Safety Services' dual-layer strategy is directly testable: (1) buffering/prioritization can be validated through packet capture and command/telemetry ordering analysis; (2) network condition monitoring can be validated by injecting packet loss and verifying mode constraint enforcement and SafetyAlert emission. Traceability from FR to IM is clear: Safety Services owns both mechanisms required to meet the packet loss threshold.",
+      "allocation_clarity": "EXCELLENT. Safety Services is unambiguously assigned as the owner of the dual-layer reliability strategy. The module boundary is well-defined with four explicit external interfaces (Tasking in, Telemetry out, Network Link inout, SafetyAlert out). Responsibilities are partitioned: Safety Services handles reliability logic and network monitoring; Teleoperation remains the command/telemetry consumer; Vehicle remains the controlled system. No ambiguity about which module enforces packet loss thresholds or mode constraints."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "The DP (dual-layer strategy: buffering/prioritization + network condition monitoring with mode constraints) directly addresses the FR requirement to maintain teleoperation communication reliability within customer-defined packet loss thresholds. The DP is solution-complete: proactive protection (critical command buffering/prioritization) reduces packet loss impact; reactive safety (network monitoring + mode constraint enforcement) ensures operator awareness and system safety when thresholds are exceeded. The DP is logically sound and does not contradict the acceptance criterion (packet loss ≤ 1%)."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "MEDIUM: Network metrics dependency. Safety Services' network condition monitor requires real-time access to packet loss, latency, and link quality data. If these metrics are not directly observable (e.g., must be inferred from Vehicle telemetry or Teleoperation feedback), latency in mode constraint enforcement could degrade reactive safety. Mitigation: Establish a direct Network Link interface with explicit metric export (packet loss counter, latency histogram, link state) to Safety Services.",
+        "MEDIUM: Teleoperation compliance risk. Safety Services enforces mode constraints (e.g., restricted operational modes when packet loss exceeds threshold), but Teleoperation must respect these constraints when issuing commands. If Teleoperation ignores mode restrictions or continues issuing commands incompatible with degraded network conditions, the reactive safety mechanism is bypassed. Mitigation: Define explicit mode constraint protocol at Tasking interface; Teleoperation must validate all commands against Safety Services' current operational mode before transmission.",
+        "MEDIUM: Vehicle enforcement gap. Safety Services enforces mode constraints at the communication layer, but Vehicle must implement corresponding operational restrictions (e.g., reject commands outside allowed modes). If Vehicle ignores mode constraints or executes commands without validation, safety guarantees degrade. Mitigation: Vehicle must implement mode-aware command validation; Safety Services and Vehicle must share a consistent operational mode state machine.",
+        "LOW: Telemetry buffering SLA conflict. Safety Services buffers telemetry for reliability, but Teleoperation may expect real-time data. Buffering introduces latency that could conflict with operator situational awareness. Mitigation: Define explicit buffering policy and SLA at Telemetry interface (e.g., buffer depth, flush frequency, priority-based forwarding for critical telemetry)."
+      ],
+      "containment_notes": "EXCELLENT containment (0.92 score). Safety Services is the natural and cohesive owner of the dual-layer DP. The module sits at the logical enforcement point between Teleoperation (command source) and Vehicle (command sink), and between Vehicle (telemetry source) and Teleoperation (telemetry consumer). Both buffering/prioritization (proactive reliability) and network condition monitoring (reactive safety) are safety-critical responsibilities that belong in a centralized, auditable module. Minimal diffusion: only SafetyAlert and mode-constrained Tasking/Telemetry are exported. Alternative placements (Teleoperation, Vehicle, NGHE Solution) would scatter the DP across multiple modules and degrade accountability."
+    },
+    "recommended_revisions": [
+      "INTERFACE SPECIFICATION: Formalize the Network Link interface to export real-time packet loss, latency, and link quality metrics. Define metric granularity (e.g., packet loss as rolling average over 1-second window), update frequency (e.g., 100 ms), and alarm thresholds (e.g., trigger SafetyAlert when packet loss > threshold for > 2 consecutive windows).",
+      "MODE CONSTRAINT PROTOCOL: Define an explicit operational mode state machine (e.g., NOMINAL, DEGRADED, RESTRICTED, FAILSAFE) and mode transition rules based on packet loss thresholds. Document which commands are allowed in each mode. Require Teleoperation to validate all commands against current mode before transmission.",
+      "VEHICLE COMPLIANCE: Ensure Vehicle implements mode-aware command validation. Vehicle must reject or queue commands that are incompatible with the current operational mode enforced by Safety Services. Define the mode state synchronization mechanism (e.g., mode updates embedded in Tasking messages or separate mode broadcast).",
+      "TELEMETRY BUFFERING SLA: Define explicit buffering policy at Telemetry interface: buffer depth (e.g., 100 packets), flush frequency (e.g., every 500 ms or when buffer full), and priority-based forwarding (e.g., critical telemetry flushed immediately, non-critical telemetry batched). Document latency bounds and operator expectations.",
+      "ACCEPTANCE TEST PLAN: Develop test cases for each DP mechanism: (1) inject packet loss at Network Link and verify Safety Services detects it within latency budget; (2) verify mode constraints are enforced and SafetyAlert is emitted; (3) verify buffering/prioritization protects critical commands; (4) verify Teleoperation respects mode constraints; (5) verify Vehicle implements mode-aware validation. Acceptance criterion: packet loss ≤ 1% under agreed network conditions, with mode constraints enforced within 500 ms of threshold breach."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "All three gates (FR-IM, FR-DP, DP-IM) pass with high confidence. The FR is measurable, the DP is solution-complete and logically sound, and Safety Services is the correct and well-contained owner. However, the DP-IM gate identifies MEDIUM-severity diffusion risks that require explicit sub-FR decomposition to ensure interface contracts, mode state machines, and compliance mechanisms are properly designed and allocated. The recommended revisions (Network Link interface formalization, mode constraint protocol, Vehicle compliance, telemetry buffering SLA) are architectural dependencies that must be decomposed into child FRs to ensure they are not lost during detailed design. High safety criticality demands that these interface and protocol requirements be explicitly traced and verified.",
+    "next_level_sub_frs": [
+      "FR 2.1: Provide real-time network condition metrics (packet loss, latency, link quality) to Safety Services with defined granularity, update frequency, and alarm thresholds to enable timely network monitoring and mode constraint enforcement.",
+      "FR 2.2: Enforce operational mode constraints (NOMINAL, DEGRADED, RESTRICTED, FAILSAFE) based on packet loss thresholds, with explicit mode state machine and transition rules, such that Teleoperation and Vehicle can validate command/telemetry compatibility with current operational mode.",
+      "FR 2.3: Validate all incoming commands against current operational mode constraints before transmission to Vehicle, ensuring Teleoperation respects Safety Services' mode enforcement and does not bypass reactive safety mechanisms.",
+      "FR 2.4: Implement mode-aware command validation at Vehicle, such that Vehicle rejects or queues commands incompatible with the current operational mode enforced by Safety Services, with synchronized mode state between Safety Services and Vehicle.",
+      "FR 2.5: Buffer and prioritize telemetry for reliability while maintaining operator situational awareness, with explicit buffering policy (buffer depth, flush frequency, priority-based forwarding) and latency bounds defined in SLA."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "The current DP (dual-layer strategy: buffering/prioritization + network condition monitoring with mode constraints) is logically sound but under-specified at the interface and protocol level. The recommended revisions identify five critical architectural dependencies (Network Link interface, mode constraint protocol, Teleoperation compliance, Vehicle compliance, telemetry buffering SLA) that must be elevated to explicit sub-FRs to ensure they are designed, allocated, and verified. Revising the DP to explicitly reference these sub-FRs will improve traceability and reduce the risk of interface gaps during detailed design."
+    },
+    "record": {
+      "assumptions": [
+        "Safety Services has direct access to real-time network metrics from Network Link (packet loss, latency, link quality). If metrics must be inferred from Vehicle telemetry or Teleoperation feedback, latency in mode constraint enforcement could degrade reactive safety.",
+        "Teleoperation will implement mode constraint validation and respect Safety Services' operational mode restrictions. If Teleoperation ignores mode constraints, the reactive safety mechanism is bypassed.",
+        "Vehicle will implement mode-aware command validation and reject commands incompatible with the current operational mode. If Vehicle ignores mode constraints, safety guarantees degrade.",
+        "Operational mode state machine (NOMINAL, DEGRADED, RESTRICTED, FAILSAFE) is shared and synchronized between Safety Services and Vehicle. Mode transitions are deterministic and based on packet loss thresholds.",
+        "Telemetry buffering policy (buffer depth, flush frequency, priority-based forwarding) is compatible with operator situational awareness requirements. Buffering latency does not exceed operator expectations or safety-critical decision timelines.",
+        "Packet loss threshold (≤ 1%) is achievable under agreed network conditions and is validated through acceptance testing with injected packet loss."
+      ],
+      "open_risks": [
+        "MEDIUM: Network metrics dependency. If Network Link does not export real-time packet loss, latency, and link quality metrics with sufficient granularity and update frequency, Safety Services' network condition monitor cannot enforce mode constraints within required latency budget. Mitigation: Formalize Network Link interface specification (FR 2.1) with explicit metric export requirements.",
+        "MEDIUM: Teleoperation compliance risk. If Teleoperation does not validate commands against Safety Services' current operational mode, mode constraints are bypassed and reactive safety is ineffective. Mitigation: Define explicit mode constraint protocol (FR 2.2) and require Teleoperation to implement command validation (FR 2.3).",
+        "MEDIUM: Vehicle enforcement gap. If Vehicle does not implement mode-aware command validation, Safety Services' mode constraints are not enforced at the command execution layer. Mitigation: Require Vehicle to implement mode-aware validation (FR 2.4) with synchronized mode state.",
+        "MEDIUM: Telemetry buffering SLA conflict. If buffering latency exceeds operator expectations or safety-critical decision timelines, operator situational awareness degrades. Mitigation: Define explicit buffering policy and SLA (FR 2.5) with latency bounds and priority-based forwarding.",
+        "LOW: Mode state synchronization. If Safety Services and Vehicle do not maintain synchronized operational mode state, mode constraints may be inconsistently enforced. Mitigation: Define explicit mode state synchronization mechanism (e.g., mode updates embedded in Tasking messages or separate mode broadcast)."
+      ],
+      "evidence_needed": [
+        "Network Link interface specification: packet loss metric definition (rolling average window, update frequency), latency metric definition (percentile, histogram), link quality metric definition (signal strength, error rate), alarm threshold definition (e.g., trigger SafetyAlert when packet loss > threshold for > 2 consecutive windows).",
+        "Operational mode state machine: NOMINAL, DEGRADED, RESTRICTED, FAILSAFE mode definitions; packet loss threshold for each transition (e.g., NOMINAL->DEGRADED at 0.5%, DEGRADED->RESTRICTED at 2%, RESTRICTED->FAILSAFE at 5%); allowed commands in each mode; mode transition latency budget (e.g., enforce mode constraint within 500 ms of threshold breach).",
+        "Teleoperation command validation protocol: mode constraint validation logic; command compatibility matrix (which commands allowed in each mode); validation latency budget; error handling (e.g., reject incompatible commands, emit warning to operator).",
+        "Vehicle mode-aware command validation: mode state synchronization mechanism (e.g., mode updates embedded in Tasking messages); command validation logic; command rejection/queueing policy; mode state consistency verification.",
+        "Telemetry buffering SLA: buffer depth (e.g., 100 packets); flush frequency (e.g., every 500 ms or when buffer full); priority-based forwarding rules (e.g., critical telemetry flushed immediately, non-critical telemetry batched); latency bounds (e.g., critical telemetry delivered within 100 ms, non-critical within 1 second); operator expectations documentation.",
+        "Acceptance test plan: (1) inject packet loss at Network Link and verify Safety Services detects it within latency budget; (2) verify mode constraints are enforced and SafetyAlert is emitted; (3) verify buffering/prioritization protects critical commands; (4) verify Teleoperation respects mode constraints; (5) verify Vehicle implements mode-aware validation; (6) verify packet loss ≤ 1% under agreed network conditions with mode constraints enforced within 500 ms of threshold breach."
+      ]
+    }
+  }
+}

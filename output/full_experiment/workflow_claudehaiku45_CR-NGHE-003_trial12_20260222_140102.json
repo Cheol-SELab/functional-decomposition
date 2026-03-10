@@ -1,0 +1,173 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall enable measurement and reporting of energy consumption per unit of work performed.",
+    "rationale": "The original FR conflates two distinct obligations: (1) the ability to measure and report energy efficiency metrics, and (2) the achievement of a target value. The latter is a performance constraint or acceptance criterion, not a functional requirement of the system itself. The system's functional obligation is to provide visibility into energy consumption in a form that allows stakeholders (Site Manager, Maintenance/Quality) to assess whether operational practices meet the target. The target achievement is a validation concern dependent on operational execution, not system design. This refinement is solution-neutral: it does not prescribe how energy is measured (sensors, telemetry, logging) or how reporting is delivered (dashboard, API, file export).",
+    "verification_idea": "Verify that the NGHE solution collects and reports energy_per_ton = energy_used / ton_moved with sufficient granularity (per shift, per task, per equipment unit) and accuracy (±5% or per acceptance criteria) such that stakeholders can compare measured values against E_target over the agreed evaluation period.",
+    "sub_frs": [
+      "FR-NGHE-003.1: The NGHE solution shall measure total energy consumed by the equipment during operation.",
+      "FR-NGHE-003.2: The NGHE solution shall measure or infer the quantity of work performed (e.g., mass moved, distance traveled, cycles completed).",
+      "FR-NGHE-003.3: The NGHE solution shall compute and store the ratio of energy consumed to work performed.",
+      "FR-NGHE-003.4: The NGHE solution shall provide access to energy efficiency metrics to authorized stakeholders (Site Manager, Maintenance/Quality) in a form suitable for comparison against the customer-defined target."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Instrument the energy source (fuel/power input) with continuous measurement and logging; instrument the work output (tonnage moved) with independent measurement and logging; compute energy_per_ton as a derived metric post-collection.",
+      "DP2: Embed real-time energy and work sensors into the equipment control loop; calculate energy_per_ton continuously during operation and store snapshots at defined intervals.",
+      "DP3: Establish a dual-channel measurement architecture: (a) energy metering at the power distribution point (centralized), (b) work quantification via independent load/displacement sensors; synchronize timestamps and compute ratios offline.",
+      "DP4: Integrate energy and work measurement into a unified telemetry module that samples both streams at synchronized intervals, applies calibration corrections, and streams aggregated energy_per_ton to a reporting backend.",
+      "DP5: Decompose measurement into two independent subsystems: (a) Energy Accounting subsystem (measures fuel consumption or electrical draw), (b) Work Quantification subsystem (measures tonnage or equivalent work units); define a synchronization protocol (timestamp-based or event-based) to correlate measurements for ratio calculation."
+    ],
+    "selected_dp": "DP5: Decompose measurement into two independent subsystems: (a) Energy Accounting subsystem (measures fuel consumption or electrical draw), (b) Work Quantification subsystem (measures tonnage or equivalent work units); define a synchronization protocol (timestamp-based or event-based) to correlate measurements for ratio calculation.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Timestamp synchronization drift between energy and work subsystems could introduce systematic error in energy_per_ton ratio if clocks are not disciplined.",
+        "Calibration constants for energy and work sensors may drift independently; lack of cross-validation could mask sensor failure.",
+        "If synchronization protocol is event-based (e.g., 'work cycle complete'), timing ambiguity in energy attribution (which energy belongs to which work unit) could bias results.",
+        "Reporting layer must correctly handle asynchronous data arrival from two independent subsystems; buffering and ordering logic introduces a potential failure mode."
+      ],
+      "notes": "DP5 achieves functional independence by separating energy measurement from work measurement, allowing each to be optimized and validated independently. Coupling is deferred to the synchronization protocol layer (IM boundary), which is explicit and testable. This is superior to DP2 and DP4 (which embed both measurements in a single control loop, creating tight coupling) and DP1 (which defers all computation, losing real-time visibility). DP3 is similar but less explicit about the synchronization contract."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Energy source and work output are measurable via independent physical/logical channels without significant cross-interference. RISK: If energy measurement (e.g., fuel flow) is affected by work load (e.g., back-pressure), the independence assumption breaks; mitigation: validate via controlled test cycles.",
+      "ASSUMPTION: Synchronization protocol (timestamp or event-based) can achieve sufficient precision (±5% or better) to meet acceptance criteria. RISK: If evaluation period is short or work cycles are rapid, synchronization jitter could dominate error budget; mitigation: specify clock accuracy and protocol latency bounds in IM design.",
+      "ASSUMPTION: Calibration of energy and work sensors is stable over the evaluation period. RISK: Sensor drift (especially fuel flow or load cells) could introduce systematic bias; mitigation: define in-situ calibration checkpoints or redundant sensors.",
+      "ASSUMPTION: Energy_per_ton ratio is computed correctly (numerator and denominator aligned in time and units). RISK: Unit conversion errors (e.g., kWh vs. MJ, metric tons vs. short tons) or off-by-one errors in aggregation could invalidate results; mitigation: implement unit-aware computation and automated sanity checks.",
+      "ASSUMPTION: Worksite safety plan and operational policies do not prohibit installation of measurement sensors or impose latency constraints that conflict with real-time reporting. RISK: If sensors must be non-intrusive or reporting must be delayed, DP5 may require adaptation; mitigation: engage safety review early.",
+      "ASSUMPTION: Data loss or corruption during collection/transmission is acceptable at a defined rate (e.g., <1% of samples). RISK: If acceptance criteria require 100% data integrity, DP5 must include redundancy or checksums; mitigation: specify data quality SLA in IM design."
+    ],
+    "recommended_revision": "Refine FR to explicitly state: (1) Required precision of energy_per_ton measurement (e.g., ±5% confidence interval), (2) Time granularity for reporting (e.g., per-shift, per-cycle, real-time), (3) Data retention and audit requirements, (4) Acceptable sensor types and installation constraints from safety plan. Then decompose DP5 into two sub-DPs: DP5a (Energy Accounting: measure fuel/power input with specified accuracy and latency) and DP5b (Work Quantification: measure tonnage with specified accuracy and latency), with an explicit DP5c (Synchronization Protocol: define timestamp discipline, buffering strategy, and ratio computation logic). This will clarify IM boundaries and enable independent validation of each subsystem."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "NGHE Solution",
+      "scope": "Centralized measurement decomposition and synchronization logic that orchestrates Energy Accounting and Work Quantification subsystems, manages timestamp-based or event-based correlation protocol, and exposes unified efficiency ratio calculations to external consumers."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "inout",
+        "details": "Receives raw energy (fuel/electrical) and work (tonnage/units) measurements from Vehicle subsystem; outputs correlated efficiency metrics and synchronized measurement pairs."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives task context and synchronization mode directives (timestamp-based vs. event-based correlation strategy) to configure measurement decomposition behavior."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Emits alerts if measurement synchronization fails, data gaps occur, or efficiency ratios fall outside safe operating bounds."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Highest containment: NGHE Solution is the logical home for measurement decomposition, subsystem orchestration, and synchronization protocol. Energy Accounting and Work Quantification are conceptual subsystems within NGHE's scope. Minimal diffusion: only telemetry ingestion and task directives cross boundaries; efficiency ratio output is a primary NGHE responsibility."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor containment: Vehicle is a data source (raw measurements), not a logical home for measurement decomposition or synchronization orchestration. Placing DP here would scatter measurement logic across vehicle hardware/firmware and require heavy coupling back to NGHE for ratio calculation and correlation."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Very poor containment: Teleoperation is a control/command interface, not a measurement processing domain. Placing decomposition and synchronization logic here creates semantic mismatch and forces diffusion of measurement concerns across control and analytics layers."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.25,
+        "diffusion_score": 0.75,
+        "notes": "Poor containment: Safety Services is a consumer of measurement data (for threshold monitoring), not the owner of measurement decomposition. Placing DP here inverts responsibility and creates tight coupling between measurement logic and safety policy, reducing modularity."
+      }
+    ],
+    "ownership_candidate": "NGHE Solution",
+    "containment_hypothesis": "NGHE Solution is the natural architectural home for DP5 because: (1) it is responsible for efficiency analysis and ratio calculation, which is the ultimate consumer of synchronized measurements; (2) decomposition into Energy Accounting and Work Quantification subsystems is a logical partitioning within NGHE's domain, not a cross-cutting concern; (3) synchronization protocol (timestamp or event-based) is an internal orchestration detail that NGHE controls; (4) external interfaces (Telemetry in, SafetyAlert out, Tasking directives in) align with NGHE's role as a measurement aggregator and analytics engine.",
+    "containment_risks": [
+      "If Energy Accounting or Work Quantification subsystems require deep integration with Vehicle hardware (e.g., direct CAN bus access, firmware-level sensor fusion), some measurement logic may need to reside in Vehicle module, creating a split ownership risk. Mitigation: define clear sensor abstraction layer in Telemetry interface to isolate Vehicle from NGHE measurement decomposition.",
+      "If synchronization protocol becomes stateful and long-lived (e.g., buffering, windowing, out-of-order recovery), NGHE must manage state durability and recovery. Risk: state loss on NGHE restart. Mitigation: define state persistence contract in Telemetry interface or introduce a dedicated state store.",
+      "If Safety Services requires real-time access to unsynchronized raw measurements (e.g., for fast fault detection), NGHE's decomposition may delay safety-critical signals. Mitigation: expose both raw and synchronized measurement streams via Telemetry interface; let Safety Services subscribe to raw stream independently."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The FR acceptance criterion (energy_per_ton ≤ E_target) is directly measurable via the proposed DP decomposition: Energy Accounting subsystem quantifies energy_used; Work Quantification subsystem quantifies ton_moved; NGHE Solution orchestrates synchronization and ratio calculation. Telemetry interface provides ingestion of raw measurements; SafetyAlert interface enables threshold monitoring. Verification is traceable to NGHE Solution module outputs.",
+      "allocation_clarity": "Clear. NGHE Solution is the unambiguous owner of measurement decomposition, synchronization protocol, and efficiency ratio calculation. Ownership boundary is well-defined: NGHE receives raw measurements from Vehicle via Telemetry (abstracted sensor interface), receives synchronization directives from Tasking, and emits correlated metrics and safety alerts. No ambiguity in responsibility allocation."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP5 directly and sufficiently addresses the FR. The decomposition into Energy Accounting and Work Quantification subsystems with a synchronization protocol is a sound logical solution to the problem of measuring and reporting energy consumption per unit of work. The DP is technology-agnostic (supports both timestamp-based and event-based correlation), scalable, and testable. No independence violations detected: the two subsystems are decoupled measurement domains that converge only at the synchronization layer."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Sensor abstraction layer risk: If Energy Accounting or Work Quantification require direct hardware integration (CAN bus, firmware-level sensor fusion) rather than abstracted telemetry feeds, measurement logic will diffuse into Vehicle module. Mitigation: enforce strict sensor abstraction contract in Telemetry interface; Vehicle module must expose normalized energy and work measurement streams, not raw hardware signals.",
+        "State durability risk: If synchronization protocol requires stateful buffering, windowing, or out-of-order recovery, NGHE Solution must persist synchronization state. Risk of state loss on restart, leading to measurement gaps. Mitigation: define state persistence contract (e.g., durable queue, event log) in Telemetry interface or introduce dedicated state store module with clear ownership.",
+        "Real-time safety signal latency risk: If Safety Services requires unsynchronized raw measurements for fast fault detection (e.g., immediate over-temperature alert), NGHE's synchronization delay may violate safety response time. Mitigation: expose dual measurement streams via Telemetry interface—both raw (low-latency) and synchronized (high-fidelity) paths; allow Safety Services to subscribe independently to raw stream without waiting for NGHE correlation.",
+        "Synchronization mode switching risk: Tasking directives can switch correlation strategy (timestamp-based vs. event-based) at runtime. If Energy Accounting and Work Quantification subsystems are tightly coupled to one strategy, switching creates diffusion of mode-handling logic. Mitigation: design synchronization protocol as a pluggable strategy pattern within NGHE; both subsystems must remain agnostic to correlation mode."
+      ],
+      "containment_notes": "NGHE Solution achieves 0.92 containment score with minimal diffusion (0.08). Logical home is well-justified: (1) NGHE is the natural consumer of synchronized measurements for efficiency analysis; (2) Energy Accounting and Work Quantification are internal subsystems within NGHE's analytical domain, not cross-cutting concerns; (3) synchronization protocol is an internal orchestration detail. External interfaces are clean: Telemetry (measurement ingestion), Tasking (mode directives), SafetyAlert (threshold-based alerts). No semantic mismatch or inverted responsibilities. Vehicle, Teleoperation, and Safety Services are correctly excluded as owners (containment scores 0.35, 0.2, 0.25 respectively). Risk of split ownership exists only if sensor abstraction layer is violated; this is a design discipline issue, not an architectural flaw."
+    },
+    "recommended_revisions": [
+      "Formalize sensor abstraction layer in Telemetry interface specification: define normalized measurement schemas for energy (fuel consumption in liters/gallons or electrical draw in kWh) and work (tonnage or equivalent work units). Vehicle module must expose these normalized streams; NGHE must not depend on raw hardware signals. This prevents diffusion of measurement decomposition logic into Vehicle.",
+      "Define synchronization protocol state contract: specify whether NGHE maintains buffered/windowed state, how state is persisted (durable queue, event log, external store), and recovery behavior on restart. Document state durability SLA to ensure measurement continuity across NGHE restarts.",
+      "Introduce dual measurement stream pattern in Telemetry interface: expose both raw (unsynchronized, low-latency) and synchronized (correlated, high-fidelity) measurement paths. Allow Safety Services to subscribe to raw stream independently for real-time fault detection without waiting for NGHE synchronization. This decouples safety response time from measurement correlation latency.",
+      "Specify synchronization mode switching protocol: document how Tasking directives trigger mode changes (timestamp-based ↔ event-based), whether mode switches are atomic or gradual, and how in-flight measurements are handled during transitions. Ensure Energy Accounting and Work Quantification subsystems remain mode-agnostic.",
+      "Add acceptance criterion for synchronization fidelity: define acceptable measurement gap tolerance (e.g., max 5% of measurements lost due to synchronization failure), data latency bounds (e.g., correlation delay ≤ 100ms), and out-of-order recovery guarantees. This makes the synchronization protocol verifiable against the FR.",
+      "Document SafetyAlert threshold policy: specify which efficiency ratio anomalies trigger alerts (e.g., energy_per_ton > 1.2 × E_target), alert severity levels, and escalation paths. Clarify whether Safety Services or NGHE owns threshold logic (recommended: NGHE computes and emits alerts; Safety Services consumes and acts)."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "Gate results confirm FR5 is well-formed (FR_DP_gate: pass, FR_IM_gate: pass, DP_IM_gate: pass with manageable diffusion risks at 0.08). However, the recommended_revisions expose critical design contracts that must be formalized before decomposition can proceed safely. The safety criticality factor (high) and the presence of dual measurement stream requirements, synchronization state durability, and mode-switching logic indicate that the current DP5 decomposition is logically sound but architecturally incomplete. Rather than stop (which would leave unresolved interface contracts) or revise current level (which would delay decomposition), ZIGZAG_DOWN with explicit sub-FR derivation for the identified design contracts. This ensures that Energy Accounting and Work Quantification subsystems are derived with clear, verifiable acceptance criteria that address sensor abstraction, state persistence, and dual-stream patterns.",
+    "next_level_sub_frs": [
+      "FR5.1: Provide normalized, abstracted measurement streams (energy and work) from Vehicle module via Telemetry interface, decoupled from raw hardware signals, to prevent measurement logic diffusion into Vehicle.",
+      "FR5.2: Synchronize energy and work measurements using a pluggable correlation protocol (timestamp-based or event-based) that remains agnostic to mode selection, with atomic or gradual mode-switching capability.",
+      "FR5.3: Persist synchronization state (buffered/windowed measurements, correlation metadata) with defined durability SLA and recovery behavior to ensure measurement continuity across NGHE restarts.",
+      "FR5.4: Expose dual measurement streams via Telemetry interface—raw (unsynchronized, low-latency) and synchronized (correlated, high-fidelity)—to decouple safety response time from measurement correlation latency.",
+      "FR5.5: Compute and emit SafetyAlert signals when efficiency ratio (energy_per_ton) exceeds defined thresholds, with alert severity levels and escalation paths, owned by NGHE Solution.",
+      "FR5.6: Quantify energy consumption (fuel in liters/gallons or electrical draw in kWh) from Vehicle telemetry with measurement fidelity and latency bounds (e.g., ≤100ms correlation delay).",
+      "FR5.7: Quantify work performed (tonnage or equivalent work units) from Vehicle telemetry with measurement fidelity and latency bounds (e.g., ≤100ms correlation delay).",
+      "FR5.8: Define and enforce synchronization fidelity acceptance criteria: max measurement gap tolerance (e.g., ≤5% loss), data latency bounds, and out-of-order recovery guarantees."
+    ],
+    "revise": {
+      "target": "DP",
+      "why": "DP5 is logically sound but requires formalization of design contracts before subsystem decomposition. Specifically: (1) Sensor abstraction layer must be explicitly specified in Telemetry interface (normalized schemas, no raw hardware signals); (2) Synchronization protocol must define state persistence contract and mode-switching strategy; (3) Dual measurement stream pattern must be architecturally mandated to decouple safety latency from correlation latency; (4) SafetyAlert ownership and threshold policy must be clarified. These revisions do not change the core DP logic but make it architecturally complete and verifiable. Recommend updating DP5 narrative to include: 'DP5 is realized via NGHE Solution module, which orchestrates Energy Accounting and Work Quantification subsystems through a pluggable synchronization protocol. Energy Accounting ingests normalized energy measurements from Vehicle via Telemetry (abstracted sensor interface, no raw hardware coupling). Work Quantification ingests normalized work measurements from Vehicle via Telemetry. Synchronization protocol supports both timestamp-based and event-based correlation modes, with atomic mode-switching capability. Synchronized measurements are persisted with defined durability SLA. Dual measurement streams (raw and synchronized) are exposed via Telemetry interface to decouple safety response time from correlation latency. NGHE computes efficiency ratio (energy_per_ton) and emits SafetyAlert signals when thresholds are exceeded. Acceptance criteria: measurement gap tolerance ≤5%, correlation delay ≤100ms, synchronization fidelity verifiable via telemetry logs.'"
+    },
+    "record": {
+      "assumptions": [
+        "Vehicle module can expose normalized energy and work measurement streams via Telemetry interface without requiring NGHE to access raw hardware signals (CAN bus, firmware-level sensor fusion).",
+        "Synchronization state can be persisted with acceptable durability SLA (e.g., durable queue, event log) without introducing unacceptable latency overhead.",
+        "Dual measurement stream pattern (raw + synchronized) is architecturally feasible and does not create redundant measurement logic or data consistency issues.",
+        "Safety Services can tolerate measurement latency variance between raw (low-latency) and synchronized (high-fidelity) streams without creating safety-critical race conditions.",
+        "Tasking module can issue synchronization mode directives (timestamp-based ↔ event-based) at runtime without requiring NGHE to restart or reset state.",
+        "SafetyAlert threshold policy can be owned by NGHE Solution without creating circular dependencies with Safety Services (i.e., Safety Services consumes alerts, does not dictate threshold logic)."
+      ],
+      "open_risks": [
+        "Sensor abstraction layer violation: If Vehicle module exposes raw hardware signals instead of normalized measurement streams, measurement decomposition logic will diffuse into Vehicle, violating IM containment. Mitigation: enforce strict Telemetry interface contract with schema validation and integration tests.",
+        "State durability SLA mismatch: If synchronization state persistence introduces latency > 100ms or durability guarantees are weaker than required, measurement correlation fidelity will degrade. Mitigation: define and validate state persistence SLA during DP5.3 decomposition.",
+        "Dual stream data consistency: If raw and synchronized measurement streams diverge (e.g., raw stream includes measurements that are later filtered out during synchronization), Safety Services may act on stale or inconsistent data. Mitigation: define data consistency contract in Telemetry interface; clarify whether raw stream is a true subset of synchronized stream or independent measurement path.",
+        "Mode-switching atomicity: If synchronization mode switches (timestamp-based ↔ event-based) are not atomic, in-flight measurements may be corrupted or lost. Mitigation: specify mode-switching protocol with clear semantics for in-flight measurement handling during DP5.2 decomposition.",
+        "SafetyAlert latency: If SafetyAlert emission is delayed by synchronization protocol, safety response time may exceed acceptable bounds. Mitigation: define SafetyAlert latency SLA independent of synchronization latency; consider dual-path alert emission (raw + synchronized) if safety criticality requires sub-100ms response.",
+        "Threshold policy ownership ambiguity: If both NGHE and Safety Services attempt to define or modify efficiency thresholds, conflicting policies may emerge. Mitigation: clarify ownership during DP5.5 decomposition; recommend NGHE owns threshold logic, Safety Services owns alert consumption and escalation."
+      ],
+      "evidence_needed": [
+        "Telemetry interface specification: normalized measurement schemas for energy (units, precision, update frequency) and work (units, precision, update frequency); confirmation that Vehicle module can expose these without raw hardware coupling.",
+        "Synchronization protocol design document: state persistence strategy (durable queue, event log, external store), durability SLA, recovery behavior on restart, mode-switching semantics, and latency bounds.",
+        "Dual measurement stream architecture: confirmation that raw and synchronized streams can coexist without data consistency issues; definition of relationship between raw and synchronized measurements (subset, independent, or derived).",
+        "SafetyAlert threshold policy: specification of efficiency ratio thresholds (e.g., energy_per_ton > 1.2 × E_target), alert severity levels, escalation paths, and latency SLA.",
+        "Integration test plan: validation of sensor abstraction layer (Vehicle exposes normalized streams, not raw signals), synchronization fidelity (measurement gap tolerance ≤5%, correlation delay ≤100ms), state durability (recovery on restart), and dual-stream consistency.",
+        "Safety analysis: confirmation that dual measurement stream pattern does not create safety-critical race conditions; validation that SafetyAlert latency meets safety response time requirements."
+      ]
+    }
+  }
+}

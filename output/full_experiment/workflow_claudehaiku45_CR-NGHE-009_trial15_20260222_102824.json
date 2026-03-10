@@ -1,0 +1,172 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation communication integrity within customer-defined packet loss limits during agreed network conditions.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting teleoperation as a capability, and (2) meeting packet loss quality criteria. The refined FR isolates the quality/performance obligation while remaining solution-neutral by avoiding prescriptive terms like 'support' (which implies mechanism) and instead focusing on the outcome: maintaining communication integrity. The phrase 'customer-defined packet loss limits' and 'agreed network conditions' are preserved as acceptance criteria anchors without embedding implementation details.",
+    "verification_idea": "Conduct teleoperation trials under agreed network conditions (e.g., 4G/5G coverage, latency profiles, bandwidth constraints) and measure end-to-end packet loss across the communication path. Confirm measured packet loss ≤ customer-defined threshold (e.g., ≤1%). Document network conditions and acceptance sign-off.",
+    "sub_frs": [
+      "FR-NGHE-009.1: The NGHE solution shall enable remote operation of equipment functions from a tele-operator station.",
+      "FR-NGHE-009.2: The NGHE solution shall maintain teleoperation command and feedback data transmission with packet loss ≤ customer-defined limit under agreed network conditions.",
+      "FR-NGHE-009.3: The NGHE solution shall detect and report communication degradation (packet loss, latency anomalies) to the tele-operator in real time."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Implement adaptive packet redundancy and selective retransmission based on real-time loss detection and customer-configurable thresholds",
+      "DP2: Employ forward error correction (FEC) encoding with configurable redundancy levels tied to measured network conditions",
+      "DP3: Design a dual-path communication architecture with automatic failover and load balancing across independent network routes",
+      "DP4: Implement application-level acknowledgment and timeout-driven resend logic with exponential backoff and customer-tunable parameters",
+      "DP5: Combine network-layer QoS signaling with application-layer prioritization to segregate critical teleoperation commands from non-critical telemetry",
+      "DP6: Deploy a local buffering and smoothing layer that absorbs transient packet loss through temporal redundancy without requiring retransmission"
+    ],
+    "selected_dp": "DP5: Combine network-layer QoS signaling with application-layer prioritization to segregate critical teleoperation commands from non-critical telemetry, integrated with DP1 (adaptive packet redundancy for critical paths only) as a composite solution",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "DP5 + DP1 coupling: QoS signaling effectiveness depends on network infrastructure support; if unavailable, fallback to DP1 alone must be graceful and transparent to customer configuration",
+        "Customer-defined thresholds (DP1) must align with network measurement granularity; misalignment risks oscillation or false positives in redundancy activation",
+        "Temporal coupling: Adaptive redundancy (DP1) introduces latency variance; teleoperation safety policies must tolerate or explicitly bound this variance",
+        "Weak coupling to IM layer: Both DPs are solution-neutral but assume existence of a configurable parameter store and real-time loss metric collection; these must be decoupled from specific transport protocols"
+      ],
+      "notes": "The composite DP avoids over-coupling by keeping QoS and redundancy as independent logical layers. DP5 handles network-level optimization; DP1 handles application-level resilience. Decoupling is maintained if each layer can operate independently (e.g., DP1 works without QoS, DP5 works without adaptive redundancy). Risk: if customer network does not support QoS, DP5 degrades to DP1 only, reducing efficiency but maintaining integrity."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Customer network infrastructure supports or tolerates QoS signaling; if not, DP5 becomes a no-op and system relies entirely on DP1 (increased overhead).",
+      "ASSUMPTION: Packet loss is measurable and stable enough to inform adaptive thresholds; bursty or highly variable loss may cause redundancy oscillation.",
+      "ASSUMPTION: Teleoperation safety policies permit bounded latency variance introduced by retransmission and buffering; if hard real-time constraints exist, DP1 may violate them.",
+      "ASSUMPTION: Customer can define and communicate packet loss targets and network conditions a priori; vague or changing targets will cause design rework.",
+      "RISK: Adaptive redundancy (DP1) may over-correct in response to transient loss spikes, consuming bandwidth unnecessarily and triggering customer complaints about 'wasted' capacity.",
+      "RISK: Prioritization (DP5) requires classification of commands vs. telemetry; misclassification can degrade non-critical data quality without improving critical path integrity.",
+      "RISK: Composite DP introduces two independent failure modes (QoS failure, redundancy failure); testing matrix expands significantly."
+    ],
+    "recommended_revision": "FR (refined): The NGHE solution shall maintain teleoperation communication integrity by ensuring that critical control commands experience packet loss ≤ [customer-defined target, e.g., 1%] under agreed network conditions, while non-critical telemetry may tolerate higher loss; the system shall adapt redundancy and prioritization based on real-time loss metrics and customer-configurable thresholds, with explicit bounds on induced latency variance (e.g., ≤ [X] ms) to satisfy worksite safety policies. DP shall be revised to: 'Implement a two-tier communication strategy: (1) network-layer QoS prioritization for critical teleoperation commands, and (2) application-layer adaptive packet redundancy (selective retransmission or FEC) for critical paths, with configurable loss thresholds and latency bounds, such that each tier operates independently and gracefully degrades if the other is unavailable.' This revision clarifies the latency constraint (currently implicit) and makes the independence assumption explicit."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Encapsulates network-layer QoS signaling and application-layer prioritization logic for teleoperation command streams, including adaptive packet redundancy for critical paths and segregation of critical commands from non-critical telemetry."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives high-level teleoperation commands and priorities from operator; Teleoperation module interprets priority levels and applies QoS signaling."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Sends QoS-marked packets (critical teleoperation commands with redundancy, non-critical telemetry) to network layer; receives network status feedback for adaptive redundancy adjustment."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Signals safety-critical command delivery status or QoS degradation events to Safety Services when critical teleoperation paths are compromised."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Outputs non-critical telemetry with lower QoS priority; Teleoperation module segregates this from critical command streams."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit: DP5 is fundamentally a teleoperation-specific concern. Application-layer prioritization of commands vs. telemetry, QoS signaling for command criticality, and adaptive redundancy for teleoperation paths are all core to this module's responsibility. Minor diffusion: Network Link interface must be aware of QoS markings, but this is a standard contract."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.45,
+        "diffusion_score": 0.55,
+        "notes": "Poor fit: Safety Services should monitor and enforce safety constraints, not manage QoS signaling or packet redundancy. DP5 is primarily a performance/reliability optimization for teleoperation, not a safety enforcement mechanism. Would require Safety Services to own network-layer logic, violating separation of concerns. High diffusion: QoS logic would leak into safety module."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Very poor fit: Vehicle module should encapsulate vehicle state, actuation, and sensor fusion—not network QoS or teleoperation command prioritization. DP5 is upstream of vehicle control; placing it here inverts the dependency hierarchy. Massive diffusion: teleoperation logic would be scattered across Vehicle and Teleoperation modules."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Poor fit: NGHE Solution is a top-level system container, not a functional module. DP5 is a specific teleoperation optimization, not a system-wide concern. Placing DP5 here would bypass the natural Teleoperation module boundary and create diffusion across multiple subsystems. Overly broad."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the natural owner of DP5 because: (1) it is responsible for translating operator intent (Tasking) into vehicle commands; (2) it must distinguish critical commands from non-critical telemetry streams; (3) it interfaces directly with the Network Link to send commands; (4) QoS signaling and adaptive redundancy are optimization strategies specific to teleoperation reliability, not general system concerns. The module owns the logic to mark packets, adjust redundancy based on network feedback, and segregate command priorities.",
+    "containment_risks": [
+      "Network Link interface must support QoS marking and feedback; if the network layer does not expose QoS APIs, Teleoperation module may need to negotiate a new interface contract.",
+      "Adaptive redundancy logic (DP1 integration) requires real-time network status feedback; if Network Link does not provide timely congestion or loss metrics, redundancy adaptation may be delayed or ineffective.",
+      "Safety Services must be notified of QoS degradation (e.g., critical command delivery failure); SafetyAlert interface must be bidirectional or Safety Services must actively poll Teleoperation for status.",
+      "Telemetry segregation assumes Teleoperation module can distinguish telemetry from commands; if telemetry is generated elsewhere and routed through Teleoperation, ownership boundaries may blur."
+    ],
+    "recommended_revision": "No revision to DP5 is recommended. The DP is well-scoped and logically sound. However, clarify the DP to explicitly state that 'adaptive packet redundancy' (DP1 integration) applies only to critical teleoperation command paths, not to all network traffic. This ensures Teleoperation module does not attempt to manage redundancy for Vehicle sensor data or other non-teleoperation streams, which would diffuse the DP outside its natural boundary."
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "High. The FR specifies a measurable acceptance criterion (packet loss ≤ 1% or customer-defined target under agreed network conditions). The IM boundary (Teleoperation module) owns the mechanisms to achieve this: QoS signaling, application-layer prioritization, adaptive redundancy, and command/telemetry segregation. Verification can be conducted via network simulation, field testing under controlled packet loss conditions, and telemetry analysis of delivery success rates for critical command paths. The SafetyAlert interface provides an observable signal for QoS degradation events.",
+      "allocation_clarity": "Clear. The FR requirement is allocated entirely to the Teleoperation IM, which owns all functional logic needed to maintain communication integrity. External dependencies are well-defined: Tasking provides priority context, Network Link provides QoS APIs and feedback, SafetyAlert provides notification of failures, and Telemetry provides non-critical data streams. No ambiguity in ownership or responsibility."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP5 directly addresses the FR by combining network-layer QoS signaling with application-layer prioritization to segregate critical teleoperation commands from non-critical telemetry, integrated with DP1 (adaptive packet redundancy). This composite approach is logically sound and sufficient to achieve packet loss ≤ 1% under agreed network conditions. The DP is expressed at the correct level of abstraction (design domain) and does not prematurely constrain implementation choices (e.g., specific QoS protocols or redundancy algorithms). The integration with DP1 is explicit and justified."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Network Link interface must expose QoS marking APIs and provide timely network status feedback (congestion, loss metrics). If the network layer does not support these contracts, Teleoperation module may need to negotiate new interface specifications or implement workarounds, risking diffusion of QoS logic into the network layer.",
+        "Adaptive redundancy logic (DP1 integration) depends on real-time network feedback. If Network Link provides stale or infrequent metrics, redundancy adaptation may lag behind actual network conditions, reducing effectiveness. Teleoperation module must define acceptable feedback latency thresholds.",
+        "SafetyAlert interface must support timely notification of critical command delivery failures or QoS degradation. If Safety Services cannot act on these alerts quickly enough, the safety plan may be compromised. Bidirectional communication or active polling may be required.",
+        "Telemetry segregation assumes Teleoperation module can reliably distinguish critical commands from non-critical telemetry at the application layer. If telemetry is generated by Vehicle or other modules and routed through Teleoperation, ownership boundaries may blur and diffusion risk increases. Clear data flow contracts are essential.",
+        "DP1 (adaptive packet redundancy) scope must be explicitly limited to critical teleoperation command paths only. If Teleoperation module attempts to manage redundancy for Vehicle sensor data, telemetry from other subsystems, or non-teleoperation network traffic, DP5 will diffuse outside its natural boundary and violate separation of concerns."
+      ],
+      "containment_notes": "Excellent containment (0.92 score). The Teleoperation module is the natural and only appropriate owner of DP5. All core responsibilities—command prioritization, QoS signaling, adaptive redundancy for critical paths, and command/telemetry segregation—are intrinsic to teleoperation functionality and do not belong in Safety Services, Vehicle, or system-level containers. The module's external interfaces are well-defined and appropriate. Minor diffusion risk is limited to interface contracts with Network Link and Safety Services, which are manageable through clear API specifications and data flow documentation. No revision to DP5 logic is required, but the DP should be clarified to explicitly scope adaptive redundancy to critical teleoperation command paths only, not to all network traffic or telemetry streams."
+    },
+    "recommended_revisions": [
+      "Clarify DP5 to explicitly state: 'Adaptive packet redundancy (DP1 integration) applies exclusively to critical teleoperation command paths identified by application-layer prioritization. Non-critical telemetry and non-teleoperation network traffic are not subject to redundancy management by the Teleoperation module.' This prevents diffusion of DP5 into Vehicle, Telemetry, or other subsystems.",
+      "Define interface contract for Network Link: Specify required QoS APIs (e.g., marking critical packets, setting priority levels), required feedback metrics (packet loss rate, congestion level, latency), and acceptable feedback latency (e.g., ≤ 100 ms). Document fallback behavior if Network Link does not support QoS signaling.",
+      "Define interface contract for SafetyAlert: Specify events that trigger alerts (e.g., critical command delivery failure, QoS degradation below threshold), alert latency requirements (e.g., ≤ 50 ms), and expected Safety Services response actions. Clarify whether alerts are one-way notifications or require acknowledgment.",
+      "Document telemetry segregation logic: Specify how Teleoperation module distinguishes critical commands from non-critical telemetry (e.g., by message type, priority field, source module). If telemetry is generated by other modules, define clear data flow contracts to prevent ownership ambiguity.",
+      "Add acceptance test criteria: Define measurable tests for DP5 validation, such as: (1) Packet loss for critical commands ≤ 1% under customer-defined network conditions; (2) QoS marking applied to 100% of critical commands; (3) Adaptive redundancy activated within 100 ms of network degradation; (4) SafetyAlert triggered within 50 ms of critical command delivery failure. Link tests to FR acceptance criteria."
+    ]
+  },
+  "decision": {
+    "decision": "REVISE_CURRENT_LEVEL",
+    "justification": "All three gates (FR-IM, FR-DP, DP-IM) pass with high confidence, and the FR is sufficiently specific to support verification and allocation. However, the recommended revisions expose critical ambiguities in DP5 scope and interface contracts that must be resolved before proceeding to sub-level decomposition. Specifically: (1) DP5 must explicitly scope adaptive redundancy to critical teleoperation command paths only, preventing diffusion into Vehicle, Telemetry, or network-layer subsystems; (2) Interface contracts with Network Link and SafetyAlert must be formally defined to eliminate diffusion risks and ensure feasibility; (3) Telemetry segregation logic must be clarified to prevent ownership boundary blur. These are design-domain clarifications (DP refinement), not functional requirement changes. Resolving them now prevents architectural debt and rework during sub-level decomposition. Given high safety criticality, explicit interface contracts and scope boundaries are non-negotiable before lower-level FRs are derived.",
+    "next_level_sub_frs": [],
+    "revise": {
+      "target": "DP",
+      "why": "DP5 requires explicit scope clarification and interface contract definitions to eliminate diffusion risks and ensure architectural containment. The core logic is sound, but the design parameter must be refined to: (1) explicitly limit adaptive redundancy to critical teleoperation command paths only; (2) define required Network Link QoS APIs and feedback contracts; (3) define SafetyAlert event triggers and latency requirements; (4) clarify telemetry segregation logic and data flow ownership. These refinements are design-domain decisions that do not change the functional requirement but strengthen the DP's feasibility and reduce implementation risk. Once DP5 is clarified, sub-level FRs can be derived with confidence."
+    },
+    "record": {
+      "assumptions": [
+        "Network Link module can expose QoS marking APIs and provide network status feedback (congestion, loss metrics) with latency ≤ 100 ms.",
+        "SafetyAlert interface supports timely notification of critical command delivery failures with latency ≤ 50 ms.",
+        "Teleoperation module can reliably distinguish critical commands from non-critical telemetry at the application layer using message type, priority field, or source module metadata.",
+        "Adaptive redundancy logic (DP1 integration) operates only on critical teleoperation command paths and does not extend to Vehicle sensor data, non-teleoperation telemetry, or general network traffic.",
+        "Customer-defined network conditions and packet loss targets (≤ 1%) are documented and agreed upon before verification testing.",
+        "Teleoperation module owns all functional logic for command prioritization, QoS signaling, and adaptive redundancy; no diffusion of these responsibilities to other modules is acceptable."
+      ],
+      "open_risks": [
+        "Network Link interface may not support required QoS APIs (e.g., packet marking, priority levels) or may provide stale/infrequent feedback, forcing Teleoperation module to implement workarounds and risking diffusion of QoS logic into the network layer.",
+        "SafetyAlert interface may not support timely notification of critical command delivery failures, compromising the safety plan and requiring redesign of the alert mechanism or Safety Services response logic.",
+        "Telemetry segregation logic may be ambiguous if telemetry is generated by multiple modules (Vehicle, Sensors, etc.) and routed through Teleoperation, blurring ownership boundaries and increasing diffusion risk.",
+        "Adaptive redundancy scope may be unclear, leading to implementation that extends redundancy management to non-critical telemetry or non-teleoperation network traffic, violating separation of concerns.",
+        "Feedback latency from Network Link may exceed acceptable thresholds, causing adaptive redundancy to lag behind actual network conditions and reducing effectiveness in maintaining packet loss ≤ 1%.",
+        "High safety criticality increases verification burden; acceptance tests must be comprehensive and conducted under realistic network conditions (not just simulation)."
+      ],
+      "evidence_needed": [
+        "Formal interface specification for Network Link: Required QoS APIs (e.g., packet marking, priority levels), required feedback metrics (packet loss rate, congestion level, latency), acceptable feedback latency (e.g., ≤ 100 ms), and fallback behavior if QoS signaling is unavailable.",
+        "Formal interface specification for SafetyAlert: Event triggers (e.g., critical command delivery failure, QoS degradation below threshold), alert latency requirements (e.g., ≤ 50 ms), expected Safety Services response actions, and acknowledgment/confirmation protocol.",
+        "Data flow diagram showing telemetry segregation logic: How Teleoperation module distinguishes critical commands from non-critical telemetry, which modules generate telemetry, and how data flows through Teleoperation module without ownership ambiguity.",
+        "Explicit scope statement for DP5: 'Adaptive packet redundancy applies exclusively to critical teleoperation command paths identified by application-layer prioritization. Non-critical telemetry and non-teleoperation network traffic are not subject to redundancy management by the Teleoperation module.'",
+        "Acceptance test plan for DP5 validation: (1) Packet loss for critical commands ≤ 1% under customer-defined network conditions; (2) QoS marking applied to 100% of critical commands; (3) Adaptive redundancy activated within 100 ms of network degradation; (4) SafetyAlert triggered within 50 ms of critical command delivery failure.",
+        "Network simulation and field testing results demonstrating DP5 effectiveness under realistic packet loss, latency, and congestion scenarios.",
+        "Safety analysis (FMEA or similar) confirming that DP5 mechanisms adequately mitigate risks of critical command loss and that SafetyAlert integration provides sufficient safety coverage."
+      ]
+    }
+  }
+}

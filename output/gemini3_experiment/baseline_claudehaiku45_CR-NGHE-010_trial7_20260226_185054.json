@@ -1,0 +1,160 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation link availability ≥ 0.999 (99.9%) over the agreed evaluation period, measured as the ratio of time the bidirectional command-and-telemetry link is operational to total evaluation time.",
+    "rationale": "CR-NGHE-010 addresses a critical operational requirement: remote equipment control depends on reliable communication. The refined FR quantifies the availability target, specifies bidirectionality (command uplink + telemetry downlink), and anchors measurement to an agreed evaluation period. This is essential for safety-critical teleoperation where link loss can lead to loss of control.",
+    "verification_idea": "Continuous monitoring of link state (up/down) during evaluation period; calculate availability as (total_time_link_up) / (total_evaluation_time). Acceptance: measured availability ≥ 0.999. Requires instrumentation of link health across all network segments.",
+    "sub_frs": [
+      "FR-NGHE-010.1: The teleoperation system shall detect link loss within [X] milliseconds.",
+      "FR-NGHE-010.2: The teleoperation system shall provide redundant communication paths to achieve 0.999 availability.",
+      "FR-NGHE-010.3: The teleoperation system shall log link state transitions for availability audit.",
+      "FR-NGHE-010.4: The vehicle shall maintain safe state during link loss (failsafe behavior)."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Single primary network link with passive monitoring; rely on ISP SLA.",
+      "DP-B: Dual independent network links (primary + backup) with active failover logic; automatic switchover on primary link loss.",
+      "DP-C: Mesh network topology with multi-path routing and software-defined failover; dynamic link selection based on quality metrics.",
+      "DP-D: Hybrid approach: dual links + local edge caching + predictive link quality monitoring to pre-emptively switch before loss."
+    ],
+    "selected_dp": "DP-B: Dual independent network links (primary + backup) with active failover logic and automatic switchover on primary link loss detection.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Failover logic must coordinate with Vehicle safety state machine (FR-NGHE-010.4 sub-requirement); tight coupling risk if failover timing not synchronized with vehicle control loop.",
+        "Telemetry buffering during switchover must not lose critical safety telemetry; requires coordination with Safety Services for alert continuity.",
+        "Network link selection logic couples to Teleoperation module's command scheduler; must ensure command ordering is preserved across link switch."
+      ],
+      "notes": "DP-B is decoupled from specific network provider (ISP-agnostic) and allows independent testing of failover. Coupling is manageable via well-defined handoff protocols between Teleoperation and Vehicle modules. Recommended: explicit state machine for link switchover with defined guard conditions."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Two independent network links (e.g., cellular + satellite, or dual cellular carriers) are available at the worksite.",
+      "ASSUMPTION: Link quality metrics (latency, packet loss) can be measured in real-time to trigger failover.",
+      "RISK: Failover latency (time to detect loss + time to switch) may exceed vehicle control loop period; could cause transient loss of control authority.",
+      "RISK: Cost of dual links may exceed customer budget; requires trade-off analysis.",
+      "RISK: Synchronization of dual links during normal operation (both active) could introduce jitter; recommend primary-backup (not active-active) mode."
+    ],
+    "recommended_revision": "Refine DP-B to specify: (1) Primary-backup mode (not active-active) to avoid jitter; (2) Failover detection threshold (e.g., 3 consecutive missed heartbeats); (3) Failover latency budget (e.g., <500 ms) tied to vehicle control loop; (4) Link quality monitoring interval (e.g., 100 ms heartbeat)."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Owns the dual-link failover logic, link health monitoring, command/telemetry routing, and failover state machine. Responsible for detecting link loss, switching to backup link, and maintaining command/telemetry continuity. Does NOT own the physical network infrastructure (links themselves) or vehicle control logic."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives operator commands (movement, tool control, etc.) from tele-operator console; routed over primary or backup link."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Transmits vehicle state, sensor data, and link health status back to tele-operator console; sourced from Vehicle module, routed over primary or backup link."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "Receives safety constraints from Safety Services (e.g., geofence, speed limits); transmits link loss alerts to Safety Services for failsafe action on vehicle."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Abstracts dual physical network links (primary + backup); Teleoperation module queries link status and selects active link for command/telemetry transmission."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.95,
+        "diffusion_score": 0.05,
+        "notes": "BEST FIT. Teleoperation module is the natural owner of link failover logic, command/telemetry routing, and link health monitoring. All these functions are cohesive (link management for remote operation). Minimal diffusion: only external dependency is on Network Link interface (abstraction of physical links) and SafetyAlert for failsafe coordination. High containment."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "POOR FIT. Vehicle module owns vehicle control and safety state machine, not network communication. Assigning link failover to Vehicle would scatter teleoperation logic across two modules (command routing in Teleoperation, failover logic in Vehicle). High diffusion risk."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.25,
+        "diffusion_score": 0.75,
+        "notes": "POOR FIT. Safety Services owns safety constraints and failsafe actions (e.g., stop vehicle on link loss), not link management. Assigning link failover to Safety Services would couple safety logic to network details. High diffusion risk."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.1,
+        "diffusion_score": 0.9,
+        "notes": "POOR FIT. NGHE Solution is the top-level system container, not a functional module. Assigning link failover to NGHE Solution would bypass proper architectural layering. Very high diffusion risk."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the natural owner of dual-link failover logic because: (1) it already owns command/telemetry routing; (2) link health monitoring is cohesive with teleoperation function; (3) failover logic is isolated from vehicle control and safety logic; (4) external dependencies (Network Link, SafetyAlert) are well-defined and minimal.",
+    "containment_risks": [
+      "RISK: If link failover logic becomes complex (e.g., multi-path routing, QoS-based selection), it may grow beyond Teleoperation scope and require a dedicated Network Management module. Mitigation: keep failover logic simple (primary-backup only); defer advanced routing to future evolution.",
+      "RISK: SafetyAlert interface coupling: Teleoperation must notify Safety Services of link loss to trigger failsafe. If this notification is delayed or lost, vehicle may not stop safely. Mitigation: use reliable, low-latency SafetyAlert channel; define timeout for failsafe action.",
+      "RISK: Network Link interface abstraction: if physical links are not properly abstracted, Teleoperation module may become tightly coupled to specific network technologies (e.g., cellular API). Mitigation: enforce Network Link interface as a clean abstraction layer."
+    ],
+    "recommended_revision": "Confirm that Network Link interface provides clean abstraction of dual physical links (status query, link selection, quality metrics). Define SafetyAlert protocol for link loss notification with guaranteed delivery and latency bounds. Consider adding a Link Health Monitor sub-module within Teleoperation if failover logic grows complex."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-B (dual-link failover) directly addresses FR requirement for 0.999 availability. Dual independent links provide redundancy; active failover logic ensures no single link failure causes system unavailability. DP-B is feasible, testable, and aligns with high safety criticality. No coupling issues that would prevent DP selection."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Failover logic must coordinate with Vehicle safety state machine (via SafetyAlert interface). If coordination protocol is not well-defined, failover may conflict with vehicle control. Mitigation: define explicit handoff protocol and test failover scenarios with vehicle control loop.",
+        "Link quality monitoring (latency, packet loss) must be synchronized with command/telemetry scheduling in Teleoperation. If monitoring is asynchronous, failover decision may be stale. Mitigation: use synchronous monitoring at fixed intervals (e.g., 100 ms)."
+      ],
+      "containment_notes": "Teleoperation module contains all failover logic, link health monitoring, and command/telemetry routing. External dependencies (Network Link, SafetyAlert) are well-defined interfaces. No significant diffusion risk; containment is high (0.95 score)."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Availability measurement is feasible: instrument Teleoperation module to log link state transitions (up/down) with timestamps. Calculate availability as (total_time_link_up) / (total_evaluation_time). Requires continuous monitoring during evaluation period (e.g., 30 days). Acceptance: measured availability ≥ 0.999.",
+      "allocation_clarity": "FR-NGHE-010 is allocated to Teleoperation module. Sub-FRs are allocated as follows: FR-NGHE-010.1 (link loss detection) -> Teleoperation; FR-NGHE-010.2 (redundant paths) -> Teleoperation + Network Link; FR-NGHE-010.3 (logging) -> Teleoperation; FR-NGHE-010.4 (failsafe behavior) -> Vehicle + Safety Services. Clear allocation; no ambiguity."
+    },
+    "recommended_revisions": [
+      "Define failover detection threshold (e.g., 3 consecutive missed heartbeats) and failover latency budget (e.g., <500 ms) in DP-B specification.",
+      "Specify SafetyAlert protocol for link loss notification: message format, delivery guarantee, latency bound.",
+      "Define Network Link interface contract: status query API, link selection API, quality metrics (latency, packet loss).",
+      "Add test plan for failover scenarios: primary link loss, backup link loss, simultaneous loss (failsafe), link recovery."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-NGHE-010 is not atomic; it decomposes into four sub-FRs (link loss detection, redundant paths, logging, failsafe behavior). DP-B (dual-link failover) is sound and well-allocated to Teleoperation module. However, sub-FRs require further decomposition to define detailed design parameters (e.g., failover detection algorithm, link quality metrics, failsafe state machine). Recommend decomposing sub-FRs to next level before detailed design.",
+    "next_level_sub_frs": [
+      "FR-NGHE-010.1: The teleoperation system shall detect link loss within [X] milliseconds (requires DP: heartbeat-based detection with configurable threshold).",
+      "FR-NGHE-010.2: The teleoperation system shall provide redundant communication paths to achieve 0.999 availability (requires DP: dual independent links with primary-backup failover).",
+      "FR-NGHE-010.3: The teleoperation system shall log link state transitions for availability audit (requires DP: timestamped event logging with persistent storage).",
+      "FR-NGHE-010.4: The vehicle shall maintain safe state during link loss (requires DP: failsafe state machine in Vehicle module, triggered by SafetyAlert from Teleoperation)."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Two independent network links (e.g., cellular + satellite) are available at the worksite.",
+        "Link quality metrics (latency, packet loss) can be measured in real-time.",
+        "Failover latency <500 ms is acceptable for vehicle control loop.",
+        "Primary-backup mode (not active-active) is preferred to avoid jitter.",
+        "SafetyAlert interface provides reliable, low-latency notification channel."
+      ],
+      "open_risks": [
+        "Failover latency may exceed vehicle control loop period; requires timing analysis.",
+        "Cost of dual links may exceed customer budget; requires trade-off analysis.",
+        "Link quality monitoring synchronization with command/telemetry scheduling; requires protocol definition.",
+        "Failover coordination with vehicle safety state machine; requires explicit handoff protocol."
+      ],
+      "evidence_needed": [
+        "Network link availability data from customer worksite (historical uptime, outage patterns).",
+        "Vehicle control loop timing specification (cycle time, latency budget).",
+        "Customer budget and cost constraints for dual-link solution.",
+        "Safety requirements for failsafe behavior (e.g., stop vehicle within X seconds of link loss).",
+        "Test results for failover scenarios (primary loss, backup loss, simultaneous loss, recovery)."
+      ]
+    }
+  }
+}

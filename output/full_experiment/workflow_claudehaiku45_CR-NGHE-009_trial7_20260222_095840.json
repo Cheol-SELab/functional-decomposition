@@ -1,0 +1,166 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation communication packet loss within customer-defined acceptance criteria during agreed network conditions.",
+    "rationale": "The original FR conflates two distinct obligations: (1) supporting teleoperation capability and (2) meeting packet loss quality targets. The refined FR isolates the quality/performance obligation as a single atomic requirement in the problem domain. It removes the vague phrase 'communication quality meeting' and replaces it with the measurable, customer-defined acceptance criterion. The FR remains solution-neutral by not prescribing how packet loss is minimized (e.g., redundancy, error correction, network selection) and focuses on the outcome: maintaining loss within limits under specified conditions.",
+    "verification_idea": "Conduct teleoperation trials under agreed network conditions (e.g., 4G/5G coverage, latency profile, interference levels). Measure end-to-end packet loss over representative mission duration. Confirm measured loss ≤ customer-defined target (e.g., ≤1%). Document network conditions, payload types, and loss statistics.",
+    "sub_frs": [
+      "FR-NGHE-009.1: The NGHE solution shall enable remote operation of heavy equipment from a tele-operator station.",
+      "FR-NGHE-009.2: The NGHE solution shall maintain teleoperation communication packet loss within customer-defined acceptance criteria during agreed network conditions."
+    ],
+    "is_atomic": true
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP1: Implement adaptive packet retransmission with configurable retry logic and exponential backoff to recover lost packets within latency budget",
+      "DP2: Deploy redundant communication channels (primary + backup) with automatic failover to maintain connectivity during transient network degradation",
+      "DP3: Apply forward error correction (FEC) encoding to teleoperation packets to enable recovery of lost data without retransmission",
+      "DP4: Implement network quality monitoring with dynamic payload compression and frame rate adjustment to reduce packet volume under poor conditions",
+      "DP5: Establish pre-agreed network baseline characterization and operator training on acceptable operational envelope to ensure packet loss stays within criteria during use",
+      "DP6: Combine selective retransmission (critical control frames) with FEC (non-critical telemetry) to optimize latency and loss trade-off"
+    ],
+    "selected_dp": "DP6: Combine selective retransmission (critical control frames) with FEC (non-critical telemetry) to optimize latency and loss trade-off, paired with DP4 (network quality monitoring and adaptive payload adjustment) and DP5 (baseline characterization and operational envelope definition)",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "DP6 and DP4 are loosely coupled via shared network state observation; decoupling achieved by separating control logic (DP6) from adaptation logic (DP4) with clear handoff interfaces",
+        "DP5 (operational envelope) is orthogonal to DP6 and DP4; it defines boundary conditions rather than implementation details",
+        "Risk: If FEC overhead becomes excessive under poor network conditions, DP4's compression may conflict with DP6's FEC payload size; mitigated by parameterized trade-off curves established during design phase"
+      ],
+      "notes": "The combination avoids monolithic 'solve all loss' approaches. DP6 handles loss recovery logically; DP4 handles network adaptation; DP5 ensures realistic operational context. Each DP can be designed, tested, and evolved independently within defined interfaces."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Customer-defined acceptance criteria (≤1% packet loss) is achievable under agreed network conditions; if network is fundamentally unstable, no DP can guarantee compliance without operational restrictions.",
+      "ASSUMPTION: Latency budget for retransmission and FEC overhead is compatible with teleoperation safety requirements (e.g., control loop closure time); if not, FEC may dominate and retransmission becomes infeasible.",
+      "RISK: DP6 introduces complexity in packet classification (critical vs. non-critical); misclassification could leave critical frames unprotected. Mitigation: explicit frame taxonomy and validation testing.",
+      "RISK: DP4's adaptive compression may introduce artifacts (e.g., video quality degradation) that degrade operator situational awareness, indirectly increasing safety risk. Mitigation: operator feedback loops and minimum quality thresholds.",
+      "RISK: DP5 (baseline characterization) requires customer cooperation and honest reporting of network conditions; if conditions are misrepresented, packet loss criteria may be violated in field. Mitigation: runtime monitoring and alerting.",
+      "ASSUMPTION: Redundant channels (DP2 alternative) are not selected because cost and complexity are assumed higher than DP6+DP4+DP5; if redundancy is mandated by safety policy, DP2 must be reconsidered."
+    ],
+    "recommended_revision": "FR should be refined to explicitly state: (1) Latency budget for recovery mechanisms (e.g., max 200 ms round-trip for retransmission), (2) Definition of 'agreed network conditions' (e.g., WiFi 5 GHz, LTE coverage, wired Ethernet) with measurable baseline metrics (jitter, bandwidth, baseline loss rate), (3) Criticality classification of teleoperation packets (e.g., steering commands vs. camera feed), and (4) Operator notification and fallback behavior when packet loss approaches or exceeds criteria. These refinements will sharpen DP selection and enable rigorous IM (module) design for packet classification, FEC codec, retransmission scheduler, and network monitor."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Adaptive network resilience layer managing selective retransmission, FEC application, network quality monitoring, and payload adjustment for teleoperated vehicle control and telemetry streams"
+    },
+    "external_interfaces": [
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Bidirectional interface to physical/logical network; receives link quality metrics (latency, loss, jitter); transmits retransmitted frames and FEC-encoded packets"
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives operator commands and control directives; Teleoperation module applies selective retransmission to critical control frames via this interface"
+      },
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Outputs vehicle state and sensor data; Teleoperation module applies FEC to non-critical telemetry streams and adjusts payload based on network quality"
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Signals safety-critical conditions when network quality degrades beyond operational envelope; triggers Safety Services escalation"
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.92,
+        "diffusion_score": 0.08,
+        "notes": "Excellent fit: DP6 (selective retransmission + FEC) is fundamentally a teleoperation-layer concern. Network quality monitoring (DP4) and baseline characterization (DP5) are naturally owned here. Selective retransmission of critical control frames aligns with Tasking interface; FEC of non-critical telemetry aligns with Telemetry interface. Minor diffusion: SafetyAlert coupling to Safety Services is expected and minimal."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.25,
+        "diffusion_score": 0.75,
+        "notes": "Poor fit: DP6 is a network resilience strategy, not a vehicle-level concern. Vehicle module owns actuators, sensors, and onboard control logic. Placing adaptive retransmission and FEC here would require Vehicle to own network stack logic, creating tight coupling to communication layer and diffusing teleoperation concerns into vehicle domain. Violates separation of concerns."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.15,
+        "diffusion_score": 0.85,
+        "notes": "Very poor fit: Safety Services owns safety-critical decision logic and alerts, not network adaptation. DP6 is a network optimization strategy, not a safety function. Placing it here would conflate network resilience with safety logic, creating confusion about ownership and making Safety Services responsible for non-safety concerns. SafetyAlert is an output from Teleoperation to Safety Services, not the reverse."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.35,
+        "diffusion_score": 0.65,
+        "notes": "Weak fit: NGHE Solution is a top-level system container. While DP6 is part of the overall solution, placing it at this level provides no architectural clarity or module ownership. It would diffuse across multiple subsystems (Vehicle, Teleoperation, Safety Services) without clear boundaries. Overly broad; violates preference for most-specific boundary."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "DP6 (selective retransmission + FEC + adaptive payload adjustment) is a teleoperation-layer resilience strategy that operates on the boundary between operator commands (Tasking) and vehicle state (Telemetry). The Teleoperation module is the natural owner because it: (1) mediates all operator-to-vehicle communication; (2) owns the network quality monitoring and baseline characterization logic (DP4, DP5); (3) can apply selective retransmission to critical control frames without Vehicle module awareness; (4) can apply FEC to non-critical telemetry without Safety Services involvement; (5) can signal SafetyAlert when network quality violates operational envelope. This containment keeps network resilience logic cohesive and prevents diffusion into Vehicle (which should remain agnostic to network adaptation) or Safety Services (which should focus on safety decisions, not network optimization).",
+    "containment_risks": [
+      "Risk: Teleoperation module may become large if it also owns command parsing, state aggregation, and operator UI logic. Mitigation: Ensure Teleoperation is scoped narrowly to network resilience and adaptation; delegate command parsing to Vehicle and UI to operator interface layer.",
+      "Risk: SafetyAlert coupling to Safety Services creates a dependency. If Safety Services is slow to respond, Teleoperation may need to implement fallback logic (e.g., graceful degradation). Mitigation: Define SafetyAlert as a fire-and-forget signal; Teleoperation implements independent fallback strategies (e.g., reduce telemetry rate, increase FEC redundancy) without waiting for Safety Services response.",
+      "Risk: Network Link interface may expose low-level details (e.g., packet loss rate, RTT) that Teleoperation must interpret. If Network Link abstraction is poor, Teleoperation logic becomes brittle. Mitigation: Ensure Network Link provides high-level quality metrics (e.g., 'good', 'degraded', 'critical') rather than raw statistics.",
+      "Risk: DP4 (network quality monitoring) and DP5 (baseline characterization) may require calibration or tuning per deployment. If Teleoperation owns both, it may become a bottleneck for operational envelope updates. Mitigation: Expose baseline and envelope parameters as configuration inputs to Teleoperation; allow Safety Services or operator to adjust thresholds without code changes."
+    ],
+    "recommended_revision": ""
+  },
+  "gate_review": {
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "HIGH. Acceptance criterion (packet loss ≤ 1% under agreed network conditions) is measurable and testable. Teleoperation module can be instrumented to log packet loss rates, retransmission counts, FEC application frequency, and payload adjustments. Network quality monitoring (DP4) provides real-time observability. Baseline characterization (DP5) establishes reference envelope against which operational performance can be validated. Test harness can simulate network conditions (latency, loss, jitter) and verify that selective retransmission + FEC maintains loss within threshold.",
+      "allocation_clarity": "EXCELLENT. FR is allocated to Teleoperation IM with clear ownership boundaries. Teleoperation owns: (1) selective retransmission logic for critical control frames (Tasking interface); (2) FEC encoding for non-critical telemetry (Telemetry interface); (3) network quality monitoring and adaptive payload adjustment (Network Link interface); (4) SafetyAlert signaling when envelope is violated (SafetyAlert interface). No ambiguity about which module is responsible for maintaining packet loss within acceptance criteria. Vehicle module remains agnostic to network adaptation; Safety Services remains focused on safety decisions, not network optimization."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "MODERATE: SafetyAlert coupling to Safety Services creates a temporal dependency. If Safety Services response is slow or unavailable, Teleoperation must implement independent fallback strategies (graceful degradation, increased FEC redundancy, telemetry rate reduction) without blocking. Mitigation: Define SafetyAlert as asynchronous fire-and-forget; Teleoperation implements autonomous fallback logic that does not wait for Safety Services acknowledgment.",
+        "MODERATE: Network Link interface abstraction quality is critical. If interface exposes raw metrics (packet loss %, RTT, jitter) rather than high-level quality states (good/degraded/critical), Teleoperation logic becomes brittle and difficult to maintain. Mitigation: Ensure Network Link provides semantic quality indicators; Teleoperation interprets these indicators to drive adaptive decisions.",
+        "LOW: Baseline characterization (DP5) and operational envelope definition may require per-deployment tuning. If Teleoperation owns both logic and parameters, updates to envelope thresholds require code changes. Mitigation: Expose baseline and envelope as configuration inputs (e.g., JSON config file, database table) that can be updated without recompilation. Allow Safety Services or operator to adjust thresholds dynamically.",
+        "LOW: Teleoperation module scope creep risk. If module also owns command parsing, state aggregation, operator UI logic, and network resilience, it becomes monolithic and difficult to test. Mitigation: Scope Teleoperation narrowly to network resilience and adaptation only. Delegate command parsing to Vehicle, UI to operator interface layer, state aggregation to telemetry aggregator."
+      ],
+      "containment_notes": "EXCELLENT containment. DP6 (selective retransmission + FEC + adaptive payload adjustment) is fundamentally a teleoperation-layer concern and maps naturally to Teleoperation IM. Containment score of 0.92 is justified: (1) DP6 operates on the boundary between operator commands (Tasking) and vehicle state (Telemetry), which is Teleoperation's natural domain; (2) DP4 (network quality monitoring) and DP5 (baseline characterization) are prerequisites for DP6 and are naturally owned by Teleoperation; (3) Selective retransmission of critical control frames aligns with Tasking interface without requiring Vehicle awareness; (4) FEC of non-critical telemetry aligns with Telemetry interface without requiring Safety Services involvement; (5) SafetyAlert is a clean output interface for safety escalation. No significant diffusion detected. Minor coupling to Safety Services is expected and acceptable (SafetyAlert is a one-way signal, not a bidirectional dependency)."
+    },
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP6 (selective retransmission + FEC + adaptive payload adjustment) directly addresses FR requirement to maintain packet loss within customer-defined acceptance criteria (≤ 1%) during agreed network conditions. DP6 is paired with DP4 (network quality monitoring) and DP5 (baseline characterization), which together form a complete solution: DP5 establishes the operational envelope; DP4 monitors real-time network quality; DP6 applies adaptive strategies (selective retransmission, FEC, payload adjustment) to maintain loss within envelope. The logic is sound: critical control frames are retransmitted (low latency cost, high reliability gain); non-critical telemetry is FEC-encoded (amortizes redundancy across multiple packets); payload is adjusted based on network quality (prevents congestion collapse). No logical gaps or contradictions detected. DP6 is implementable and testable against acceptance criterion."
+    },
+    "recommended_revisions": [
+      "CLARIFY SafetyAlert interface semantics: Define SafetyAlert as asynchronous, fire-and-forget signal. Teleoperation must not block or wait for Safety Services response. Implement independent fallback strategies (e.g., reduce telemetry rate, increase FEC redundancy, graceful degradation) that activate immediately when network quality violates operational envelope, without dependency on Safety Services.",
+      "FORMALIZE Network Link interface abstraction: Ensure Network Link provides high-level quality metrics (e.g., 'good', 'degraded', 'critical') derived from low-level statistics (packet loss %, RTT, jitter). Teleoperation should interpret semantic quality states, not raw metrics. This reduces brittleness and improves maintainability.",
+      "EXTERNALIZE baseline and envelope parameters: Expose DP5 (baseline characterization) and operational envelope thresholds as configuration inputs (JSON config, database, or API) rather than hardcoding in Teleoperation logic. Allow Safety Services or operator to adjust thresholds dynamically without code changes. Document parameter semantics and validation rules.",
+      "SCOPE Teleoperation narrowly: Ensure Teleoperation IM is responsible only for network resilience and adaptation (selective retransmission, FEC, payload adjustment, network quality monitoring). Delegate command parsing to Vehicle module, operator UI to operator interface layer, and state aggregation to telemetry aggregator. This prevents module bloat and maintains separation of concerns.",
+      "ADD acceptance test plan: Define test scenarios that exercise DP6 under simulated network conditions (latency, loss, jitter). Verify that packet loss remains ≤ 1% (or customer-defined target) across the operational envelope. Include edge cases: network quality transitions (good → degraded → critical), envelope boundary conditions, and fallback activation. Instrument Teleoperation to log retransmission counts, FEC application frequency, and payload adjustments for post-test analysis."
+    ]
+  },
+  "decision": {
+    "decision": "REVISE_CURRENT_LEVEL",
+    "justification": "All three gates (FR-IM, DP-IM, FR-DP) pass with high confidence, and containment is excellent (0.92). However, the recommended_revisions identify critical clarifications needed before proceeding to sub-level decomposition. The primary concern is not logical soundness but architectural clarity: (1) SafetyAlert semantics must be formalized as asynchronous fire-and-forget to eliminate temporal coupling and ensure Teleoperation can operate independently; (2) Network Link interface abstraction must be elevated from raw metrics to semantic quality states to prevent brittleness; (3) Baseline and envelope parameters must be externalized to enable dynamic tuning without code changes; (4) Teleoperation scope must be explicitly bounded to prevent module creep. These revisions are architectural refinements at the current level (FR/DP/IM), not decomposition triggers. Proceeding to sub-level FRs without resolving these would propagate ambiguity into lower-level design decisions and increase rework risk. Given high safety criticality, formalization of SafetyAlert coupling and independent fallback logic is essential before sub-level elaboration.",
+    "next_level_sub_frs": [],
+    "revise": {
+      "target": "DP",
+      "why": "DP6 (selective retransmission + FEC + adaptive payload adjustment) is logically sound but requires explicit architectural refinement: (1) Decompose DP6 into three sub-DPs with clear interface contracts: DP6a (selective retransmission of critical control frames via Tasking interface), DP6b (FEC encoding of non-critical telemetry via Telemetry interface), DP6c (adaptive payload adjustment based on Network Link quality state). (2) Formalize DP4 (network quality monitoring) to output semantic quality states ('good'/'degraded'/'critical') rather than raw metrics, enabling Teleoperation to make robust decisions. (3) Formalize DP5 (baseline characterization) as a configuration-driven envelope definition (JSON/database) rather than hardcoded thresholds. (4) Explicitly define SafetyAlert output as asynchronous, fire-and-forget signal; Teleoperation must implement autonomous fallback strategies (graceful degradation, increased FEC, telemetry rate reduction) that activate immediately upon envelope violation without waiting for Safety Services response. (5) Add DP7 (independent fallback logic) to ensure Teleoperation can degrade gracefully when network quality violates envelope, without dependency on external acknowledgment. These refinements clarify the DP structure and eliminate ambiguity about interface contracts, parameter externalization, and safety-critical coupling before sub-level decomposition."
+    },
+    "record": {
+      "assumptions": [
+        "SafetyAlert can be implemented as asynchronous, non-blocking signal without compromising safety decision latency in Safety Services.",
+        "Network Link interface can reliably provide semantic quality states ('good'/'degraded'/'critical') derived from low-level metrics (packet loss %, RTT, jitter) with acceptable latency.",
+        "Baseline characterization and operational envelope thresholds can be externalized as configuration without requiring code recompilation or module restart.",
+        "Teleoperation module scope can be strictly bounded to network resilience and adaptation; command parsing, UI logic, and state aggregation are delegated to other modules.",
+        "Operator and Safety Services can tolerate autonomous fallback strategies (e.g., telemetry rate reduction, increased FEC) triggered by Teleoperation without explicit approval.",
+        "Test harness can reliably simulate network conditions (latency, loss, jitter) to validate DP6 behavior across operational envelope."
+      ],
+      "open_risks": [
+        "SAFETY-CRITICAL: SafetyAlert coupling to Safety Services creates temporal dependency. If Safety Services is slow or unavailable, Teleoperation fallback logic must activate independently. Mitigation requires formal definition of SafetyAlert as fire-and-forget and explicit fallback strategy (DP7). Risk level: HIGH until SafetyAlert semantics and fallback logic are formalized.",
+        "ARCHITECTURAL: Network Link interface abstraction quality is critical. If interface exposes raw metrics instead of semantic quality states, Teleoperation logic becomes brittle and difficult to maintain. Mitigation requires explicit interface contract definition. Risk level: MODERATE until Network Link interface is formalized.",
+        "OPERATIONAL: Baseline characterization and envelope thresholds may require per-deployment tuning. If hardcoded in Teleoperation, updates require code changes and redeployment. Mitigation requires externalization as configuration. Risk level: MODERATE until configuration externalization is implemented.",
+        "ARCHITECTURAL: Teleoperation module scope creep risk. If module also owns command parsing, state aggregation, operator UI logic, and network resilience, it becomes monolithic and difficult to test. Mitigation requires explicit scope boundary definition. Risk level: MODERATE until scope is formally bounded.",
+        "VERIFICATION: Acceptance test plan must cover edge cases (network quality transitions, envelope boundary conditions, fallback activation) and validate packet loss ≤ 1% across operational envelope. Risk level: MODERATE until test plan is detailed and executed."
+      ],
+      "evidence_needed": [
+        "Formal SafetyAlert interface specification: Define signal semantics (asynchronous, fire-and-forget), payload (network quality state, envelope violation reason), and expected Safety Services response time (if any). Document fallback activation logic in Teleoperation that does not depend on Safety Services acknowledgment.",
+        "Network Link interface contract: Define semantic quality states ('good'/'degraded'/'critical') and mapping from low-level metrics (packet loss %, RTT, jitter). Specify interface latency and update frequency. Provide example quality state transitions and corresponding Teleoperation adaptive actions.",
+        "Configuration schema for baseline and envelope: Define JSON/database schema for operational envelope parameters (baseline packet loss %, acceptable loss threshold, FEC redundancy level, payload adjustment rules). Document parameter semantics, validation rules, and dynamic update mechanism.",
+        "Teleoperation module scope boundary: Document explicit responsibilities (selective retransmission, FEC, adaptive payload adjustment, network quality monitoring, fallback logic) and delegated responsibilities (command parsing to Vehicle, UI to operator interface, state aggregation to telemetry aggregator). Provide module interface diagram.",
+        "Fallback strategy specification (DP7): Define autonomous fallback actions triggered by envelope violation: (1) graceful degradation (reduce telemetry rate), (2) increased FEC redundancy, (3) selective command buffering. Specify activation thresholds and fallback duration. Document interaction with Safety Services (if any).",
+        "Acceptance test plan: Define test scenarios covering nominal operation, network quality transitions (good → degraded → critical), envelope boundary conditions, and fallback activation. Specify acceptance criterion (packet loss ≤ 1% or customer-defined target) and measurement methodology. Include edge cases and stress tests."
+      ]
+    }
+  }
+}

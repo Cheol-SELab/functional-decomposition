@@ -1,0 +1,163 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall establish and maintain end-to-end teleoperation communication with p95 latency ≤ 150 ms under agreed network conditions to enable safe remote operation by tele-operators.",
+    "rationale": "CR-NGHE-008 addresses a critical safety and operational requirement. Teleoperation latency directly impacts operator situational awareness, control responsiveness, and safety margins. The p95 percentile metric ensures consistent performance under variable network conditions rather than optimistic average-case assumptions. High safety criticality demands explicit latency budgeting and verification.",
+    "verification_idea": "Measure end-to-end latency (command transmission → vehicle sensor acquisition → telemetry reception at operator console) across representative network conditions (bandwidth, jitter, packet loss) using standardized test scenarios. Collect p95 statistics over minimum 1000 samples per condition.",
+    "sub_frs": [
+      "FR-NGHE-008.1: The teleoperation system shall acquire and encode vehicle state (position, orientation, sensor data) with acquisition-to-transmission latency ≤ 40 ms.",
+      "FR-NGHE-008.2: The teleoperation system shall transmit encoded telemetry over the network link with transmission latency ≤ 60 ms (p95) under agreed conditions.",
+      "FR-NGHE-008.3: The teleoperation system shall receive, decode, and present operator commands with reception-to-actuation latency ≤ 50 ms.",
+      "FR-NGHE-008.4: The teleoperation system shall detect and alert on latency degradation or communication loss within 100 ms."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Implement dedicated low-latency teleoperation stack with hardware-accelerated encoding/decoding, priority network queuing, and direct vehicle-to-operator communication path.",
+      "DP-B: Integrate teleoperation via shared cloud-based middleware with standard message serialization and best-effort network routing.",
+      "DP-C: Hybrid approach: local edge gateway for latency-critical telemetry (vehicle state, safety alerts) with cloud-based tasking and logging for non-critical data.",
+      "DP-D: Implement adaptive latency compensation with predictive vehicle state modeling to mask network delays from operator perception."
+    ],
+    "selected_dp": "DP-C: Hybrid approach with edge gateway for latency-critical telemetry (vehicle state, safety alerts) and cloud-based tasking/logging for non-critical data. This design separates concerns: deterministic low-latency paths for safety-critical telemetry and commands, while leveraging cloud infrastructure for scalability and persistence.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between telemetry encoding (vehicle-side) and network transmission (infrastructure-side) is decoupled via edge gateway buffering.",
+        "Coupling between operator command reception and vehicle actuation is minimized through direct priority channels.",
+        "Coupling between safety alerting and general telemetry is managed via separate message streams with different QoS."
+      ],
+      "notes": "DP-C exhibits loose coupling: telemetry and tasking paths are independent; edge gateway acts as a decoupling buffer. Safety-critical and non-critical data flows are segregated, reducing contention. Assumption: network infrastructure supports QoS differentiation (priority queuing)."
+    },
+    "assumptions_risks": [
+      "Assumption: Network infrastructure (agreed conditions) supports QoS tagging and priority queuing for safety-critical traffic.",
+      "Assumption: Edge gateway hardware is co-located or near-vehicle to minimize acquisition-to-transmission latency.",
+      "Risk: If network does not support QoS, latency guarantees may not be achievable; mitigation requires fallback to DP-A (dedicated hardware path).",
+      "Risk: Edge gateway becomes a single point of failure; mitigation requires redundancy or failover to direct vehicle-to-operator link.",
+      "Risk: Predictive state modeling (DP-D alternative) adds complexity; DP-C avoids this but requires strict latency budgeting."
+    ],
+    "recommended_revision": "Confirm network QoS capabilities and edge gateway placement before final DP commitment. If QoS unavailable, escalate to DP-A. If edge gateway placement infeasible, consider DP-D with latency compensation."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Owns end-to-end teleoperation latency performance. Responsible for: (1) vehicle-side telemetry acquisition and encoding, (2) network transmission via agreed link, (3) operator-side command reception and decoding, (4) latency monitoring and degradation alerts. Interfaces with Vehicle (for state acquisition), Network Link (for transmission), and Safety Services (for alert coordination)."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Encoded vehicle state (position, orientation, sensor readings) transmitted from Teleoperation to operator console. Latency budget: ≤ 100 ms p95."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Operator commands (movement, tool actuation, mode changes) received by Teleoperation from operator console. Latency budget: ≤ 50 ms p95."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Latency degradation or communication loss alerts transmitted from Teleoperation to Safety Services. Trigger: latency > 150 ms or link loss > 500 ms."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Bidirectional network communication (telemetry transmission, command reception) over agreed network conditions. Teleoperation assumes QoS support for priority queuing."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "Teleoperation module is the natural owner of end-to-end latency performance. All latency-critical logic (encoding, transmission, decoding, monitoring) is contained. Minimal diffusion: only external interfaces are Network Link and SafetyAlert coordination."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 40,
+        "diffusion_score": 60,
+        "notes": "Vehicle owns telemetry acquisition but not transmission or operator-side decoding. Assigning latency ownership to Vehicle would scatter responsibility across vehicle and operator domains, violating cohesion."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 30,
+        "diffusion_score": 70,
+        "notes": "Safety Services owns alert logic but not telemetry transmission or command reception. Latency performance is a system-level concern, not a safety service concern. Diffusion risk: safety logic would depend on teleoperation internals."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "NGHE Solution is the system-level container but assigning latency ownership here bypasses architectural decomposition. Would require NGHE Solution to directly manage network transmission, violating separation of concerns."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "Teleoperation module contains all latency-critical logic: vehicle-side telemetry encoding, network transmission scheduling, operator-side command decoding, and latency monitoring. External dependencies are limited to Network Link (infrastructure) and SafetyAlert (coordination). This assignment achieves high cohesion and low coupling.",
+    "containment_risks": [
+      "Risk: If Vehicle module does not provide timely telemetry acquisition (> 40 ms), Teleoperation cannot meet latency budget. Mitigation: establish SLA with Vehicle for acquisition latency.",
+      "Risk: If Network Link does not support QoS, Teleoperation cannot guarantee p95 ≤ 150 ms. Mitigation: validate network QoS before deployment; fallback to dedicated hardware path if unavailable.",
+      "Risk: Teleoperation module may become a bottleneck if operator console is remote from edge gateway. Mitigation: ensure edge gateway is co-located with vehicle or network infrastructure.",
+      "Risk: SafetyAlert interface may introduce latency if Safety Services processes alerts synchronously. Mitigation: use asynchronous alert signaling with guaranteed delivery."
+    ],
+    "recommended_revision": "Confirm Vehicle module can provide telemetry acquisition within 40 ms SLA. Validate Network Link QoS capabilities. Establish edge gateway placement and redundancy strategy before IM assignment finalization."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid edge gateway approach) directly addresses FR-NGHE-008 by separating latency-critical telemetry (edge gateway) from non-critical data (cloud). The design explicitly budgets latency across acquisition (40 ms), transmission (60 ms), and reception (50 ms) to meet p95 ≤ 150 ms. Assumptions (QoS support, edge gateway placement) are documented and testable. No coupling issues identified."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Teleoperation module depends on Vehicle for timely telemetry acquisition. If Vehicle cannot meet 40 ms SLA, latency budget is violated. Mitigation: establish formal SLA with Vehicle module.",
+        "Teleoperation module depends on Network Link for QoS support. If network does not support priority queuing, latency guarantees fail. Mitigation: validate network capabilities before deployment.",
+        "SafetyAlert interface may introduce latency if Safety Services processes alerts synchronously. Mitigation: use asynchronous signaling."
+      ],
+      "containment_notes": "Teleoperation module achieves 95% containment of latency-critical logic. External dependencies (Vehicle, Network Link, Safety Services) are well-defined and manageable. No evidence of diffusion across multiple modules."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Latency verification is feasible via end-to-end testing under agreed network conditions. Measurement points: (1) telemetry acquisition timestamp on vehicle, (2) transmission timestamp at edge gateway, (3) reception timestamp at operator console. p95 statistics can be collected over 1000+ samples.",
+      "allocation_clarity": "Teleoperation module is clearly responsible for end-to-end latency performance. Sub-FRs (FR-NGHE-008.1 through 008.4) are allocated to specific latency budget segments (acquisition, transmission, reception, monitoring). Ownership and interfaces are explicit."
+    },
+    "recommended_revisions": [
+      "Establish formal SLA with Vehicle module for telemetry acquisition latency ≤ 40 ms.",
+      "Validate Network Link QoS capabilities (priority queuing, bandwidth, jitter) against agreed conditions before IM finalization.",
+      "Define edge gateway placement strategy and redundancy/failover mechanism.",
+      "Confirm SafetyAlert interface uses asynchronous signaling to avoid latency coupling."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-NGHE-008 is not atomic and has been successfully decomposed into four sub-FRs (FR-NGHE-008.1 through 008.4) addressing distinct latency budget segments. DP-C (hybrid edge gateway) is well-justified and exhibits low coupling. Teleoperation module is the clear owner with 95% containment. However, critical assumptions (Network QoS, edge gateway placement, Vehicle SLA) must be validated before proceeding to detailed design. Recommend decomposing sub-FRs to the next level to allocate latency budgets to specific components (e.g., encoder, network scheduler, decoder) and validate feasibility.",
+    "next_level_sub_frs": [
+      "FR-NGHE-008.1: The teleoperation system shall acquire and encode vehicle state (position, orientation, sensor data) with acquisition-to-transmission latency ≤ 40 ms.",
+      "FR-NGHE-008.2: The teleoperation system shall transmit encoded telemetry over the network link with transmission latency ≤ 60 ms (p95) under agreed conditions.",
+      "FR-NGHE-008.3: The teleoperation system shall receive, decode, and present operator commands with reception-to-actuation latency ≤ 50 ms.",
+      "FR-NGHE-008.4: The teleoperation system shall detect and alert on latency degradation or communication loss within 100 ms."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Network infrastructure supports QoS tagging and priority queuing for safety-critical traffic.",
+        "Edge gateway hardware is co-located or near-vehicle to minimize acquisition-to-transmission latency.",
+        "Vehicle module can provide telemetry acquisition within 40 ms SLA.",
+        "Operator console is capable of decoding and presenting telemetry within 50 ms.",
+        "SafetyAlert interface uses asynchronous signaling to avoid latency coupling."
+      ],
+      "open_risks": [
+        "Network QoS unavailability: If network does not support priority queuing, latency guarantees may not be achievable. Mitigation: validate network capabilities; fallback to dedicated hardware path (DP-A) if needed.",
+        "Edge gateway single point of failure: If edge gateway fails, teleoperation latency may degrade. Mitigation: implement redundancy or failover to direct vehicle-to-operator link.",
+        "Vehicle telemetry acquisition latency: If Vehicle module cannot meet 40 ms SLA, overall latency budget is violated. Mitigation: establish formal SLA and monitor compliance.",
+        "Operator console latency: If operator console cannot decode and present telemetry within 50 ms, end-to-end latency exceeds budget. Mitigation: validate operator console performance during integration testing."
+      ],
+      "evidence_needed": [
+        "Network QoS capability assessment (priority queuing, bandwidth, jitter under agreed conditions).",
+        "Edge gateway placement and redundancy strategy documentation.",
+        "Vehicle module telemetry acquisition latency SLA and compliance evidence.",
+        "Operator console performance testing (decoding and presentation latency).",
+        "End-to-end latency testing under agreed network conditions (p95 ≤ 150 ms over 1000+ samples).",
+        "SafetyAlert interface design and asynchronous signaling validation."
+      ]
+    }
+  }
+}

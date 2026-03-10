@@ -1,0 +1,165 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation communication packet loss at or below the customer-defined threshold (acceptance criterion: ≤1% under agreed network conditions) to ensure safe and effective remote equipment operation.",
+    "rationale": "CR-NGHE-009 addresses a critical quality-of-service requirement for teleoperation. Packet loss directly impacts operator situational awareness, control responsiveness, and safety. Refining the FR to explicitly reference the acceptance criterion (≤1%) and network conditions scope clarifies the verification boundary and prevents ambiguity in acceptance testing.",
+    "verification_idea": "Conduct network stress testing under agreed worksite conditions (bandwidth, latency, interference profiles) with teleoperation traffic (Telemetry and Tasking streams). Measure packet loss over sustained operation periods (e.g., 30 min continuous teleoperation). Verify that measured packet loss ≤ customer-defined limit. Document network conditions and any fallback/mitigation mechanisms triggered.",
+    "sub_frs": [
+      "FR-NGHE-009.1: The teleoperation system shall transmit operator control commands (Tasking) with packet loss ≤ customer threshold.",
+      "FR-NGHE-009.2: The teleoperation system shall receive vehicle state telemetry (Telemetry) with packet loss ≤ customer threshold.",
+      "FR-NGHE-009.3: The teleoperation system shall detect and report communication degradation (packet loss approaching threshold) to the operator and safety services.",
+      "FR-NGHE-009.4: The teleoperation system shall implement network resilience mechanisms (e.g., redundancy, error correction, adaptive bitrate) to maintain packet loss within threshold under transient network stress."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Implement dual-path network routing with automatic failover and packet-level error correction (FEC) to reduce effective packet loss.",
+      "DP-B: Deploy adaptive quality-of-service (QoS) prioritization for Tasking (control) and Telemetry streams with dynamic bitrate adjustment to maintain critical traffic below loss threshold.",
+      "DP-C: Establish dedicated, provisioned network link (private APN or licensed spectrum) with SLA guarantees meeting packet loss requirement, eliminating reliance on best-effort public networks.",
+      "DP-D: Implement hybrid approach combining QoS prioritization (DP-B) with selective packet redundancy and local buffering to tolerate transient loss spikes while maintaining operator control responsiveness."
+    ],
+    "selected_dp": "DP-D: Implement hybrid approach combining QoS prioritization for Tasking and Telemetry streams with selective packet redundancy (critical control frames) and local operator-side buffering to maintain packet loss ≤ customer threshold while preserving low-latency control responsiveness under transient network stress.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "DP-D couples teleoperation control logic (Tasking generation) with network adaptation logic (QoS, redundancy decisions). This is acceptable because both reside in the Teleoperation module and share the same network link state information.",
+        "DP-D couples vehicle telemetry reception (Telemetry ingestion) with buffering logic. This is acceptable because buffering is localized to the operator interface and does not require vehicle-side changes.",
+        "DP-D does not couple to Safety Services or Vehicle core functionality; SafetyAlert is generated independently based on communication degradation detection (sub-FR 009.3)."
+      ],
+      "notes": "DP-D avoids the high coupling risk of DP-C (dedicated network provisioning, which would couple to external telecom infrastructure and customer site constraints). DP-D is more modular than DP-A (which requires dual-path routing infrastructure). DP-B alone is insufficient because QoS alone cannot guarantee packet loss ≤1% under severe network stress; DP-D adds redundancy and buffering to handle edge cases."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Customer network conditions are characterized and communicated (bandwidth, latency, jitter, loss baseline). Risk: If network profile is unknown, QoS tuning and redundancy strategy cannot be validated. Mitigation: Require network characterization as part of site acceptance.",
+      "ASSUMPTION: Operator-side buffering (local storage of recent Telemetry frames) is acceptable and does not introduce unacceptable latency. Risk: Excessive buffering could degrade situational awareness. Mitigation: Limit buffer depth to <500ms and validate operator feedback during trials.",
+      "ASSUMPTION: Selective redundancy (retransmitting only critical control frames) is sufficient; full packet duplication is not required. Risk: If non-critical frames are lost, operator may miss important state changes. Mitigation: Define criticality classification for Tasking and Telemetry frames; validate with Safety Manager.",
+      "RISK: Network adaptation logic (QoS, redundancy decisions) must be transparent to operator and not introduce unexpected control delays. Mitigation: Implement deterministic latency bounds and operator-visible communication health indicators."
+    ],
+    "recommended_revision": "DP-D is sound. Recommend adding explicit sub-DP specifications for: (1) QoS prioritization rules (Tasking priority > Telemetry priority), (2) redundancy trigger thresholds (e.g., retransmit critical frames if loss rate > 0.5%), (3) buffer depth limits and eviction policy, and (4) operator notification strategy for communication degradation. These sub-DPs should be refined at the next decomposition level."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "The Teleoperation module owns the end-to-end teleoperation communication pipeline, including operator control input processing (Tasking generation), vehicle state reception (Telemetry ingestion), network adaptation logic (QoS, redundancy, buffering), and operator feedback (communication health indicators). The module interfaces with the Network Link for transmission/reception and with Safety Services for communication degradation alerts."
+    },
+    "external_interfaces": [
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Operator control commands transmitted to Vehicle via Network Link. Tasking stream is QoS-prioritized and subject to selective redundancy for critical frames (e.g., emergency stop, mode changes)."
+      },
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Vehicle state data received from Vehicle via Network Link. Telemetry stream is buffered locally (up to 500ms) to smooth transient packet loss and maintain operator situational awareness. Telemetry loss is monitored and reported to Safety Services."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Bidirectional network connection (e.g., cellular, WiFi, satellite) used for Tasking transmission and Telemetry reception. Teleoperation module monitors link quality (packet loss, latency, jitter) and adapts QoS and redundancy strategies accordingly."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Communication degradation alerts sent to Safety Services when packet loss approaches or exceeds customer threshold. SafetyAlert triggers operator notification and potential automated safety actions (e.g., vehicle hold, reduced autonomy)."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "Teleoperation is the natural owner of teleoperation communication quality. All DP-D logic (QoS, redundancy, buffering, network adaptation) is contained within this module. External interfaces (Tasking, Telemetry, Network Link, SafetyAlert) are well-defined and minimal. Diffusion risk is low: only SafetyAlert notification crosses module boundary, which is appropriate for safety-critical communication degradation."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 40,
+        "diffusion_score": 60,
+        "notes": "NGHE Solution is the system-level container. Assigning DP-D to NGHE Solution would diffuse network adaptation logic across multiple sub-modules (Teleoperation, Vehicle, Safety Services) and create unclear ownership. Not recommended."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 15,
+        "diffusion_score": 85,
+        "notes": "Vehicle module owns vehicle-side telemetry generation and control reception, but does not own operator-side buffering, QoS prioritization, or network adaptation logic. Assigning DP-D to Vehicle would create inappropriate coupling between vehicle control logic and network communication quality management. Not recommended."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Safety Services owns safety-critical decision logic and alerts, but does not own teleoperation communication infrastructure. Assigning DP-D to Safety Services would conflate communication quality management with safety policy enforcement. Not recommended."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the optimal owner of DP-D because: (1) it owns the operator control interface and vehicle state display, (2) it has direct access to Network Link state information, (3) QoS and redundancy logic are localized to operator-side and vehicle-side teleoperation stacks (no diffusion to Vehicle core or Safety Services), and (4) SafetyAlert notification to Safety Services is a clean, unidirectional dependency that does not create circular coupling.",
+    "containment_risks": [
+      "RISK: If Vehicle module implements its own network adaptation logic (e.g., adaptive telemetry sampling based on link quality), there could be unintended coupling or conflict with Teleoperation module's QoS decisions. Mitigation: Establish clear interface contract: Teleoperation controls QoS and redundancy; Vehicle responds to Telemetry reception acknowledgments but does not independently adapt transmission rate.",
+      "RISK: If Safety Services implements communication monitoring independently (e.g., timeout-based loss detection), there could be duplicate logic and inconsistent thresholds. Mitigation: Safety Services consumes SafetyAlert from Teleoperation; does not independently measure packet loss.",
+      "RISK: Operator-side buffering could mask transient network issues and delay operator awareness of communication degradation. Mitigation: Implement operator-visible communication health indicator (e.g., signal strength bar, loss rate display) that is updated in real-time, independent of buffering."
+    ],
+    "recommended_revision": "Teleoperation module assignment is sound. Recommend clarifying the interface contract with Vehicle module: (1) Vehicle shall not implement independent network adaptation; (2) Vehicle shall acknowledge Telemetry reception (implicit or explicit) to allow Teleoperation to measure loss; (3) Vehicle shall respond to Tasking within defined latency bounds, regardless of redundancy or buffering on operator side. These clarifications should be documented in the Teleoperation-Vehicle interface specification."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-D (hybrid QoS + redundancy + buffering) directly addresses the refined FR requirement to maintain packet loss ≤ customer threshold. DP-D is traceable to all sub-FRs (009.1 through 009.4): QoS prioritization addresses 009.1 and 009.2, network adaptation addresses 009.4, and communication degradation detection addresses 009.3. DP-D is feasible within typical teleoperation system constraints (operator-side buffering, network stack QoS APIs, selective retransmission). No independence violations detected."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "SafetyAlert notification to Safety Services is a clean, unidirectional dependency. Safety Services does not feed back control decisions to Teleoperation, avoiding circular coupling.",
+        "Network Link interface is shared with other modules (e.g., Vehicle may also use Network Link for other purposes), but Teleoperation's QoS prioritization is transparent to other consumers and does not create coupling.",
+        "Operator-side buffering is localized to Teleoperation and does not require changes to Vehicle or Safety Services modules."
+      ],
+      "containment_notes": "Teleoperation module containment score of 95 indicates strong alignment between DP-D logic and module boundary. Diffusion score of 5 is acceptable for a safety-critical system where SafetyAlert notification is a required external interface. No hidden dependencies or diffusion risks identified."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification of FR-NGHE-009 is feasible within Teleoperation module scope. Network stress testing can be conducted with Teleoperation module in isolation (or with Vehicle module in a test harness) by injecting packet loss into the Network Link interface and measuring Telemetry reception and Tasking transmission quality. Operator-side buffering and QoS logic can be validated through unit tests and integration tests. SafetyAlert notification can be verified by triggering communication degradation scenarios and confirming alerts are generated.",
+      "allocation_clarity": "FR-NGHE-009 is clearly allocated to Teleoperation module. Sub-FRs 009.1 and 009.2 are allocated to Teleoperation's Tasking transmission and Telemetry reception logic. Sub-FR 009.3 is allocated to Teleoperation's communication degradation detection logic. Sub-FR 009.4 is allocated to Teleoperation's network resilience mechanisms (QoS, redundancy, buffering). No ambiguity in allocation."
+    },
+    "recommended_revisions": [
+      "Clarify the interface contract between Teleoperation and Vehicle modules regarding network adaptation responsibilities and Telemetry acknowledgment protocol.",
+      "Define operator-visible communication health indicators (e.g., signal strength, loss rate, latency) to ensure operator awareness is not masked by buffering.",
+      "Specify QoS prioritization rules, redundancy trigger thresholds, and buffer depth limits as sub-DP specifications for next-level decomposition.",
+      "Establish acceptance test plan for FR-NGHE-009 that includes network characterization, stress testing under agreed conditions, and validation of SafetyAlert notification."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-NGHE-009 is not atomic and has been refined into four sub-FRs (009.1 through 009.4). DP-D is sound and well-aligned with the refined FR and Teleoperation module boundary. However, DP-D contains multiple design decisions (QoS prioritization, selective redundancy, buffering, network adaptation logic) that require further decomposition to specify implementation details, interface contracts, and acceptance criteria. Proceeding to the next decomposition level is necessary to allocate sub-FRs to sub-DPs and sub-IMs, and to establish clear ownership and verification strategies for each sub-requirement.",
+    "next_level_sub_frs": [
+      "FR-NGHE-009.1: The teleoperation system shall transmit operator control commands (Tasking) with packet loss ≤ customer threshold.",
+      "FR-NGHE-009.2: The teleoperation system shall receive vehicle state telemetry (Telemetry) with packet loss ≤ customer threshold.",
+      "FR-NGHE-009.3: The teleoperation system shall detect and report communication degradation (packet loss approaching threshold) to the operator and safety services.",
+      "FR-NGHE-009.4: The teleoperation system shall implement network resilience mechanisms (e.g., redundancy, error correction, adaptive bitrate) to maintain packet loss within threshold under transient network stress."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Customer network conditions (bandwidth, latency, jitter, loss baseline) are characterized and communicated as part of site acceptance.",
+        "Operator-side buffering (up to 500ms) is acceptable and does not introduce unacceptable latency or degrade situational awareness.",
+        "Selective redundancy (retransmitting only critical control frames) is sufficient; full packet duplication is not required.",
+        "Network adaptation logic (QoS, redundancy decisions) can be implemented transparently to operator without introducing unexpected control delays.",
+        "Teleoperation module has access to Network Link state information (packet loss, latency, jitter) for QoS and redundancy decisions.",
+        "Vehicle module does not implement independent network adaptation logic that could conflict with Teleoperation module's QoS decisions.",
+        "Safety Services consumes SafetyAlert from Teleoperation and does not independently measure packet loss."
+      ],
+      "open_risks": [
+        "RISK: Network characterization may be incomplete or inaccurate, leading to QoS tuning and redundancy strategy that does not meet customer threshold under real-world conditions. Mitigation: Conduct extended field trials with continuous monitoring and adaptive tuning.",
+        "RISK: Operator-side buffering could mask transient network issues and delay operator awareness of communication degradation. Mitigation: Implement operator-visible communication health indicator and validate with operator feedback.",
+        "RISK: Selective redundancy classification (critical vs. non-critical frames) may be subjective or incomplete, leading to loss of important state information. Mitigation: Define criticality classification in collaboration with Safety Manager and validate with operational scenarios.",
+        "RISK: Network adaptation logic may introduce latency or jitter that degrades control responsiveness. Mitigation: Implement deterministic latency bounds and validate with operator feedback and control performance tests.",
+        "RISK: SafetyAlert notification may be delayed or missed if Teleoperation module is overloaded or if Safety Services is not responsive. Mitigation: Implement priority queuing for SafetyAlert and establish timeout/retry logic."
+      ],
+      "evidence_needed": [
+        "Network characterization report documenting worksite conditions (bandwidth, latency, jitter, loss baseline) under agreed scenarios.",
+        "QoS prioritization rules and redundancy trigger thresholds, validated with network simulation and field trials.",
+        "Operator-side buffering depth limits and eviction policy, validated with latency measurements and operator feedback.",
+        "Criticality classification for Tasking and Telemetry frames, approved by Safety Manager.",
+        "Acceptance test plan for FR-NGHE-009 including network stress testing, SafetyAlert notification verification, and operator acceptance criteria.",
+        "Interface specification for Teleoperation-Vehicle module contract regarding network adaptation responsibilities and Telemetry acknowledgment protocol.",
+        "Operator-visible communication health indicator design and validation results."
+      ]
+    }
+  }
+}

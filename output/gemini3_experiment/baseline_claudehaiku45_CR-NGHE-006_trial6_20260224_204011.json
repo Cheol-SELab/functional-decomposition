@@ -1,0 +1,162 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and work-zone boundaries, with sufficient fidelity to support autonomous path planning and operator situational awareness.",
+    "rationale": "The original FR was vague on fidelity requirements, update frequency, and the distinction between static and dynamic features. Refinement clarifies that the model must serve both planning (path generation) and execution (real-time awareness) functions, and must distinguish hazard types to enable safety-critical decision-making. High safety criticality demands explicit hazard representation.",
+    "verification_idea": "Acceptance test: (1) Worksite model generated within 5 minutes of site entry; (2) Terrain elevation accuracy ±0.5 m over 95% of mapped area; (3) Static obstacles detected and represented with 90% recall; (4) Dynamic hazards (personnel) detected and updated at ≥2 Hz; (5) Model accessible to planning and execution subsystems via agreed interface; (6) Safety Manager can review model before operations commence.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire terrain elevation data via onboard sensors (LiDAR/stereo) and fuse into elevation map.",
+      "CR-NGHE-006.2: Detect and classify static obstacles (rocks, structures, vegetation) and represent in worksite model.",
+      "CR-NGHE-006.3: Detect and track dynamic hazards (personnel, moving equipment) in real-time.",
+      "CR-NGHE-006.4: Represent work-zone boundaries (geofences, exclusion zones) in model.",
+      "CR-NGHE-006.5: Expose worksite model via standardized interface to planning and execution functions.",
+      "CR-NGHE-006.6: Validate model completeness and safety-critical feature accuracy before operational use."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized mapping service (onboard) that fuses LiDAR, stereo, and inertial data into a 3D occupancy grid; static features extracted via clustering; dynamic features via motion detection; model exposed via REST API.",
+      "DP-B: Distributed sensor processing where each sensor (LiDAR, stereo, radar) maintains its own local feature map; fusion occurs at planning layer; no centralized model.",
+      "DP-C: Hybrid: onboard occupancy grid for terrain and static obstacles; dynamic hazards detected and reported via telemetry from remote Safety Services; model assembly at tele-operator console.",
+      "DP-D: Cloud-based mapping where sensor streams are transmitted to remote server; model computed remotely and pushed back to vehicle; requires low-latency network."
+    ],
+    "selected_dp": "DP-A: Centralized onboard mapping service that fuses LiDAR, stereo, and inertial data into a 3D occupancy grid; static features extracted via spatial clustering and persistence filtering; dynamic hazards detected via motion segmentation and tracked via Kalman filtering; model exposed via standardized interface (Telemetry) to planning and execution subsystems.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between sensor acquisition (LiDAR/stereo) and mapping service is acceptable—both are localized to vehicle perception stack.",
+        "Coupling between mapping service and planning/execution is managed via interface contract (Telemetry), not direct data structure sharing.",
+        "Decoupling from remote Safety Services is achieved: dynamic hazard detection is onboard; Safety Services receives alerts only when thresholds are breached."
+      ],
+      "notes": "DP-A avoids tight coupling to network availability (unlike DP-D) and avoids distributed fusion complexity (unlike DP-B). DP-C introduces unnecessary coupling to remote Safety Services for real-time hazard detection, violating autonomy requirements."
+    },
+    "assumptions_risks": [
+      "Assumption: Onboard compute (GPU/FPGA) is sufficient for real-time 3D occupancy grid fusion at ≥10 Hz. Risk: If compute is insufficient, latency will degrade path planning responsiveness.",
+      "Assumption: LiDAR and stereo provide sufficient coverage and accuracy for terrain and obstacle detection in target worksite conditions (dust, rain, shadows). Risk: Sensor degradation in adverse weather may require fallback to tele-operator control.",
+      "Assumption: Motion segmentation can reliably distinguish personnel from vegetation/debris. Risk: False positives (wind-blown vegetation) or false negatives (stationary personnel) could compromise safety.",
+      "Assumption: Occupancy grid representation is sufficient for planning; no need for semantic segmentation (e.g., 'rock' vs. 'soil'). Risk: Planning may require material properties for traction/stability analysis."
+    ],
+    "recommended_revision": "Refine DP-A to explicitly include: (1) sensor fusion algorithm (e.g., Bayesian occupancy grid with multi-sensor weighting); (2) motion detection threshold and temporal persistence filter to reduce false positives; (3) fallback mode if onboard compute is saturated (e.g., reduce grid resolution or update frequency); (4) interface contract specifying model update rate, spatial resolution, and confidence metrics."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "The Vehicle module owns the onboard worksite mapping service, including sensor fusion (LiDAR, stereo, inertial), occupancy grid computation, static/dynamic feature extraction, and model persistence. The Vehicle module exposes the worksite model via the Telemetry interface to downstream planning and execution functions, and to Safety Services for hazard alerting."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle publishes worksite model (occupancy grid, static obstacles, dynamic hazards, work-zone boundaries) at ≥2 Hz to planning/execution and Safety Services. Payload includes: grid resolution, cell occupancy probability, feature classification, timestamp, confidence metrics."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives work-zone boundary definitions and mapping parameters (e.g., grid resolution, sensor fusion weights) from planning layer. Used to configure mapping service and validate model completeness."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Vehicle publishes safety-critical alerts (e.g., personnel detected in exclusion zone, terrain instability detected) to Safety Services. Alerts are derived from worksite model analysis and trigger operator notifications or autonomous safety actions."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Vehicle",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "Vehicle is the natural owner of onboard sensor fusion and occupancy grid computation. All sensor hardware (LiDAR, stereo, IMU) is vehicle-resident. Mapping service is tightly coupled to vehicle localization and odometry. Minimal diffusion: only interface contracts (Telemetry, Tasking, SafetyAlert) cross module boundaries."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 60,
+        "diffusion_score": 40,
+        "notes": "NGHE Solution is the system-level container, but assigning mapping service here would create diffusion: mapping logic would be decoupled from vehicle sensors and localization, requiring additional inter-module interfaces. Not recommended."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 20,
+        "diffusion_score": 80,
+        "notes": "Teleoperation is responsible for remote operator interface and command relay, not onboard perception. Assigning mapping service here would create severe diffusion: sensor data would need to flow from Vehicle to Teleoperation, then back to planning. Violates autonomy and latency requirements."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 30,
+        "diffusion_score": 70,
+        "notes": "Safety Services is responsible for hazard alerting and policy enforcement, not sensor fusion. Assigning mapping service here would require all sensor data to flow to Safety Services first, creating bottleneck and latency. Safety Services should consume the model, not produce it."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "The Vehicle module is the optimal owner of the worksite mapping service because: (1) all sensor hardware is vehicle-resident; (2) mapping is tightly coupled to vehicle localization and odometry; (3) onboard computation avoids network latency and dependency; (4) Vehicle can expose the model via standard interfaces (Telemetry, Tasking, SafetyAlert) without diffusion.",
+    "containment_risks": [
+      "Risk: Vehicle module may become overloaded if additional perception tasks (semantic segmentation, activity recognition) are added later. Mitigation: Define clear module boundary; use interface contracts to decouple future perception services.",
+      "Risk: Worksite model may need to be updated by external sources (e.g., remote operator annotations, GIS data). Mitigation: Extend Tasking interface to support model updates; Vehicle remains the authoritative model owner but accepts external inputs.",
+      "Risk: Safety Services may need real-time access to raw sensor data (not just model) for independent hazard detection. Mitigation: Extend Telemetry interface to include raw sensor streams; Vehicle publishes both model and raw data."
+    ],
+    "recommended_revision": "Confirm that Vehicle module has sufficient onboard compute (GPU/FPGA) and storage for occupancy grid at target resolution and update rate. If not, consider: (1) reducing grid resolution; (2) streaming grid updates to external storage (NGHE Solution or cloud); (3) partitioning mapping service across Vehicle and Teleoperation (Vehicle handles sensor fusion, Teleoperation handles model assembly and distribution). Current assignment assumes onboard compute is adequate."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-A (centralized onboard mapping service) directly addresses the refined FR: it generates a real-time worksite model representing terrain, obstacles, and hazards, with sufficient fidelity for planning and operator awareness. The DP is specific, testable, and avoids over-specification of implementation details (e.g., algorithm choice, sensor types). Coupling check passes: sensor fusion is localized to Vehicle; model exposure is via standard interfaces."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Low diffusion risk: Vehicle module owns all onboard sensors and localization; mapping service is naturally contained within Vehicle.",
+        "Interface diffusion is minimal: only three interfaces (Telemetry, Tasking, SafetyAlert) cross module boundaries, and all are well-defined and necessary."
+      ],
+      "containment_notes": "Vehicle is the clear owner with 95% containment score. No competing modules have comparable containment. Ownership is unambiguous."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible: (1) Worksite model can be logged and replayed offline for accuracy assessment; (2) Sensor fusion algorithms can be unit-tested with synthetic data; (3) Integration tests can validate model fidelity against ground truth (surveyed terrain, known obstacles); (4) Safety Manager can review model before operations via Telemetry interface.",
+      "allocation_clarity": "Allocation is clear: Vehicle module is responsible for model generation and exposure; planning/execution functions are responsible for consuming the model; Safety Services is responsible for hazard alerting based on model analysis. Interfaces are explicit."
+    },
+    "recommended_revisions": [
+      "Refine Tasking interface specification to include work-zone boundary format (e.g., polygon, geofence parameters) and mapping configuration parameters (grid resolution, sensor fusion weights).",
+      "Refine Telemetry interface specification to include model update rate, spatial resolution, confidence metrics, and timestamp synchronization requirements.",
+      "Refine SafetyAlert interface specification to define alert types (e.g., personnel in exclusion zone, terrain instability) and alert priority levels.",
+      "Add acceptance test for model completeness: Safety Manager must confirm that all known site features are represented in model before operations commence."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The refined FR is decomposable into six sub-FRs (sensor acquisition, obstacle detection, hazard tracking, work-zone representation, model exposure, validation). Each sub-FR requires further decomposition to define specific algorithms, sensor configurations, and interface contracts. The DP is sound and the IM assignment is clear, but the sub-FRs must be refined and decomposed to enable detailed design and implementation. High safety criticality (hazard detection and tracking) requires rigorous decomposition of dynamic hazard detection sub-FR.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire terrain elevation data via onboard sensors (LiDAR/stereo) and fuse into elevation map.",
+      "CR-NGHE-006.2: Detect and classify static obstacles (rocks, structures, vegetation) and represent in worksite model.",
+      "CR-NGHE-006.3: Detect and track dynamic hazards (personnel, moving equipment) in real-time.",
+      "CR-NGHE-006.4: Represent work-zone boundaries (geofences, exclusion zones) in model.",
+      "CR-NGHE-006.5: Expose worksite model via standardized interface to planning and execution functions.",
+      "CR-NGHE-006.6: Validate model completeness and safety-critical feature accuracy before operational use."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Onboard compute (GPU/FPGA) is sufficient for real-time 3D occupancy grid fusion at ≥10 Hz.",
+        "LiDAR and stereo provide sufficient coverage and accuracy for terrain and obstacle detection in target worksite conditions.",
+        "Motion segmentation can reliably distinguish personnel from vegetation/debris with <5% false positive rate.",
+        "Occupancy grid representation is sufficient for planning; no need for semantic segmentation.",
+        "Vehicle localization and odometry are accurate to ±0.1 m over mapping duration.",
+        "Network bandwidth is sufficient to stream Telemetry (occupancy grid) at ≥2 Hz to planning/execution and Safety Services."
+      ],
+      "open_risks": [
+        "Sensor degradation in adverse weather (dust, rain, shadows) may reduce detection accuracy below acceptance criteria.",
+        "Onboard compute saturation may cause latency in model updates, degrading path planning responsiveness.",
+        "False negatives in personnel detection (stationary personnel, occlusion) could compromise safety.",
+        "Work-zone boundary representation may be ambiguous if not formally specified (e.g., polygon vs. geofence).",
+        "Model validation procedure is not yet defined; Safety Manager approval process is unclear."
+      ],
+      "evidence_needed": [
+        "Sensor specifications and performance data (LiDAR range/accuracy, stereo baseline, IMU drift).",
+        "Onboard compute specifications (GPU/FPGA model, memory, power budget).",
+        "Occupancy grid algorithm selection and performance benchmarks (fusion rate, accuracy, memory footprint).",
+        "Motion detection algorithm selection and false positive/negative rates in target worksite conditions.",
+        "Telemetry interface specification (message format, update rate, payload size).",
+        "Model validation procedure and acceptance criteria (fidelity metrics, Safety Manager review process).",
+        "Fallback modes if onboard compute is saturated or sensors degrade."
+      ]
+    }
+  }
+}

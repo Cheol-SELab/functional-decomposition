@@ -1,0 +1,169 @@
+{
+  "refined_fr": {
+    "refined_fr": "CR-NGHE-006 (Refined): The NGHE solution shall generate and maintain a real-time worksite model representing terrain elevation, static obstacles (rocks, structures, vegetation), dynamic hazards (personnel, other equipment), and work-zone boundaries, with sufficient fidelity to support autonomous path planning and operator situational awareness.",
+    "rationale": "The original FR was vague on fidelity requirements, update frequency, and use-case binding. Refinement clarifies that the model must serve both planning (offline) and execution (real-time) functions, must distinguish static from dynamic features, and must be safety-critical (high criticality tailoring). This enables downstream DP selection to address sensing, fusion, and distribution architecture.",
+    "verification_idea": "Acceptance test: (1) Worksite model generated within 5 minutes of site entry; (2) Terrain elevation accuracy ±0.5 m over 95% of mapped area; (3) Obstacle detection sensitivity ≥95% for objects >0.3 m; (4) Model available to planning and execution subsystems via agreed interface; (5) Safety-critical features (hazard zones) marked with confidence metadata.",
+    "sub_frs": [
+      "CR-NGHE-006.1: Acquire worksite sensor data (LiDAR, camera, IMU) from vehicle platform.",
+      "CR-NGHE-006.2: Fuse multi-modal sensor data into unified 3D terrain and obstacle representation.",
+      "CR-NGHE-006.3: Classify and label worksite features (terrain, static obstacles, dynamic hazards, work zones).",
+      "CR-NGHE-006.4: Distribute worksite model to planning, execution, and operator interfaces with latency <2 s.",
+      "CR-NGHE-006.5: Validate model completeness and confidence; flag gaps and low-confidence regions to Safety Services."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Onboard sensor fusion (LiDAR + stereo camera + IMU) on vehicle; local 3D reconstruction; periodic upload to cloud backend for archival and planning access.",
+      "DP-B: Distributed sensing: vehicle-mounted primary sensors + fixed site beacons/markers; centralized fusion in Safety Services; model broadcast to all consumers.",
+      "DP-C: Hybrid edge-cloud: vehicle performs real-time local fusion for execution; Safety Services maintains authoritative model for planning and audit; bidirectional sync via Telemetry interface.",
+      "DP-D: Tele-operator-directed mapping: operator manually annotates video feed; Safety Services aggregates annotations into model; low automation, high operator workload."
+    ],
+    "selected_dp": "DP-C: Hybrid edge-cloud architecture with vehicle-side real-time fusion for execution safety and Safety Services-side authoritative model for planning, coordination, and safety validation. Model synchronization via Telemetry interface; operator and planning systems access via Tasking and SafetyAlert interfaces.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Vehicle sensor suite (LiDAR, camera, IMU) must be specified in parallel with fusion algorithm; tight coupling on sensor calibration and timing.",
+        "Safety Services model validation logic must align with vehicle-side confidence thresholds; risk of divergence if not co-designed.",
+        "Telemetry bandwidth and latency constraints may limit model update frequency; must be negotiated early."
+      ],
+      "notes": "DP-C decouples execution (vehicle) from planning (Safety Services) via asynchronous Telemetry sync, reducing real-time coupling. However, sensor specification and fusion algorithm are tightly coupled; recommend parallel decomposition of vehicle sensing subsystem."
+    },
+    "assumptions_risks": [
+      "Assumption: Vehicle platform has sufficient onboard compute (GPU/FPGA) for real-time 3D fusion; risk if compute budget exhausted by other functions.",
+      "Assumption: Telemetry interface supports model delta updates (not full model re-transmission); risk of bandwidth saturation if full model sent every cycle.",
+      "Assumption: Safety Services can validate model completeness within planning cycle time (e.g., 10 min); risk if validation is slow, delaying plan approval.",
+      "Risk: Operator situational awareness depends on model latency; if Telemetry sync lags >2 s, operator may make decisions on stale data.",
+      "Risk: High safety criticality requires model confidence metadata and failure modes analysis; DP-C must include explicit confidence propagation and anomaly detection."
+    ],
+    "recommended_revision": "Refine DP-C to explicitly specify: (1) Sensor fusion algorithm (e.g., EKF, particle filter, neural network); (2) Confidence/uncertainty representation (e.g., covariance, Bayesian posterior); (3) Telemetry sync protocol (delta vs. full, frequency, compression); (4) Safety Services validation rules (e.g., require >90% confidence for hazard zones); (5) Fallback behavior if model diverges between vehicle and Safety Services."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Safety Services",
+      "scope": "Authoritative worksite model repository, model fusion/validation logic, safety-critical feature labeling, model distribution to planning and operator interfaces, anomaly detection and confidence assessment."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "inout",
+        "details": "Vehicle sends raw/fused sensor data and local model snapshots; Safety Services sends validated model and confidence metadata back to vehicle for execution feedback."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Safety Services distributes worksite model to planning subsystem (Site Manager, System Engineer) to inform mission planning and task allocation."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Safety Services flags model gaps, low-confidence regions, and detected hazards to Safety Manager and operator for situational awareness and intervention."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Safety Services communicates with Vehicle and Teleoperation subsystems over network; model updates and telemetry flow bidirectionally."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "NGHE Solution is the top-level system; worksite modeling is a core capability but not the sole responsibility. Assigning to NGHE Solution would diffuse ownership and make interface traceability unclear. Not recommended as primary IM."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.5,
+        "diffusion_score": 0.5,
+        "notes": "Vehicle can host real-time sensor fusion for execution, but authoritative model validation and planning-level distribution are outside vehicle scope. Vehicle is a data producer, not the model authority. Partial containment only."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "Teleoperation is a consumer of worksite model (for operator situational awareness) but not the producer or validator. Assigning model authority to Teleoperation would create circular dependency with Vehicle and Safety Services. Not recommended."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.9,
+        "diffusion_score": 0.1,
+        "notes": "Safety Services is the natural authority for safety-critical model validation, hazard labeling, and distribution to planning/execution/operator. High containment: model validation, confidence assessment, anomaly detection, and safety-critical feature labeling are core Safety Services responsibilities. Low diffusion: clear ownership boundary, minimal interface leakage."
+      }
+    ],
+    "ownership_candidate": "Safety Services",
+    "containment_hypothesis": "Safety Services owns the authoritative worksite model, including fusion validation, confidence assessment, hazard detection, and distribution to planning (Tasking), execution (Telemetry), and operator (SafetyAlert). Vehicle owns real-time local fusion for execution safety; Safety Services owns model authority and planning-level distribution. This separation of concerns (edge execution vs. cloud authority) is architecturally sound for safety-critical systems.",
+    "containment_risks": [
+      "Risk: If Safety Services model validation is slow, planning may be delayed; recommend asynchronous validation with provisional model release.",
+      "Risk: Telemetry bandwidth may limit model update frequency; recommend delta-based sync and compression to mitigate.",
+      "Risk: Operator situational awareness depends on SafetyAlert latency; if Safety Services is geographically remote, latency may exceed 2 s; recommend local caching of model on Teleoperation subsystem.",
+      "Risk: Vehicle and Safety Services models may diverge if Telemetry sync fails; recommend explicit reconciliation protocol and fallback to vehicle-local model for execution."
+    ],
+    "recommended_revision": "Clarify IM boundary: Safety Services owns model authority and planning-level distribution; Vehicle owns real-time local fusion for execution. Define explicit sync protocol (Telemetry interface) with conflict resolution rules. Recommend adding a local model cache in Teleoperation subsystem to reduce SafetyAlert latency for operator situational awareness."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-C (hybrid edge-cloud) directly addresses refined FR: vehicle-side fusion supports real-time execution; Safety Services-side model supports planning and safety validation. DP-C is traceable to all sub-FRs (sensing, fusion, classification, distribution, validation). No functional gaps identified."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Diffusion risk: Vehicle sensor specification and fusion algorithm are tightly coupled; recommend parallel decomposition of Vehicle sensing subsystem to avoid diffusion.",
+        "Diffusion risk: Telemetry interface must support both raw sensor data (for Safety Services fusion) and fused model (for vehicle execution); recommend explicit protocol definition to avoid interface creep.",
+        "Diffusion risk: Safety Services model validation logic must be decoupled from vehicle-side fusion; recommend clear API contract (e.g., model schema, confidence format) to avoid tight coupling."
+      ],
+      "containment_notes": "Safety Services containment score 0.9 is high; ownership is clear. Vehicle is a data producer (0.5 containment); Teleoperation is a consumer (0.3 containment). Interface boundaries are well-defined via Telemetry, Tasking, SafetyAlert, and Network Link. Recommend explicit interface specifications to prevent diffusion."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification is feasible: (1) Model generation latency can be measured end-to-end (sensor to Safety Services); (2) Terrain accuracy can be validated against ground truth survey; (3) Obstacle detection can be tested in controlled site scenarios; (4) Interface availability can be verified via integration testing; (5) Safety-critical feature labeling can be audited via Safety Services logs.",
+      "allocation_clarity": "Allocation is clear: Safety Services owns model authority and validation; Vehicle owns real-time fusion; Teleoperation owns operator interface. Each module has distinct responsibilities and interfaces. Recommend documenting allocation in system architecture document."
+    },
+    "recommended_revisions": [
+      "Refine DP-C to specify fusion algorithm, confidence representation, and Telemetry sync protocol (see DP revision above).",
+      "Define explicit interface contracts: (1) Telemetry schema for sensor data and model updates; (2) Tasking schema for model distribution to planning; (3) SafetyAlert schema for hazard notifications.",
+      "Clarify fallback behavior if Safety Services model validation fails or Telemetry sync is lost; recommend vehicle-local model as fallback for execution.",
+      "Recommend adding local model cache in Teleoperation subsystem to reduce operator situational awareness latency.",
+      "Recommend parallel decomposition of Vehicle sensing subsystem (LiDAR, camera, IMU) to avoid tight coupling with fusion algorithm."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "CR-NGHE-006 is not atomic; refined FR identifies 5 sub-FRs (sensing, fusion, classification, distribution, validation). DP-C is sound and traceable to refined FR. Safety Services IM assignment is well-justified (0.9 containment). However, sub-FRs require further decomposition to specify sensor suite, fusion algorithm, classification logic, and distribution protocol. Recommend decomposing each sub-FR to DP and IM level before detailed design.",
+    "next_level_sub_frs": [
+      "CR-NGHE-006.1: Acquire worksite sensor data (LiDAR, camera, IMU) from vehicle platform.",
+      "CR-NGHE-006.2: Fuse multi-modal sensor data into unified 3D terrain and obstacle representation.",
+      "CR-NGHE-006.3: Classify and label worksite features (terrain, static obstacles, dynamic hazards, work zones).",
+      "CR-NGHE-006.4: Distribute worksite model to planning, execution, and operator interfaces with latency <2 s.",
+      "CR-NGHE-006.5: Validate model completeness and confidence; flag gaps and low-confidence regions to Safety Services."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Vehicle platform has sufficient onboard compute (GPU/FPGA) for real-time 3D fusion.",
+        "Telemetry interface supports model delta updates and bidirectional sync.",
+        "Safety Services can validate model completeness within planning cycle time.",
+        "Operator situational awareness latency requirement is <2 s.",
+        "High safety criticality requires explicit confidence metadata and anomaly detection.",
+        "Worksite features (terrain, obstacles, hazards) are distinguishable via multi-modal sensing."
+      ],
+      "open_risks": [
+        "Vehicle-Safety Services model divergence if Telemetry sync fails; requires reconciliation protocol.",
+        "Operator situational awareness latency if Safety Services is geographically remote; recommend local caching.",
+        "Telemetry bandwidth saturation if full model re-transmitted every cycle; recommend delta-based sync.",
+        "Safety Services validation bottleneck if model validation is slow; recommend asynchronous validation.",
+        "Sensor calibration and timing coupling between Vehicle and Safety Services; requires parallel decomposition."
+      ],
+      "evidence_needed": [
+        "Sensor specification (LiDAR range/resolution, camera FOV/resolution, IMU accuracy) for Vehicle subsystem.",
+        "Fusion algorithm selection (EKF, particle filter, neural network) with performance benchmarks.",
+        "Confidence representation scheme (covariance, Bayesian posterior, other) with propagation rules.",
+        "Telemetry interface specification (schema, sync protocol, compression, frequency).",
+        "Safety Services validation rules (confidence thresholds, anomaly detection logic, hazard labeling criteria).",
+        "Operator situational awareness latency measurements in field trials.",
+        "Ground truth survey data for terrain accuracy validation."
+      ]
+    }
+  }
+}

@@ -1,0 +1,164 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall maintain teleoperation communication packet loss at or below the customer-defined threshold (acceptance criterion: ≤1% under agreed network conditions) to ensure safe and effective remote equipment operation.",
+    "rationale": "CR-NGHE-009 addresses a critical quality-of-service requirement for teleoperation. Packet loss directly impacts operator situational awareness, control responsiveness, and safety. Refining the FR to explicitly reference the acceptance criterion (≤1%) and network conditions scope clarifies the verification boundary and prevents ambiguity in acceptance testing.",
+    "verification_idea": "Conduct packet loss measurement under representative network conditions (latency, bandwidth, interference profiles agreed with customer). Measure end-to-end packet loss across Telemetry (sensor→operator) and Tasking (operator→vehicle) paths. Acceptance: measured packet loss ≤ customer-defined limit across 95th percentile of test scenarios.",
+    "sub_frs": [
+      "FR-NGHE-009.1: The teleoperation system shall reliably transmit operator commands (Tasking) from tele-operator console to vehicle with <1% packet loss.",
+      "FR-NGHE-009.2: The teleoperation system shall reliably transmit vehicle sensor telemetry (Telemetry) from vehicle to tele-operator console with <1% packet loss.",
+      "FR-NGHE-009.3: The teleoperation system shall detect and report communication degradation (packet loss threshold breach) via SafetyAlert to Safety Services.",
+      "FR-NGHE-009.4: The teleoperation system shall adapt transmission strategy (redundancy, compression, retry) to maintain packet loss within limits under variable network conditions."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Implement redundant network paths (dual connectivity: primary + backup link) with automatic failover to maintain packet loss <1%.",
+      "DP-B: Implement forward error correction (FEC) and packet retransmission protocol with adaptive timeout tuning to recover lost packets within latency budget.",
+      "DP-C: Implement network quality monitoring with dynamic payload compression and priority-based queuing to reduce congestion-induced packet loss.",
+      "DP-D: Implement hybrid approach combining redundant paths (DP-A) + FEC/retransmission (DP-B) + quality monitoring (DP-C) with orchestrated fallback strategy."
+    ],
+    "selected_dp": "DP-D: Implement hybrid teleoperation packet loss mitigation combining (1) redundant network paths with automatic failover, (2) forward error correction and adaptive retransmission, and (3) real-time network quality monitoring with dynamic payload adaptation. Orchestrate fallback: primary path with FEC → secondary path activation → payload compression → operator alert if threshold breached.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "DP-D couples teleoperation architecture to network infrastructure (requires dual connectivity capability—may not exist in all customer sites).",
+        "DP-D couples vehicle firmware to retransmission logic (vehicle must support FEC codec and adaptive queuing).",
+        "DP-D couples Safety Services to network quality monitoring (SafetyAlert must be triggered by packet loss threshold breach, creating dependency on monitoring module)."
+      ],
+      "notes": "Couplings are acceptable because they reflect real system dependencies: packet loss mitigation inherently requires network redundancy, vehicle-side protocol support, and safety integration. Recommend documenting these as design constraints and validating customer network capability during requirements phase."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Customer network infrastructure supports dual connectivity (e.g., cellular + satellite, or dual cellular carriers). RISK: If single-link-only, DP-D redundancy component is infeasible; fallback to DP-B (FEC/retransmission only).",
+      "ASSUMPTION: Vehicle firmware can be updated to support FEC codec and adaptive retransmission. RISK: Legacy vehicle platforms may have immutable firmware; mitigation: implement FEC/retransmission in tele-operator console (software-only).",
+      "ASSUMPTION: Packet loss threshold breach can be detected with <100ms latency to trigger SafetyAlert. RISK: Monitoring overhead may introduce additional latency; recommend real-time OS or dedicated monitoring thread.",
+      "ASSUMPTION: Operator can tolerate brief (sub-second) failover latency during path switchover. RISK: Safety-critical maneuvers may require zero-downtime failover; mitigation: pre-establish secondary path before primary failure."
+    ],
+    "recommended_revision": "Refine DP-D to explicitly specify: (1) failover latency budget (e.g., <500ms), (2) FEC overhead budget (e.g., <20% bandwidth increase), (3) network conditions under which each fallback tier activates (e.g., packet loss >0.5% → enable FEC, >1% → activate secondary path), and (4) SafetyAlert trigger criteria (e.g., sustained packet loss >1% for >2 seconds). This will enable clearer DP→IM mapping and testability."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "The Teleoperation module owns the end-to-end packet loss mitigation logic, including redundant path management, FEC/retransmission codec, network quality monitoring, payload adaptation, and SafetyAlert triggering. Scope includes tele-operator console software, vehicle-side communication stack, and network orchestration logic. Does NOT include physical network infrastructure (carrier networks, antennas) or Safety Services decision logic (only alert generation)."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Vehicle sensor data (position, orientation, load, diagnostics) ingested by Teleoperation module for transmission to tele-operator console. Teleoperation applies FEC encoding and redundant path distribution to Telemetry stream."
+      },
+      {
+        "name": "Tasking",
+        "direction": "out",
+        "details": "Operator commands (movement, tool control, mode selection) generated by tele-operator console and transmitted by Teleoperation module to vehicle. Teleoperation applies FEC encoding, retransmission, and redundant path distribution to Tasking stream."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Abstraction of physical network connectivity (primary and secondary paths). Teleoperation module monitors Network Link quality metrics (latency, jitter, packet loss) and orchestrates failover between primary and secondary links."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Teleoperation module generates SafetyAlert when packet loss threshold is breached (e.g., sustained >1% for >2 seconds) to notify Safety Services and operator of communication degradation."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "Teleoperation",
+        "containment_score": 95,
+        "diffusion_score": 5,
+        "notes": "EXCELLENT containment. Teleoperation module is the natural owner of packet loss mitigation logic. All DP-D components (redundant paths, FEC, retransmission, quality monitoring, SafetyAlert triggering) are cohesive communication concerns. Minimal diffusion: only SafetyAlert interface crosses boundary to Safety Services (acceptable, as it is a notification, not a control dependency)."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 40,
+        "diffusion_score": 60,
+        "notes": "POOR containment. While Vehicle must implement FEC codec and retransmission logic on the vehicle-side communication stack, the primary packet loss mitigation orchestration (failover, quality monitoring, payload adaptation) is tele-operator-centric. Assigning DP-D to Vehicle would scatter logic across two modules and create tight coupling. Vehicle should own only the vehicle-side FEC/retransmission codec (a sub-component of DP-D), not the full DP."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 15,
+        "diffusion_score": 85,
+        "notes": "VERY POOR containment. Safety Services owns safety decision logic (e.g., whether to halt operation if communication is degraded), not communication quality mitigation. Assigning DP-D to Safety Services would conflate communication engineering with safety policy, violating separation of concerns. Safety Services should consume SafetyAlert from Teleoperation, not own the mitigation logic."
+      },
+      {
+        "module": "NGHE Solution",
+        "containment_score": 50,
+        "diffusion_score": 50,
+        "notes": "MODERATE containment. NGHE Solution is the system-level container, but it is too coarse-grained to own DP-D directly. Assigning to NGHE Solution would defer the architectural decision to a lower decomposition level. Teleoperation is the appropriate sub-module for this concern."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "The Teleoperation module is the optimal owner of DP-D (hybrid packet loss mitigation) because: (1) all mitigation logic (redundant paths, FEC, retransmission, quality monitoring, payload adaptation) is cohesive and communication-specific, (2) Teleoperation already owns the tele-operator console and vehicle communication stack, (3) SafetyAlert is a clean outbound interface (notification, not control), and (4) containment score of 95 indicates minimal diffusion risk.",
+    "containment_risks": [
+      "RISK: Vehicle firmware may not support FEC codec or adaptive retransmission. MITIGATION: Teleoperation module must provide fallback: if vehicle does not support FEC, implement FEC entirely in tele-operator console (software-only, higher CPU cost).",
+      "RISK: Dual network paths may not be available in all customer sites. MITIGATION: Teleoperation module must gracefully degrade: if secondary path unavailable, rely on FEC/retransmission alone (DP-B fallback).",
+      "RISK: SafetyAlert interface may create unexpected coupling if Safety Services rejects alerts or implements conflicting policies. MITIGATION: Define SafetyAlert contract clearly (alert type, severity, expected response time) and validate with Safety Services owner during DP→IM gate."
+    ],
+    "recommended_revision": "Refine Teleoperation module scope to explicitly separate: (1) Teleoperation.Console (tele-operator console software, owns FEC encoding, quality monitoring, failover orchestration), (2) Teleoperation.VehicleStack (vehicle-side communication stack, owns FEC decoding, retransmission, payload adaptation), and (3) Teleoperation.NetworkOrchestration (owns redundant path management and SafetyAlert triggering). This sub-modularization will clarify ownership boundaries and enable independent testing of each component. Alternatively, if Teleoperation is already decomposed into Console and VehicleStack, assign DP-D ownership to a new Teleoperation.QualityControl sub-module."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-D (hybrid packet loss mitigation) directly addresses FR-NGHE-009 (maintain packet loss ≤1%). DP-D is complete: it specifies redundant paths (for availability), FEC/retransmission (for recovery), quality monitoring (for adaptation), and SafetyAlert (for operator awareness). No functional gap identified. DP-D is implementable with current technology (redundant connectivity, FEC codecs, network monitoring are mature). Coupling is acceptable and documented."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Teleoperation module must interface with Vehicle module to deploy FEC codec and retransmission logic on vehicle-side stack. This is a design dependency (not a runtime coupling) and is acceptable if Vehicle module has clear extension points for communication protocol plugins.",
+        "Teleoperation module must interface with Safety Services module to emit SafetyAlert. This is a clean notification interface (one-way, no control feedback) and is acceptable if SafetyAlert contract is well-defined.",
+        "Teleoperation module must interface with Network Link abstraction to monitor and orchestrate dual paths. This is an infrastructure dependency and is acceptable if Network Link provides clear APIs for path status, failover, and quality metrics."
+      ],
+      "containment_notes": "Teleoperation module achieves 95% containment for DP-D. The 5% diffusion (SafetyAlert to Safety Services) is acceptable because it is a notification interface, not a control dependency. Vehicle-side FEC/retransmission is a sub-component of DP-D and should be owned by Teleoperation (with Vehicle providing implementation support). Network Link is an external infrastructure abstraction and is appropriately external to Teleoperation."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "FR-NGHE-009 is verifiable via packet loss measurement under representative network conditions. Teleoperation module can be tested in isolation by injecting network faults (packet drops, latency spikes) and measuring end-to-end packet loss. Acceptance criterion (≤1%) is quantitative and measurable. Verification plan: (1) unit test FEC codec and retransmission logic, (2) integration test redundant path failover, (3) system test packet loss under customer-representative network conditions.",
+      "allocation_clarity": "FR-NGHE-009 is allocated to Teleoperation module with clear sub-FRs (FR-NGHE-009.1 through 009.4) that map to DP-D components. Each sub-FR is traceable to a specific DP-D mechanism (redundant paths, FEC, quality monitoring, SafetyAlert). Allocation is clear and complete."
+    },
+    "recommended_revisions": [
+      "Refine DP-D to specify failover latency budget (e.g., <500ms) and FEC overhead budget (e.g., <20% bandwidth increase). This will enable clearer acceptance criteria and testability.",
+      "Refine Teleoperation module scope to separate Console, VehicleStack, and QualityControl sub-modules. This will clarify ownership boundaries and enable independent testing.",
+      "Define SafetyAlert contract (alert type, severity, expected response time) and validate with Safety Services owner during DP→IM gate.",
+      "Document assumptions about customer network capability (dual connectivity support) and vehicle firmware updateability. Validate these assumptions during requirements phase."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-NGHE-009 is not atomic and requires further decomposition. The refined FR identifies four sub-FRs (FR-NGHE-009.1 through 009.4) that address distinct aspects of packet loss mitigation: (1) operator command transmission, (2) telemetry transmission, (3) communication degradation detection, and (4) adaptive transmission strategy. Each sub-FR should be decomposed to the next level to specify detailed DP and IM assignments. Additionally, DP-D is complex and couples multiple technologies (redundancy, FEC, retransmission, quality monitoring); decomposing each sub-FR will clarify the design and reduce coupling risk.",
+    "justification_detail": "The FR-DP-IM gate review passes, indicating that DP-D is a valid solution for FR-NGHE-009 and Teleoperation is the appropriate module owner. However, the complexity of DP-D and the presence of multiple sub-FRs suggest that further decomposition is necessary to achieve atomic FRs and detailed design specifications. Proceeding to the next decomposition level will enable: (1) clearer allocation of DP-D components to sub-modules (e.g., FEC codec to Teleoperation.VehicleStack, failover logic to Teleoperation.Console), (2) more detailed verification plans for each sub-FR, and (3) better risk management by isolating design decisions.",
+    "next_level_sub_frs": [
+      "FR-NGHE-009.1: The teleoperation system shall reliably transmit operator commands (Tasking) from tele-operator console to vehicle with <1% packet loss.",
+      "FR-NGHE-009.2: The teleoperation system shall reliably transmit vehicle sensor telemetry (Telemetry) from vehicle to tele-operator console with <1% packet loss.",
+      "FR-NGHE-009.3: The teleoperation system shall detect and report communication degradation (packet loss threshold breach) via SafetyAlert to Safety Services.",
+      "FR-NGHE-009.4: The teleoperation system shall adapt transmission strategy (redundancy, compression, retry) to maintain packet loss within limits under variable network conditions."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Customer network infrastructure supports dual connectivity (e.g., cellular + satellite, or dual cellular carriers).",
+        "Vehicle firmware can be updated to support FEC codec and adaptive retransmission.",
+        "Packet loss threshold breach can be detected with <100ms latency to trigger SafetyAlert.",
+        "Operator can tolerate brief (sub-second) failover latency during path switchover.",
+        "SafetyAlert interface does not create unexpected coupling with Safety Services decision logic.",
+        "Network Link abstraction provides clear APIs for path status, failover, and quality metrics."
+      ],
+      "open_risks": [
+        "Vehicle firmware may not support FEC codec or adaptive retransmission (MITIGATION: implement FEC entirely in tele-operator console as fallback).",
+        "Dual network paths may not be available in all customer sites (MITIGATION: gracefully degrade to FEC/retransmission alone).",
+        "SafetyAlert interface may create unexpected coupling if Safety Services rejects alerts or implements conflicting policies (MITIGATION: define SafetyAlert contract clearly and validate with Safety Services owner).",
+        "Failover latency during path switchover may exceed operator tolerance for safety-critical maneuvers (MITIGATION: pre-establish secondary path before primary failure).",
+        "FEC overhead may exceed bandwidth budget in constrained network conditions (MITIGATION: implement dynamic FEC level tuning based on network quality)."
+      ],
+      "evidence_needed": [
+        "Customer network capability assessment: confirm dual connectivity support and network conditions (latency, bandwidth, interference profiles).",
+        "Vehicle firmware capability assessment: confirm FEC codec and retransmission support, or plan for software-only fallback.",
+        "Failover latency measurement: validate that failover latency is <500ms under representative network conditions.",
+        "FEC overhead measurement: validate that FEC overhead is <20% bandwidth increase under representative network conditions.",
+        "SafetyAlert contract definition: define alert type, severity, expected response time, and validate with Safety Services owner.",
+        "Packet loss measurement under customer-representative network conditions: validate that DP-D achieves <1% packet loss under 95th percentile of test scenarios."
+      ]
+    }
+  }
+}

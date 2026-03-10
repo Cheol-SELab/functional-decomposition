@@ -1,0 +1,167 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall achieve a measured p95 cycle time ≤ CT_target for the load→travel→dump cycle under the agreed duty cycle and site conditions, with cycle time performance monitored and reported via telemetry.",
+    "rationale": "CR-NGHE-002 is a KPI requirement that must be operationalized with measurable acceptance criteria (p95 percentile), explicit duty cycle definition, and telemetry-based verification. The refinement adds observability (telemetry reporting) to enable continuous performance validation and root-cause analysis of cycle time deviations.",
+    "verification_idea": "Collect cycle time samples across ≥100 load→travel→dump cycles under defined site conditions; compute p95 percentile; compare against CT_target. Telemetry logs shall record cycle phase timestamps (load start, travel start, dump start, dump end) to enable phase-level performance attribution.",
+    "sub_frs": [
+      "FR-CT-001: The NGHE solution shall measure and timestamp each phase of the load→travel→dump cycle (load, travel, dump) with ≤100 ms resolution.",
+      "FR-CT-002: The NGHE solution shall transmit cycle time telemetry (phase timestamps, cycle duration) to the monitoring system at ≥1 Hz frequency.",
+      "FR-CT-003: The NGHE solution shall execute load, travel, and dump operations with deterministic latency and minimal idle time to meet the p95 cycle time target.",
+      "FR-CT-004: The NGHE solution shall adapt cycle execution strategy (e.g., travel speed, dump duration) based on site conditions and duty cycle constraints without violating safety requirements."
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-CT-A: Implement a centralized cycle state machine in the Vehicle control module that orchestrates load, travel, and dump phases with hard real-time scheduling; measure phase transitions via onboard timers; stream telemetry via the Telemetry interface.",
+      "DP-CT-B: Distribute cycle phase execution across Vehicle (mechanical actuation), Teleoperation (operator command timing), and Safety Services (phase gating); aggregate phase timestamps from each module and report via Telemetry.",
+      "DP-CT-C: Implement adaptive cycle execution in the Vehicle module with feedback from site condition sensors (terrain, load mass, ambient); dynamically adjust phase durations to optimize cycle time while maintaining safety margins; report via Telemetry.",
+      "DP-CT-D: Implement a hybrid approach: Vehicle executes deterministic load and dump phases; Teleoperation optimizes travel speed and path based on operator input and site telemetry; Safety Services validates all phase transitions; unified telemetry reporting."
+    ],
+    "selected_dp": "DP-CT-D: Hybrid cycle execution with Vehicle-owned load/dump determinism, Teleoperation-optimized travel, Safety Services phase validation, and unified Telemetry reporting.",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Vehicle load/dump phase timing must be decoupled from travel optimization to avoid blocking operator responsiveness.",
+        "Safety Services phase validation must not introduce latency that degrades cycle time; validation logic must be non-blocking or pre-computed.",
+        "Telemetry reporting frequency must not saturate network bandwidth; aggregation and sampling strategy required."
+      ],
+      "notes": "DP-CT-D avoids tight coupling by assigning clear ownership: Vehicle owns deterministic mechanical phases (load, dump); Teleoperation owns travel optimization; Safety Services owns safety gating. Interfaces (Tasking, Telemetry, SafetyAlert) decouple these domains. Risk: if Safety Services validation is synchronous and slow, it will block cycle progression; mitigation is to pre-validate phase transitions asynchronously."
+    },
+    "assumptions_risks": [
+      "ASSUMPTION: Vehicle load and dump phases can be executed with repeatable, deterministic timing (±5% variance) under the agreed duty cycle.",
+      "ASSUMPTION: Teleoperation system can optimize travel speed in real-time without introducing >10% cycle time variance.",
+      "ASSUMPTION: Safety Services can validate phase transitions with <50 ms latency to avoid blocking cycle progression.",
+      "RISK: If site conditions (terrain, load variability) cause unpredictable load/dump phase durations, the p95 target may not be achievable without adaptive control.",
+      "RISK: If Teleoperation introduces operator latency (human reaction time ~200–500 ms), travel phase may dominate cycle time and limit optimization potential.",
+      "RISK: If Safety Services validation is synchronous and blocking, it may add unacceptable latency to cycle progression."
+    ],
+    "recommended_revision": "Refine DP-CT-D to explicitly specify: (1) Vehicle load/dump phase timing targets and variance bounds; (2) Teleoperation travel speed optimization algorithm and latency budget; (3) Safety Services validation strategy (asynchronous pre-validation vs. synchronous gating); (4) Telemetry sampling and aggregation strategy to avoid network saturation. Add a sub-DP for adaptive cycle execution to handle site condition variability."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Vehicle",
+      "scope": "Owns deterministic execution of load and dump phases, including mechanical actuation timing, phase transition logic, and onboard telemetry collection (phase timestamps). Interfaces with Teleoperation for travel command acceptance and with Safety Services for phase validation gating."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "out",
+        "details": "Vehicle transmits cycle phase timestamps (load start, travel start, dump start, dump end), cycle duration, and phase-level performance metrics at ≥1 Hz to enable real-time cycle time monitoring and post-analysis."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Vehicle receives load and dump task commands from Teleoperation or autonomous planner; executes tasks with deterministic timing and reports completion status."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "inout",
+        "details": "Vehicle receives safety validation gates from Safety Services before phase transitions; transmits phase state and safety-relevant telemetry (e.g., load mass, terrain conditions) to Safety Services for real-time validation."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Vehicle uses Network Link to transmit Telemetry and SafetyAlert messages; receives Tasking commands via Network Link."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "NGHE Solution is the system-level container; cycle time KPI is a system-level concern that spans Vehicle, Teleoperation, and Safety Services. Assigning IM to NGHE Solution would diffuse responsibility and obscure ownership. Not recommended as primary IM."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.85,
+        "diffusion_score": 0.15,
+        "notes": "Vehicle owns the mechanical execution of load and dump phases, which are the deterministic components of cycle time. Vehicle can measure and report phase timestamps via onboard timers. Travel phase is shared with Teleoperation, but Vehicle can report travel start/end timestamps. High containment for load/dump; moderate for travel. Recommended as primary IM for cycle time execution and telemetry collection."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Teleoperation owns travel command optimization and operator input timing, which affects travel phase duration. However, Teleoperation does not own load/dump execution or onboard telemetry collection. Partial containment; not suitable as sole IM. Could be secondary IM for travel optimization sub-requirement."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Safety Services owns phase validation and safety gating, which can impact cycle time if validation is slow. However, Safety Services does not own mechanical execution or telemetry collection. Low containment; not suitable as primary IM. Could be secondary IM for safety-constrained cycle optimization."
+      }
+    ],
+    "ownership_candidate": "Vehicle",
+    "containment_hypothesis": "Vehicle is the natural owner of cycle time execution and telemetry collection because it owns the mechanical load and dump phases and can instrument onboard timers to measure phase transitions. Vehicle interfaces with Teleoperation (for travel commands) and Safety Services (for phase validation) via well-defined interfaces (Tasking, SafetyAlert, Telemetry). This assignment avoids diffusion and creates clear accountability for cycle time performance.",
+    "containment_risks": [
+      "RISK: Vehicle may not have direct visibility into Teleoperation travel optimization logic; if travel phase dominates cycle time, Vehicle cannot optimize it without Teleoperation collaboration.",
+      "RISK: If Safety Services validation is slow or blocking, Vehicle cannot mitigate the latency; safety validation latency must be managed at the Safety Services IM level.",
+      "RISK: Vehicle telemetry reporting frequency (≥1 Hz) may saturate network bandwidth if other Vehicle telemetry streams are active; network bandwidth allocation and prioritization required.",
+      "RISK: Vehicle onboard timer resolution (≤100 ms) may be insufficient to detect sub-100 ms phase timing variations; sensor/actuator latency may introduce measurement noise."
+    ],
+    "recommended_revision": "Assign Vehicle as primary IM for cycle time execution and telemetry collection. Create secondary IM assignments for travel optimization (Teleoperation) and safety validation (Safety Services) to handle their respective sub-requirements. Define explicit interface contracts: (1) Tasking interface specifies load/dump command format and expected execution latency; (2) SafetyAlert interface specifies phase validation latency budget; (3) Telemetry interface specifies cycle time metric format and reporting frequency. Add a network bandwidth allocation plan to ensure Telemetry does not saturate the Network Link."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "DP-CT-D (hybrid cycle execution) directly addresses the refined FR by assigning clear ownership of load/dump determinism (Vehicle), travel optimization (Teleoperation), and safety validation (Safety Services). The DP includes telemetry reporting, which enables verification of the p95 cycle time target. No functional gaps identified."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Travel phase optimization is split between Vehicle (travel start/end timestamp reporting) and Teleoperation (travel speed command). This is acceptable because Teleoperation owns the optimization logic and Vehicle owns the execution/measurement. Interface contract (Tasking) must clearly specify travel command format and expected latency.",
+        "Safety validation is owned by Safety Services but impacts Vehicle cycle progression. This is acceptable if Safety Services validation is asynchronous and non-blocking. If validation is synchronous and blocking, it will diffuse cycle time responsibility to Safety Services; mitigation is to pre-validate phase transitions or use a timeout mechanism."
+      ],
+      "containment_notes": "Vehicle IM contains load/dump execution and telemetry collection (high containment). Travel phase is partially contained in Vehicle (measurement) and partially in Teleoperation (optimization); this is a justified split based on functional ownership. Safety validation is owned by Safety Services but gated by Vehicle; this is acceptable if the interface contract is clear and latency is bounded."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Cycle time verification is feasible via Vehicle telemetry collection and post-analysis. Vehicle can measure phase timestamps with ≤100 ms resolution; aggregation across ≥100 cycles enables p95 percentile computation. Telemetry interface must specify metric format and reporting frequency to enable automated verification.",
+      "allocation_clarity": "Allocation is clear: Vehicle owns load/dump execution and telemetry; Teleoperation owns travel optimization; Safety Services owns phase validation. Each IM has explicit responsibility for a subset of the cycle time KPI. Interface contracts (Tasking, SafetyAlert, Telemetry) decouple the IMs and enable independent verification."
+    },
+    "recommended_revisions": [
+      "Refine the Tasking interface contract to specify load/dump command format, expected execution latency, and phase transition timing.",
+      "Refine the SafetyAlert interface contract to specify phase validation latency budget (e.g., <50 ms) to ensure safety validation does not block cycle progression.",
+      "Refine the Telemetry interface contract to specify cycle time metric format (phase timestamps, cycle duration, p95 percentile) and reporting frequency (≥1 Hz).",
+      "Add a network bandwidth allocation plan to ensure Telemetry reporting does not saturate the Network Link.",
+      "Define a contingency plan for handling Safety Services validation latency if it exceeds the budget; consider asynchronous pre-validation or timeout mechanisms."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "The refined FR-CT and selected DP-CT-D are well-formed and pass the FR-DP-IM gates. However, the DP is complex and spans multiple IMs (Vehicle, Teleoperation, Safety Services); further decomposition is needed to allocate sub-requirements to each IM and define interface contracts. Additionally, the sub-FRs (FR-CT-001 through FR-CT-004) require detailed DPs and IMs to ensure cycle time targets are achievable. Zigzag down to decompose the sub-FRs and refine the interface contracts.",
+    "next_level_sub_frs": [
+      "FR-CT-001: The NGHE solution shall measure and timestamp each phase of the load→travel→dump cycle (load, travel, dump) with ≤100 ms resolution.",
+      "FR-CT-002: The NGHE solution shall transmit cycle time telemetry (phase timestamps, cycle duration) to the monitoring system at ≥1 Hz frequency.",
+      "FR-CT-003: The NGHE solution shall execute load, travel, and dump operations with deterministic latency and minimal idle time to meet the p95 cycle time target.",
+      "FR-CT-004: The NGHE solution shall adapt cycle execution strategy (e.g., travel speed, dump duration) based on site conditions and duty cycle constraints without violating safety requirements."
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Vehicle load and dump phases can be executed with repeatable, deterministic timing (±5% variance) under the agreed duty cycle.",
+        "Teleoperation system can optimize travel speed in real-time without introducing >10% cycle time variance.",
+        "Safety Services can validate phase transitions with <50 ms latency to avoid blocking cycle progression.",
+        "Network Link has sufficient bandwidth to support ≥1 Hz Telemetry reporting without saturation.",
+        "Vehicle onboard timers have ≤100 ms resolution and can measure phase transitions accurately.",
+        "Site conditions (terrain, load variability) are within the design envelope and do not cause unpredictable phase durations >±10%."
+      ],
+      "open_risks": [
+        "RISK: If site conditions cause unpredictable load/dump phase durations, the p95 target may not be achievable without adaptive control.",
+        "RISK: If Teleoperation introduces operator latency (human reaction time ~200–500 ms), travel phase may dominate cycle time and limit optimization potential.",
+        "RISK: If Safety Services validation is synchronous and blocking, it may add unacceptable latency to cycle progression.",
+        "RISK: Vehicle telemetry reporting frequency (≥1 Hz) may saturate network bandwidth if other Vehicle telemetry streams are active.",
+        "RISK: Vehicle onboard timer resolution (≤100 ms) may be insufficient to detect sub-100 ms phase timing variations; sensor/actuator latency may introduce measurement noise."
+      ],
+      "evidence_needed": [
+        "Duty cycle definition: load mass range, terrain types, ambient conditions, operator skill level.",
+        "Vehicle load/dump phase timing characterization: nominal duration, variance bounds, sensitivity to load mass and terrain.",
+        "Teleoperation travel optimization algorithm: travel speed profile, latency budget, sensitivity to operator input.",
+        "Safety Services validation latency measurement: phase validation logic, latency distribution, blocking vs. non-blocking behavior.",
+        "Network bandwidth allocation: Telemetry reporting frequency, message size, network capacity, competing traffic.",
+        "Vehicle onboard timer specification: resolution, accuracy, synchronization with external time sources.",
+        "Site condition variability analysis: terrain roughness, load mass distribution, ambient temperature/humidity effects on cycle time."
+      ]
+    }
+  }
+}

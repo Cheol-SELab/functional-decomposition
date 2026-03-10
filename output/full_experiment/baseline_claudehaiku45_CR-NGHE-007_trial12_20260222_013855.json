@@ -1,0 +1,168 @@
+{
+  "refined_fr": {
+    "refined_fr": "The NGHE solution shall update the worksite model to reflect current equipment state, environmental conditions, and operational events with a p95 latency not exceeding the customer-defined target (baseline 1.0 s) across all supported update scenarios.",
+    "rationale": "CR-NGHE-007 requires clarification of scope (what constitutes 'worksite model'), measurement basis (p95 latency metric), and boundary conditions (supported scenarios). High safety criticality demands explicit traceability to safety-critical update types (e.g., collision alerts, operator status changes). Refined FR anchors to measurable acceptance criterion and acknowledges customer-defined variability.",
+    "verification_idea": "Measure end-to-end latency from sensor/event generation through model update completion across representative scenarios (teleoperated movement, autonomous task execution, safety event detection). Stratify by update type and network condition. Validate p95 percentile against acceptance threshold.",
+    "sub_frs": [
+      "FR-NGHE-007.1: Acquire real-time telemetry from vehicle sensors and subsystems",
+      "FR-NGHE-007.2: Transmit telemetry and operational state over network link to worksite model service",
+      "FR-NGHE-007.3: Process and integrate telemetry into worksite model representation",
+      "FR-NGHE-007.4: Distribute updated worksite model to authorized consumers (operators, safety services, tele-operators)",
+      "FR-NGHE-007.5: Detect and prioritize safety-critical updates for expedited propagation"
+    ],
+    "is_atomic": false
+  },
+  "selected_dp": {
+    "candidate_dps": [
+      "DP-A: Centralized worksite model service with real-time telemetry ingestion, in-memory state representation, and publish-subscribe distribution to all consumers",
+      "DP-B: Distributed edge-based model replicas on vehicle and tele-operator endpoints with eventual consistency synchronization",
+      "DP-C: Hybrid architecture with safety-critical updates routed through low-latency dedicated channel; non-critical updates via standard telemetry pipeline",
+      "DP-D: Streaming data pipeline (Kafka/RabbitMQ) with model state materialization and consumer-side filtering"
+    ],
+    "selected_dp": "DP-C: Hybrid architecture with safety-critical updates routed through low-latency dedicated channel; non-critical updates via standard telemetry pipeline",
+    "coupling_check": {
+      "assessment": "Pass",
+      "potential_sources": [
+        "Coupling between safety-critical channel and standard telemetry pipeline requires clear demarcation of update priority and routing logic",
+        "Coupling between worksite model service and vehicle telemetry acquisition (FR-NGHE-007.1) must be decoupled via Network Link interface",
+        "Coupling between model distribution (FR-NGHE-007.4) and Safety Services (for alert generation) requires explicit SafetyAlert interface contract"
+      ],
+      "notes": "DP-C mitigates latency risk by isolating safety-critical path from congestion on standard pipeline. Decoupling via well-defined interfaces (Telemetry, SafetyAlert, Network Link) reduces architectural coupling. Assumption: network infrastructure supports dual-channel capability."
+    },
+    "assumptions_risks": [
+      "Assumption: Customer network infrastructure supports dedicated low-latency channel for safety-critical updates (e.g., separate VLAN, QoS prioritization)",
+      "Risk: If network does not support dual-channel, DP-C degrades to single-pipeline architecture; mitigation requires QoS enforcement at application layer",
+      "Risk: Complexity of dual-channel routing logic increases implementation burden and testing scope; mitigation via clear state machine and integration testing",
+      "Assumption: Safety-critical update taxonomy is well-defined and stable; if definition changes, routing logic must be revisited"
+    ],
+    "recommended_revision": "Validate network infrastructure capability for dual-channel support before final DP commitment. If unavailable, fall back to DP-A (centralized with QoS-aware scheduling) or DP-D (streaming pipeline with priority queues). Document safety-critical update taxonomy as a design artifact."
+  },
+  "assigned_im": {
+    "im_boundary": {
+      "name": "Teleoperation",
+      "scope": "Teleoperation module owns the worksite model update latency responsibility through integration of telemetry ingestion, model state management, and distribution to tele-operator and remote safety services. This module acts as the primary consumer and distributor of real-time worksite state, coordinating with Vehicle (telemetry source) and Safety Services (safety-critical alert routing)."
+    },
+    "external_interfaces": [
+      {
+        "name": "Telemetry",
+        "direction": "in",
+        "details": "Ingests real-time sensor data, equipment state, and operational events from Vehicle module. Telemetry stream feeds both standard and safety-critical update pipelines."
+      },
+      {
+        "name": "Network Link",
+        "direction": "inout",
+        "details": "Provides dual-channel communication: standard telemetry pipeline for non-critical updates, dedicated low-latency channel for safety-critical updates. Teleoperation module manages routing logic and QoS enforcement."
+      },
+      {
+        "name": "SafetyAlert",
+        "direction": "out",
+        "details": "Emits safety-critical updates (collision warnings, operator status changes, anomalies) to Safety Services module. Teleoperation module prioritizes and routes these alerts through low-latency channel."
+      },
+      {
+        "name": "Tasking",
+        "direction": "in",
+        "details": "Receives operational commands and task definitions from tele-operators. Tasking context informs model update prioritization and scenario-specific latency requirements."
+      }
+    ],
+    "module_containment_scores": [
+      {
+        "module": "NGHE Solution",
+        "containment_score": 0.3,
+        "diffusion_score": 0.7,
+        "notes": "NGHE Solution is the system-level container but does not own specific latency implementation. Worksite model update is a cross-cutting concern that diffuses across Vehicle, Teleoperation, and Safety Services. Containment score reflects that NGHE Solution defines acceptance criteria but delegates implementation."
+      },
+      {
+        "module": "Vehicle",
+        "containment_score": 0.2,
+        "diffusion_score": 0.8,
+        "notes": "Vehicle module owns telemetry acquisition (FR-NGHE-007.1) but not model update or distribution. Latency responsibility diffuses to downstream modules. Containment score reflects limited scope within Vehicle."
+      },
+      {
+        "module": "Teleoperation",
+        "containment_score": 0.85,
+        "diffusion_score": 0.15,
+        "notes": "Teleoperation module is the natural owner of worksite model state management, real-time update processing, and distribution to remote operators and safety services. High containment score reflects that this module integrates telemetry ingestion, model state, and multi-channel distribution. Low diffusion score indicates minimal leakage to other modules (only via well-defined interfaces: Telemetry in, SafetyAlert out, Network Link inout)."
+      },
+      {
+        "module": "Safety Services",
+        "containment_score": 0.4,
+        "diffusion_score": 0.6,
+        "notes": "Safety Services consumes worksite model updates (via SafetyAlert interface) to generate safety-critical alerts and enforce policies. Containment score reflects that Safety Services owns alert generation logic but depends on Teleoperation for timely model updates. Diffusion score reflects coupling to Teleoperation's update latency."
+      }
+    ],
+    "ownership_candidate": "Teleoperation",
+    "containment_hypothesis": "Teleoperation module is the optimal owner because it: (1) integrates telemetry ingestion from Vehicle, (2) maintains worksite model state representation, (3) implements dual-channel routing logic (standard vs. safety-critical), (4) distributes updates to tele-operators and Safety Services via well-defined interfaces. This containment minimizes diffusion and creates a single point of latency control.",
+    "containment_risks": [
+      "Risk: If Teleoperation module becomes overloaded with model state management, latency may degrade. Mitigation: implement asynchronous processing and consider offloading non-critical model updates to a separate service.",
+      "Risk: Coupling between Teleoperation and Safety Services via SafetyAlert interface may create circular dependency if Safety Services needs to influence model update prioritization. Mitigation: define SafetyAlert as unidirectional (Teleoperation -> Safety Services) and use Tasking interface for feedback.",
+      "Risk: Network Link interface must support dual-channel capability; if unavailable, Teleoperation module must implement QoS-aware scheduling at application layer, increasing complexity. Mitigation: validate network infrastructure early.",
+      "Risk: Teleoperation module may need to coordinate with Vehicle module on telemetry sampling rates and transmission frequency to meet latency targets. Mitigation: define Telemetry interface contract with explicit timing guarantees."
+    ],
+    "recommended_revision": "Confirm that Teleoperation module has sufficient computational capacity and network bandwidth to support dual-channel routing and real-time model state management. If capacity is constrained, consider decomposing Teleoperation into separate sub-modules: (1) Telemetry Ingestion & Routing, (2) Worksite Model Service, (3) Tele-operator Interface. This decomposition would shift IM assignment to a dedicated 'Worksite Model Service' module (if available as a candidate)."
+  },
+  "gate_review": {
+    "fr_dp_gate": {
+      "pass": true,
+      "reason": "Refined FR (worksite model update with p95 latency ≤ customer target) is directly addressed by selected DP (hybrid dual-channel architecture with safety-critical prioritization). DP-C logically solves the FR by isolating safety-critical updates on a low-latency path, reducing congestion on standard pipeline. Coupling check passes with documented assumptions (network infrastructure support). FR is sufficiently specific to guide DP selection and verification."
+    },
+    "dp_im_gate": {
+      "pass": true,
+      "diffusion_risks": [
+        "Diffusion Risk 1: Dual-channel routing logic (DP-C) is concentrated in Teleoperation module, but Vehicle module must support telemetry sampling and transmission frequency tuning. Mitigation: define Telemetry interface contract with explicit timing SLAs.",
+        "Diffusion Risk 2: Safety Services module consumes SafetyAlert interface but may need to influence model update prioritization. Mitigation: establish unidirectional SafetyAlert interface and use Tasking for feedback.",
+        "Diffusion Risk 3: Network Link interface must support dual-channel capability; if unavailable, Teleoperation module must implement QoS at application layer. Mitigation: validate network infrastructure and document fallback strategy."
+      ],
+      "containment_notes": "Teleoperation module achieves 0.85 containment score with 0.15 diffusion. This is acceptable for a latency-critical function because: (1) Telemetry ingestion (Vehicle) and alert generation (Safety Services) are logically separate concerns, (2) interfaces are well-defined and unidirectional (Telemetry in, SafetyAlert out, Network Link inout), (3) Teleoperation owns the critical path (model state management and dual-channel routing). Recommended to monitor diffusion during detailed design and implementation."
+    },
+    "fr_im_gate": {
+      "pass": true,
+      "verification_feasibility": "Verification of FR-NGHE-007 is feasible via end-to-end latency measurement across representative scenarios. Teleoperation module provides clear instrumentation points: (1) telemetry ingestion timestamp, (2) model update completion timestamp, (3) distribution to consumers. p95 latency can be measured and validated against acceptance criterion. Safety-critical update path can be isolated and tested separately.",
+      "allocation_clarity": "Allocation of FR-NGHE-007 to Teleoperation module is clear. Sub-FRs (FR-NGHE-007.1 through FR-NGHE-007.5) are allocated as follows: FR-NGHE-007.1 (telemetry acquisition) -> Vehicle module, FR-NGHE-007.2 (transmission) -> Network Link interface, FR-NGHE-007.3 (processing) -> Teleoperation module, FR-NGHE-007.4 (distribution) -> Teleoperation module, FR-NGHE-007.5 (safety-critical detection) -> Teleoperation module with SafetyAlert interface to Safety Services. Allocation is traceable and testable."
+    },
+    "recommended_revisions": [
+      "Revision 1: Document network infrastructure requirements (dual-channel support, QoS capability) as a design constraint. If unavailable, revise DP to DP-A (centralized with QoS scheduling) or DP-D (streaming pipeline with priority queues).",
+      "Revision 2: Define Telemetry interface contract with explicit timing SLAs (e.g., telemetry sampling rate, transmission frequency, maximum latency from sensor to Teleoperation module).",
+      "Revision 3: Define SafetyAlert interface contract with explicit priority levels and routing rules (e.g., collision alerts routed through low-latency channel, status updates through standard pipeline).",
+      "Revision 4: Establish acceptance test plan for p95 latency measurement across representative scenarios (teleoperated movement, autonomous task, safety event). Define test environment and success criteria.",
+      "Revision 5: If Teleoperation module capacity is constrained, consider decomposing into sub-modules (Telemetry Ingestion, Worksite Model Service, Tele-operator Interface) and revisit IM assignment."
+    ]
+  },
+  "decision": {
+    "decision": "ZIGZAG_DOWN",
+    "justification": "FR-NGHE-007 is not atomic and has been decomposed into five sub-FRs (FR-NGHE-007.1 through FR-NGHE-007.5). Each sub-FR requires further refinement and DP selection to ensure complete coverage of latency requirements. Specifically: (1) FR-NGHE-007.1 (telemetry acquisition) requires DP selection for sensor sampling and transmission strategy, (2) FR-NGHE-007.2 (transmission) requires DP selection for network protocol and QoS enforcement, (3) FR-NGHE-007.3 (processing) requires DP selection for model state representation and update algorithm, (4) FR-NGHE-007.4 (distribution) requires DP selection for publish-subscribe mechanism, (5) FR-NGHE-007.5 (safety-critical detection) requires DP selection for priority detection and routing logic. Proceeding to next decomposition level is necessary to achieve atomic FRs and detailed design guidance.",
+    "next_level_sub_frs": [
+      "FR-NGHE-007.1: Acquire real-time telemetry from vehicle sensors and subsystems with configurable sampling rates and transmission frequency to support latency targets",
+      "FR-NGHE-007.2: Transmit telemetry and operational state over network link to worksite model service with QoS prioritization for safety-critical updates",
+      "FR-NGHE-007.3: Process and integrate telemetry into worksite model representation using efficient state update algorithms and data structures",
+      "FR-NGHE-007.4: Distribute updated worksite model to authorized consumers (operators, safety services, tele-operators) via publish-subscribe mechanism with latency guarantees",
+      "FR-NGHE-007.5: Detect and prioritize safety-critical updates (collision alerts, operator status changes, anomalies) for expedited propagation through dedicated low-latency channel"
+    ],
+    "revise": null,
+    "record": {
+      "assumptions": [
+        "Assumption 1: Customer network infrastructure supports dual-channel communication (standard telemetry pipeline + dedicated low-latency channel for safety-critical updates) or QoS-aware scheduling at application layer.",
+        "Assumption 2: Safety-critical update taxonomy is well-defined and stable (e.g., collision alerts, operator status changes, equipment failures). Changes to taxonomy require DP revision.",
+        "Assumption 3: Teleoperation module has sufficient computational capacity and network bandwidth to support real-time model state management and dual-channel routing.",
+        "Assumption 4: Vehicle module can provide telemetry with configurable sampling rates and transmission frequency to support latency targets (sub-1.0 s p95).",
+        "Assumption 5: Safety Services module can consume SafetyAlert interface and generate safety-critical alerts without introducing additional latency (i.e., SafetyAlert propagation is not on critical path for model update latency)."
+      ],
+      "open_risks": [
+        "Risk 1: Network infrastructure may not support dual-channel capability, forcing fallback to single-pipeline architecture with QoS scheduling. Impact: increased complexity in Teleoperation module, potential latency degradation under congestion.",
+        "Risk 2: Teleoperation module may become a bottleneck if computational capacity is insufficient for real-time model state management. Impact: latency targets may not be achievable. Mitigation: decompose into sub-modules or offload to dedicated service.",
+        "Risk 3: Safety-critical update taxonomy may change during development, requiring DP and IM revisions. Impact: schedule and cost overruns. Mitigation: establish change control process and design for extensibility.",
+        "Risk 4: Coupling between Teleoperation and Safety Services via SafetyAlert interface may create circular dependency if Safety Services needs to influence model update prioritization. Impact: architectural complexity. Mitigation: enforce unidirectional interface and use Tasking for feedback.",
+        "Risk 5: Verification of p95 latency across all supported scenarios may be challenging due to variability in network conditions and workload. Impact: acceptance testing complexity. Mitigation: establish representative test scenarios and acceptance criteria early."
+      ],
+      "evidence_needed": [
+        "Evidence 1: Network infrastructure specification confirming dual-channel support or QoS capability.",
+        "Evidence 2: Safety-critical update taxonomy document with explicit definitions and examples.",
+        "Evidence 3: Teleoperation module capacity analysis (CPU, memory, network bandwidth) confirming feasibility of real-time model state management.",
+        "Evidence 4: Vehicle module telemetry specification with sampling rates, transmission frequency, and latency guarantees.",
+        "Evidence 5: Acceptance test plan for p95 latency measurement across representative scenarios (teleoperated movement, autonomous task, safety event).",
+        "Evidence 6: Interface contracts for Telemetry, Network Link, SafetyAlert, and Tasking with explicit timing SLAs and data formats.",
+        "Evidence 7: Detailed design of dual-channel routing logic in Teleoperation module with state machine and error handling.",
+        "Evidence 8: Performance modeling and simulation results validating that DP-C achieves p95 latency targets under expected workload and network conditions."
+      ]
+    }
+  }
+}
